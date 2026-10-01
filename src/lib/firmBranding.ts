@@ -18,7 +18,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function getFirmBranding() {
-  return j<{ name: string | null; has_logo: boolean }>('/api/firms/branding')
+  return j<{ name: string | null; has_logo: boolean; firm_logo_url?: string | null; logo_source?: 'report' | 'firm' | null }>('/api/firms/branding')
 }
 
 export function setFirmBranding(patch: { name?: string; logo_base64?: string }) {

@@ -566,7 +566,7 @@ export async function downloadReport(id: string, fallbackFilename: string): Prom
 }
 
 export function getBranding() {
-  return j<{ name: string | null; has_logo: boolean }>('/api/mapping/branding')
+  return j<{ name: string | null; has_logo: boolean; firm_logo_url?: string | null; logo_source?: 'report' | 'firm' | null }>('/api/mapping/branding')
 }
 
 export function setBranding(patch: { name?: string; logo_base64?: string }) {

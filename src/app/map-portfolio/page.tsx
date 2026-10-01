@@ -134,6 +134,9 @@ export default function MapPortfolioPage() {
   const [brandName, setBrandName] = useState('')
   const [brandHasLogo, setBrandHasLogo] = useState(false)
   const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(null)
+  // The firm's general logo (signup / Account → Firm Logo) prints on reports
+  // when no report-specific logo is set; the card shows it rather than 'No logo yet'.
+  const [firmLogoUrl, setFirmLogoUrl] = useState<string | null>(null)
   const [brandLoading, setBrandLoading] = useState(false)
   const [brandSaving, setBrandSaving] = useState<'name' | 'logo' | 'remove' | null>(null)
   const [brandMsg, setBrandMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
@@ -146,6 +149,7 @@ export default function MapPortfolioPage() {
       const b = await getBranding()
       setBrandName(b.name || '')
       setBrandHasLogo(b.has_logo)
+      setFirmLogoUrl(!b.has_logo && b.firm_logo_url ? `${API_URL}${b.firm_logo_url}` : null)
       setLocalLogoPreview(null)
       const next = b.has_logo ? await fetchBrandingLogoUrl(Date.now()) : null
       // Each preview is a blob URL the browser holds until revoked — let
@@ -461,9 +465,9 @@ export default function MapPortfolioPage() {
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
               }}>
-                {(localLogoPreview || brandLogoUrl) ? (
+                {(localLogoPreview || brandLogoUrl || firmLogoUrl) ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={localLogoPreview || brandLogoUrl || undefined} alt="Firm logo"
+                  <img src={localLogoPreview || brandLogoUrl || firmLogoUrl || undefined} alt="Firm logo"
                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 ) : (
@@ -471,7 +475,11 @@ export default function MapPortfolioPage() {
                 )}
               </div>
               <span style={muted}>
-                {brandHasLogo || localLogoPreview ? 'Current logo' : 'No logo yet'}
+                {brandHasLogo || localLogoPreview
+                  ? 'Current logo'
+                  : firmLogoUrl
+                    ? 'Using your firm logo from Account settings. Upload here to use a different one on reports.'
+                    : 'No logo yet'}
               </span>
               <div style={{ flex: 1 }} />
               <label style={{ ...btn, whiteSpace: 'nowrap', cursor: brandSaving ? 'not-allowed' : 'pointer',
