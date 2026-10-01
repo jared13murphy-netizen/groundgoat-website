@@ -34,6 +34,14 @@ export function fmtMoney(n: any): string | null {
   return '$' + Math.round(v).toLocaleString('en-US')
 }
 
+/** Property tax keeps its cents (owner 10/1) — every other money figure on
+ *  the panel rounds to whole dollars. */
+export function fmtMoneyCents(n: any): string | null {
+  const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
+  if (!isFinite(v) || v === 0) return null
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export function fmtAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
   if (!isFinite(v) || v <= 0) return null
@@ -537,10 +545,10 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
           {fmtMoney(d.parval) && <DetailRow label="Total" value={fmtMoney(d.parval)!} />}
           {fmtMoney(d.landval) && <DetailRow label="Land" value={fmtMoney(d.landval)!} />}
           {fmtMoney(d.improvval) && <DetailRow label="Improvements" value={fmtMoney(d.improvval)!} />}
-          {fmtMoney(d.taxamt) && (
+          {fmtMoneyCents(d.taxamt) && (
             <DetailRow
               label={d.taxyear ? `Property Tax (${d.taxyear})` : 'Property Tax'}
-              value={fmtMoney(d.taxamt)!}
+              value={fmtMoneyCents(d.taxamt)!}
             />
           )}
         </Section>
