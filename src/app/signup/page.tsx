@@ -114,6 +114,7 @@ function SignUpContent() {
     firmCity: '',
     firmState: '',
     firmZip: '',
+    firmLogo: '',  // data URL of the picture chosen on the form (optional)
   })
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newMember, setNewMember] = useState<TeamMember>({
@@ -199,6 +200,18 @@ function SignUpContent() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
     setError('')
+  }
+
+  const [firmLogoError, setFirmLogoError] = useState('')
+  const handleFirmLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    setFirmLogoError('')
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setFirmLogoError('Please choose a picture file (PNG or JPG).'); return }
+    if (file.size > 5 * 1024 * 1024) { setFirmLogoError('Logo must be under 5 MB.'); return }
+    const reader = new FileReader()
+    reader.onload = () => setFirmData(prev => ({ ...prev, firmLogo: String(reader.result || '') }))
+    reader.readAsDataURL(file)
   }
 
   const handleFirmInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -582,6 +595,7 @@ function SignUpContent() {
           additional_seats: additionalSeats,
           promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
           referral_code: referralCode,
+          logo_base64: firmData.firmLogo || null,
         }),
       })
 
@@ -1221,6 +1235,30 @@ function SignUpContent() {
                       className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
                       placeholder="https://example.com"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gg-gray-300 mb-2">Company logo (optional)</label>
+                    <div className="flex items-center gap-4">
+                      {firmData.firmLogo ? (
+                        <img src={firmData.firmLogo} alt="Company logo" className="h-16 w-16 object-contain rounded-lg bg-white p-1" />
+                      ) : (
+                        <div className="h-16 w-16 rounded-lg bg-gg-gray-900 border border-dashed border-gg-gray-700 flex items-center justify-center text-gg-gray-500 text-xs">No logo</div>
+                      )}
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/gif,image/webp"
+                          onChange={handleFirmLogoFile}
+                          className="block w-full text-sm text-gg-gray-300 file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-gg-gray-700 file:text-white hover:file:bg-gg-gray-600"
+                        />
+                        <p className="text-xs text-gg-gray-500 mt-1">PNG or JPG. Shown on your team's reports and in the app. You can change it later from your account.</p>
+                        {firmData.firmLogo && (
+                          <button type="button" onClick={() => setFirmData(prev => ({ ...prev, firmLogo: '' }))} className="text-xs text-gg-pink hover:underline mt-1">Remove</button>
+                        )}
+                        {firmLogoError && <p className="text-xs text-red-400 mt-1">{firmLogoError}</p>}
+                      </div>
+                    </div>
                   </div>
 
                   <div>
