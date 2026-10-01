@@ -4401,12 +4401,18 @@ export default function ConfigureMap() {
               {detail ? (
                 <div style={card}>
                   <div style={sectionLabel}>Tract data</div>
-                  <div style={{ fontWeight: 600 }}>{detail.parcel?.owner || 'Parcel'}</div>
+                  <div style={{ fontWeight: 600 }}>
+                    {detail.parcel?.owner || (detail.parcel?.parcelnumb || detail.parcel?.ll_uuid ? 'Parcel' : 'Hand-drawn')}
+                  </div>
                   <div style={{ opacity: 0.65 }}>
                     {/* The parcel NUMBER — the ids in `sources` are internal
-                        and mean nothing to a farmer (sandbox 9/16). */}
-                    {detail.parcel?.parcelnumb ? `Parcel ${detail.parcel.parcelnumb}` : 'No parcel number'}
-                    {' · '}{niceCounty(detail.parcel?.county)} County {detail.parcel?.state}
+                        and mean nothing to a farmer (sandbox 9/16). A
+                        reopened hand-drawn tract has no number to show, so
+                        it reads "Hancock County, IL" on its own (10/1). */}
+                    {detail.parcel?.parcelnumb ? `Parcel ${detail.parcel.parcelnumb} · ` : ''}
+                    {detail.parcel?.county && detail.parcel?.state
+                      ? `${niceCounty(detail.parcel.county)} County, ${detail.parcel.state}`
+                      : 'County, State not known'}
                   </div>
                   {!!detail.parcel?.township && (
                     <div style={statRow}>
