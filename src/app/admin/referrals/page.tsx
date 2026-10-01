@@ -166,18 +166,6 @@ export default function AdminReferralsPage() {
     } finally { setBusy(null) }
   }
 
-  const syncStripe = async () => {
-    setBusy('sync')
-    try {
-      const out = await fetchWithAuth(`${API_URL}/api/admin/referrals-sync`, { method: 'POST' }).then(r => r.json())
-      setError(out.errors?.length ? `Stripe check finished with ${out.errors.length} error(s): ${out.errors[0]}` : null)
-      setDetail({})
-      await load()
-    } catch {
-      setError('Stripe check failed')
-    } finally { setBusy(null) }
-  }
-
   const markPaid = async (p: Payout) => {
     const method = window.prompt(`How was ${p.name || p.email} paid ${money(p.total)}? (check, venmo, stripe, other)`)
     if (!method) return
@@ -303,12 +291,9 @@ export default function AdminReferralsPage() {
         <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
           <div>
             <h1 className="font-display text-4xl font-bold text-white">Referrals</h1>
-            <p className="text-gg-gray-400 mt-1">Who referred whom, what we collected, and what they are owed. Charges are checked against Stripe nightly. First year only, paid monthly.</p>
+            <p className="text-gg-gray-400 mt-1">Who referred whom, what we collected, and what they are owed. Every charge is recorded from Stripe as it happens and re-checked every 15 minutes. First year only, paid monthly.</p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button onClick={syncStripe} disabled={busy === 'sync'} className="btn-secondary inline-flex items-center gap-2 text-sm" title="Pull every referred person's paid invoices from Stripe. Also runs nightly.">
-              <RefreshCw size={14} className={busy === 'sync' ? 'animate-spin' : ''} /> Check Stripe now
-            </button>
             <button onClick={runPayouts} disabled={busy === 'run'} className="btn-secondary inline-flex items-center gap-2 text-sm">
               <RefreshCw size={14} className={busy === 'run' ? 'animate-spin' : ''} /> Bundle last month into payouts
             </button>
