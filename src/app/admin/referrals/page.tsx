@@ -264,7 +264,7 @@ export default function AdminReferralsPage() {
                                 <li key={e.id} className="flex justify-between text-sm">
                                   <span className="text-gg-gray-300">{e.charged_at.slice(0, 10)} <span className="font-mono text-xs text-gg-gray-500">{e.charge_id}</span></span>
                                   <span className={e.status === 'reversed' ? 'line-through text-gg-gray-500' : 'text-white'}>
-                                    {money(e.gross)} × {pct(e.rate)} = {money(e.earning)} <span className="text-gg-gray-500 text-xs">{e.status.replace('_', ' ')}</span>
+                                    {money(e.gross)} × {pct(e.rate)} = {money(e.earning)} <span className="text-gg-gray-500 text-xs">{chargeStatus(e.status)}</span>
                                   </span>
                                 </li>
                               ))}
@@ -291,11 +291,13 @@ export default function AdminReferralsPage() {
         <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
           <div>
             <h1 className="font-display text-4xl font-bold text-white">Referrals</h1>
-            <p className="text-gg-gray-400 mt-1">Who referred whom, what we collected, and what they are owed. First year only, paid monthly.</p>
+            <p className="text-gg-gray-400 mt-1">Who referred whom, what we collected, and what they are owed. Every charge is recorded from Stripe as it happens and re-checked every 15 minutes. First year only, paid monthly.</p>
           </div>
-          <button onClick={runPayouts} disabled={busy === 'run'} className="btn-secondary inline-flex items-center gap-2 text-sm">
-            <RefreshCw size={14} className={busy === 'run' ? 'animate-spin' : ''} /> Bundle last month into payouts
-          </button>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={runPayouts} disabled={busy === 'run'} className="btn-secondary inline-flex items-center gap-2 text-sm">
+              <RefreshCw size={14} className={busy === 'run' ? 'animate-spin' : ''} /> Bundle last month into payouts
+            </button>
+          </div>
         </div>
 
         {error && <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-sm">{error}</div>}
@@ -408,6 +410,13 @@ export default function AdminReferralsPage() {
       </div>
     </div>
   )
+}
+
+function chargeStatus(s: string) {
+  if (s === 'pre_program') return 'before program (not owed)'
+  if (s === 'outside_first_year') return 'after first year (not owed)'
+  if (s === 'payout_pending') return 'in a payout'
+  return s
 }
 
 function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
