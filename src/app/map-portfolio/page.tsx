@@ -434,8 +434,8 @@ export default function MapPortfolioPage() {
         {isBrandingAdmin && (
           <div style={{ ...brandingCard, marginBottom: 22 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <FileText size={15} style={{ color: '#f58cde' }} />
-              <span style={{ fontWeight: 700, fontSize: 13, color: '#f58cde', letterSpacing: 0.2 }}>Report Branding</span>
+              <FileText size={15} style={{ color: '#ffffff' }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: '#ffffff', letterSpacing: 0.2 }}>Report Branding</span>
             </div>
             <p style={{ ...muted, display: 'block', marginBottom: 12 }}>
               Your name and logo print on every PDF report your firm builds.
@@ -956,9 +956,10 @@ const brandingCard: React.CSSProperties = {
   borderRadius: 12, padding: 16, boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
 }
 const btn: React.CSSProperties = {
+  // Owner 10/1: filled buttons, never outlined; light text on dark.
   display: 'inline-flex', alignItems: 'center', gap: 5,
-  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)',
-  borderRadius: 7, padding: '5px 10px', color: '#e5e7eb', fontSize: 12,
+  background: '#3a3f4b', border: '1px solid #3a3f4b',
+  borderRadius: 7, padding: '6px 11px', color: '#f3f4f6', fontSize: 12, fontWeight: 500,
   cursor: 'pointer', textDecoration: 'none',
 }
 /** Abandon is red, keep is green — the same pair as the map panel, so
@@ -974,10 +975,11 @@ const goBtn: React.CSSProperties = {
   border: '1px solid #22c55e',
 }
 const input: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
-  borderRadius: 7, padding: '7px 9px', color: '#e5e7eb', fontSize: 13, outline: 'none',
+  // Owner 10/1: input boxes are white, like the filter box above.
+  background: '#ffffff', border: '1px solid #ffffff',
+  borderRadius: 7, padding: '7px 9px', color: '#0b0b0b', fontSize: 13, outline: 'none',
 }
-const muted: React.CSSProperties = { opacity: 0.6, fontSize: 12, display: 'inline-flex', gap: 5, alignItems: 'center' }
+const muted: React.CSSProperties = { color: '#d1d5db', fontSize: 12, display: 'inline-flex', gap: 5, alignItems: 'center' }
 const link: React.CSSProperties = { color: '#93c5fd', textDecoration: 'none' }
 // Pink project names so the cards read as separate projects instead of
 // one grey run (owner 9/16).
