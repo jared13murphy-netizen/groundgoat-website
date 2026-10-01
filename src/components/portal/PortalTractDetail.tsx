@@ -282,7 +282,9 @@ export function TractMediaSlot({ tract }: { tract: TractSaleData }) {
           <button
             onClick={() => { videoRef.current?.requestFullscreen?.().catch(() => {}) }}
             aria-label="Full screen"
-            className="absolute top-2 right-2 w-8 h-8 rounded-lg bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
+            /* Bottom corner: the pane header (back / title / watchlist
+               bookmark) now overlays the top of the media. */
+            className="absolute bottom-2 right-2 w-8 h-8 rounded-lg bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
           >
             <Maximize2 size={16} />
           </button>
@@ -712,6 +714,8 @@ export interface TractDetailActionBarProps {
       looser gate (listingId OR sourceUrl, not listingId AND companyName)
       so it doesn't silently vanish on tracts where the popup showed it. */
   compMode?: boolean
+  /** Watching is per auction (listing): the button acts on tract.listingId
+      and is hidden when the tract has no listing or no toggle handler. */
 }
 
 export function TractDetailActionBar({
@@ -864,7 +868,7 @@ export function TractDetailActionBar({
             }}
             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
           >
-            View Listing
+            {(tract.listingType || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'}
           </button>
         )}
 

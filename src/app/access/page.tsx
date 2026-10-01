@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Loader2, BarChart3, ArrowLeft } from 'lucide-react'
+import { Loader2, BarChart3, ArrowLeft, X, Bookmark } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import liveEvents from '@/lib/liveEvents'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
@@ -1095,6 +1095,20 @@ function AccessPortalPageInner() {
                         <ArrowLeft size={16} />
                       </button>
                       <h2 className={`text-lg font-bold text-white ${overlay ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''}`}>Tract Detail</h2>
+                      {/* Watchlist bookmark for the whole auction — the same
+                          icon-only bookmark the cards and Listing Detail use,
+                          at the top of the pane (owner 9/29), never a text
+                          button. Only for signed-in users on a tract that
+                          belongs to a listing. */}
+                      {user && selectedTract.listingId && (
+                        <button
+                          onClick={() => handleToggleWatchlist(selectedTract.listingId!)}
+                          aria-label={watchlistIds.has(selectedTract.listingId) ? 'Remove from watchlist' : 'Add to watchlist'}
+                          className={`ml-auto w-8 h-8 rounded-lg flex items-center justify-center transition shrink-0 pointer-events-auto ${overlay ? 'bg-black/45 hover:bg-black/65' : 'bg-white/5 hover:bg-white/10'}`}
+                        >
+                          <Bookmark size={14} className={watchlistIds.has(selectedTract.listingId) ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
+                        </button>
+                      )}
                     </div>
                     <p className={`text-sm text-white mt-0.5 ml-11 ${overlay ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''}`}>
                       {selectedTract.county} County{selectedTract.state ? `, ${selectedTract.state}` : ''}
@@ -1298,6 +1312,27 @@ function AccessPortalPageInner() {
           narrows the dots correctly (county, acreage, price, date). Find
           Comps already clears any active search on entry, so hiding the
           panel here can't strand a search the user can no longer reach. */}
+      {/* Owner 2026-09-29: a premium state subscriber has no Goat Search,
+          so MapChatPanel — and with it the ONLY control that clears an
+          owner search (the bubble's X) — never renders for them. After
+          "Show Owned Ground" they were stuck with the owner's dots on the
+          map for good. This standalone bubble is the same affordance, in
+          the same spot, for anyone who cannot see the chat panel. */}
+      {!subjectTractId && activeSearchQuery &&
+        !(user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2">
+          <div
+            className="flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-full text-[12px] font-medium bg-black/70 border border-gg-pink/40 backdrop-blur-md text-white"
+            style={{ maxWidth: 'min(520px, calc(100vw - 96px))', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
+          >
+            <span className="truncate">{activeSearchQuery}</span>
+            <button onClick={() => clearActiveSearch()} aria-label="Clear owned ground"
+              className="flex-shrink-0 w-6 h-6 rounded-full bg-white/12 hover:bg-white/20 flex items-center justify-center transition-colors">
+              <X size={12} />
+            </button>
+          </div>
+        </div>
+      )}
       {!subjectTractId &&
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel

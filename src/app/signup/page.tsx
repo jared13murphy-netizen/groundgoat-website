@@ -3,11 +3,11 @@
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail, Upload, Image as ImageIcon } from 'lucide-react'
+import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
-import { readLogoFile } from '@/lib/firmBranding'
+import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -88,6 +88,19 @@ function SignUpContent() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
+
+  // Stripe sent the person back without paying: record the drop-off so the
+  // admin user page shows it (the account already exists at this point).
+  useEffect(() => {
+    if (!cancelled) return
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+    if (!token) return
+    fetch(`${API_URL}/api/signup-events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ step: 'stripe_checkout', status: 'cancelled', source: 'website', error_message: 'came back from the payment page without paying' }),
+    }).catch(() => {})
+  }, [cancelled])
   const [verificationToken, setVerificationToken] = useState<string | null>(null)
   
   // Referral state
@@ -114,11 +127,8 @@ function SignUpContent() {
     firmCity: '',
     firmState: '',
     firmZip: '',
+    firmLogo: '',  // data URL of the picture chosen on the form (optional)
   })
-  // Optional company logo (data URL) — printed on the firm's report PDFs.
-  const [firmLogo, setFirmLogo] = useState<string | null>(null)
-  const [firmLogoError, setFirmLogoError] = useState('')
-  const firmLogoInputRef = useRef<HTMLInputElement>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newMember, setNewMember] = useState<TeamMember>({
     email: '',
@@ -203,6 +213,18 @@ function SignUpContent() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
     setError('')
+  }
+
+  const [firmLogoError, setFirmLogoError] = useState('')
+  const handleFirmLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    setFirmLogoError('')
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setFirmLogoError('Please choose a picture file (PNG or JPG).'); return }
+    if (file.size > 5 * 1024 * 1024) { setFirmLogoError('Logo must be under 5 MB.'); return }
+    const reader = new FileReader()
+    reader.onload = () => setFirmData(prev => ({ ...prev, firmLogo: String(reader.result || '') }))
+    reader.readAsDataURL(file)
   }
 
   const handleFirmInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -570,7 +592,6 @@ function SignUpContent() {
           admin_last_name: formData.lastName,
           firm_name: firmData.firmName,
           firm_website: firmData.firmWebsite || null,
-          firm_logo_base64: firmLogo,
           firm_phone: firmData.firmPhone.trim(),
           firm_address: firmData.firmAddress.trim(),
           firm_city: firmData.firmCity.trim(),
@@ -587,6 +608,7 @@ function SignUpContent() {
           additional_seats: additionalSeats,
           promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
           referral_code: referralCode,
+          logo_base64: firmData.firmLogo || null,
         }),
       })
 
@@ -785,6 +807,14 @@ function SignUpContent() {
             {step === 4 && selectedPlan !== 'firm' && 'Setting up your account...'}
             {step === 5 && 'Setting up your account...'}
           </p>
+          {/* Owner 9/29: one button that opens the home-page promo video in a
+              pop-up, on the first step only so the plan/state steps keep
+              their room. */}
+          {step === 1 && !codeSent && (
+            <div className="mt-5">
+              <WhatIsGroundGoatButton />
+            </div>
+          )}
         </div>
 
         {/* Progress Steps */}
@@ -1223,49 +1253,23 @@ function SignUpContent() {
                   <div>
                     <label className="block text-sm font-medium text-gg-gray-300 mb-2">Company logo (optional)</label>
                     <div className="flex items-center gap-4">
-                      <div className="w-24 h-16 rounded-lg bg-gg-gray-900 border border-gg-gray-700 flex items-center justify-center overflow-hidden flex-shrink-0">
-                        {firmLogo ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={firmLogo} alt="Company logo" className="w-full h-full object-contain p-1" />
-                        ) : (
-                          <ImageIcon size={20} className="text-gg-gray-500" />
+                      {firmData.firmLogo ? (
+                        <img src={firmData.firmLogo} alt="Company logo" className="h-16 w-16 object-contain rounded-lg bg-white p-1" />
+                      ) : (
+                        <div className="h-16 w-16 rounded-lg bg-gg-gray-900 border border-dashed border-gg-gray-700 flex items-center justify-center text-gg-gray-500 text-xs">No logo</div>
+                      )}
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/gif,image/webp"
+                          onChange={handleFirmLogoFile}
+                          className="block w-full text-sm text-gg-gray-300 file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-gg-gray-700 file:text-white hover:file:bg-gg-gray-600"
+                        />
+                        <p className="text-xs text-gg-gray-500 mt-1">PNG or JPG. Shown on your team's reports and in the app. You can change it later from your account.</p>
+                        {firmData.firmLogo && (
+                          <button type="button" onClick={() => setFirmData(prev => ({ ...prev, firmLogo: '' }))} className="text-xs text-gg-pink hover:underline mt-1">Remove</button>
                         )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap gap-2">
-                          <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gg-gray-700 text-gg-gray-200 hover:border-gg-pink cursor-pointer text-sm">
-                            <Upload size={16} />
-                            {firmLogo ? 'Replace logo' : 'Upload logo'}
-                            <input
-                              ref={firmLogoInputRef}
-                              type="file"
-                              accept="image/png,image/jpeg"
-                              className="hidden"
-                              onChange={async (e) => {
-                                const f = e.target.files?.[0]
-                                if (!f) return
-                                setFirmLogoError('')
-                                try { setFirmLogo(await readLogoFile(f)) } catch (err: any) {
-                                  setFirmLogoError(err?.message || 'Could not read that file.')
-                                }
-                                if (firmLogoInputRef.current) firmLogoInputRef.current.value = ''
-                              }}
-                            />
-                          </label>
-                          {firmLogo && (
-                            <button
-                              type="button"
-                              onClick={() => { setFirmLogo(null); setFirmLogoError('') }}
-                              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gg-gray-700 text-gg-gray-400 hover:text-white text-sm"
-                            >
-                              <X size={16} />
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-xs text-gg-gray-500 mt-2">
-                          {firmLogoError || 'Prints at the top of your report PDFs. PNG or JPEG, under 2 MB. You can add or change it later under Account.'}
-                        </p>
+                        {firmLogoError && <p className="text-xs text-red-400 mt-1">{firmLogoError}</p>}
                       </div>
                     </div>
                   </div>

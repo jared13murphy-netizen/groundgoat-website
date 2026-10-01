@@ -5,7 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Image as ImageIcon } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -391,23 +391,22 @@ const handleResendVerification = async () => {
             />
           )}
 
-          {/* Company Branding - Only for Firm Admins: the name + logo
-              printed at the top of every report PDF the firm builds. */}
-          {user?.account_type === 'firm_admin' && (
-            <MenuItem
-              icon={<ImageIcon size={20} />}
-              label="Company Branding"
-              description="Your logo and name on report PDFs"
-              href="/account/branding"
-            />
-          )}
-
           <MenuItem
             icon={<Bell size={20} />}
             label="Notifications"
             description="Choose what you hear about and how"
             href="/account/notifications"
           />
+          {/* Owner 10/1: the Share Ground Goat card shows only for people it
+              has been turned on for (admin Referrals screen); Tracy for now. */}
+          {user?.referral_sharing_enabled && (
+            <MenuItem
+              icon={<Gift size={20} />}
+              label="Share Ground Goat"
+              description="Your QR code and link, and what you've earned from referrals"
+              href="/account/referrals"
+            />
+          )}
         </div>
 
         {/* App Settings Note */}

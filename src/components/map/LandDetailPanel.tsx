@@ -597,7 +597,6 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   // Land-composition acreages for the stat grid — same record the app reads.
   const pctTillable = enrichData?.pct_tillable ?? regridData?.pct_tillable ?? null
   const timberAcres = regridData?.timber_acres ?? null
-  const pastureAcres = regridData?.pasture_acres ?? null
   const pctOf = (v: unknown) =>
     (typeof v === 'number' && typeof gisacre === 'number' && gisacre > 0)
       ? `${Math.round((v / gisacre) * 100)}% of parcel` : undefined
@@ -864,7 +863,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               Replaces the Acres / $/Acre / Sale Price strip. This is the data
               only Ground Goat has, so it carries the visual weight; acres and
               $/acre already read in the header and LAST SALE. */}
-          {(tillableAcres != null || soilRating != null || timberAcres != null || pastureAcres != null) && (
+          {(tillableAcres != null || soilRating != null || timberAcres != null) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 18px 4px' }}>
               <StatCard label="Tillable"
                         value={tillableAcres != null ? fmtAcres(Number(tillableAcres))! : '—'}
@@ -875,9 +874,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               <StatCard label="Timber"
                         value={timberAcres != null ? fmtAcres(Number(timberAcres))! : '—'}
                         sub={pctOf(timberAcres)} />
-              <StatCard label="Pasture"
-                        value={pastureAcres != null ? fmtAcres(Number(pastureAcres))! : '—'}
-                        sub={pctOf(pastureAcres)} />
+              {/* Pasture acres are not shown (owner 10/1: the figure is
+                  always wrong) — the field stays on the record. */}
             </div>
           )}
 

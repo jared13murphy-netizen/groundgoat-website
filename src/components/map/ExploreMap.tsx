@@ -12604,7 +12604,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     setSelectedSale(null)
                   }}
                 >
-                  View Listing →
+                  {(selectedSale.listingType || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'} →
                 </button>
               ) : (
                 <a
@@ -12612,7 +12612,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   className="sale-modal-action-btn"
                   style={{ textDecoration: 'none', marginBottom: '8px' }}
                 >
-                  View Listing →
+                  {(selectedSale.listingType || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'} →
                 </a>
               )
             )}
@@ -12633,7 +12633,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 }}
                 onClick={() => window.open(selectedSale.sourceUrl!, '_blank')}
               >
-                View Details
+                View Auction
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                   <polyline points="15 3 21 3 21 9" />

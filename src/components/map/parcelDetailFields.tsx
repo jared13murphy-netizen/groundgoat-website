@@ -283,7 +283,7 @@ export function deriveParcelDetail(
   const yearbuilt = record?.yearbuilt ?? null
 
   const hasLandCompositionData =
-    tillableAcres != null || pastureAcres != null || timberAcres != null ||
+    tillableAcres != null || timberAcres != null ||
     !!dominantLandcover ||
     pctTillable != null || pctTimber != null
   const hasLandComposition = hasLandCompositionData && backfillStatus !== 'partial_pending'
@@ -445,12 +445,7 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
               }
             />
           )}
-          {d.pastureAcres != null && (
-            <DetailRow
-              label="Pasture"
-              value={`${fmtAcres1(Number(d.pastureAcres))} ac`}
-            />
-          )}
+          {/* Pasture acres are not shown (owner 10/1: always wrong). */}
           {(d.timberAcres != null || d.pctTimber != null) && (
             <DetailRow
               label="Timber"

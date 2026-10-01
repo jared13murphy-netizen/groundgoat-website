@@ -1,7 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { Play } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Play, X } from 'lucide-react'
 
 // Served from CloudFront (S3: groundgoat-marketing-images/marketing/site/promo).
 // Deliberately NOT in public/ — the website container on gg-app-1 also serves
@@ -83,5 +83,72 @@ export function PromoVideoSection() {
         </div>
       </div>
     </section>
+  )
+}
+
+
+/**
+ * "What is Ground Goat?" — a plain pink button that opens the same promo
+ * video in a pop-up (owner 9/29, for the signup page). The native controls
+ * give pause/scrub; the X, the backdrop and Esc close it. Nothing is fetched
+ * until the button is pressed. Closing unmounts the <video>, which stops
+ * playback and drops the download.
+ */
+export function WhatIsGroundGoatButton({ className = '' }: { className?: string }) {
+  const [open, setOpen] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    // Autoplay with sound is only allowed because it follows the click.
+    requestAnimationFrame(() => { videoRef.current?.play().catch(() => {}) })
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gg-pink/40 bg-gg-pink/10 text-gg-pink text-sm font-semibold hover:bg-gg-pink/20 transition ${className}`}
+      >
+        <Play size={14} fill="currentColor" />
+        What is Ground Goat?
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="What is Ground Goat video"
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-4xl aspect-video rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-black"
+          >
+            <video
+              ref={videoRef}
+              src={VIDEO_SRC}
+              poster={POSTER_SRC}
+              controls
+              playsInline
+              className="w-full h-full object-contain"
+            />
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Close video"
+              className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

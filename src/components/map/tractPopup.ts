@@ -185,6 +185,6 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
       <span class="tract-popup-label">Status</span>
       <span class="tract-popup-badge" style="${getStatusBadgeStyle(status)}">${displayStatus}</span>
     </div>
-    ${listingId ? `<a class="tract-popup-link" href="/listings/${listingId}">View Listing →</a>` : ''}
+    ${listingId ? `<a class="tract-popup-link" href="/listings/${listingId}">${String(props.listingType || props.listing_type || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'} →</a>` : ''}
   `
 }
