@@ -1043,6 +1043,9 @@ export default function ConfigureMap() {
   // (owner 10/1: Save Tract must be pink whenever even one thing is
   // unsaved — the name included).
   const [nameDirty, setNameDirty] = useState(false)
+  // Mirror of `activeUnsaved` (computed further down) for callbacks that
+  // are created before it exists in render order.
+  const activeUnsavedRef = useRef(false)
   /** A tract the user asked to switch to while holding unsaved work. */
   const [pendingOpen, setPendingOpen] = useState<string | null>(null)
   const requestOpenRef = useRef<((id: string) => void) | null>(null)
@@ -2692,7 +2695,9 @@ export default function ConfigureMap() {
     setBusy('Removing tract…'); setError(null)
     try {
       await archiveParcel(t.savedId)
-      snapshotTracts(tractsRef.current)
+      // No undo snapshot here: the record is archived on the server, and
+      // an undone copy carrying the old savedId would "save" into an
+      // archived row that no report or portfolio ever shows (reviewer 10/1).
       setTracts((prev) => prev.filter((x) => x.id !== id))
       setSelectedTractId((cur) => (cur === id ? null : cur))
     } catch (e: any) {
@@ -3439,7 +3444,12 @@ export default function ConfigureMap() {
   // here at all. The render below filters back down to "this tract's
   // own reports, plus the project-level ones".
   const refreshReports = useCallback(async (pid: string) => {
-    try { setReports((await listReports({ projectId: pid })).reports) } catch { /* non-fatal */ }
+    try { setReports((await listReports({ projectId: pid })).reports) }
+    catch (e: any) {
+      // Not fatal, but not silent either: a lapsed session used to show
+      // "building…" forever (reviewer 10/1).
+      setError(e?.message || 'Could not refresh the report list.')
+    }
   }, [])
   refreshReportsRef.current = refreshReports
 
@@ -3498,6 +3508,10 @@ export default function ConfigureMap() {
     // project with none yet has nothing to print, even once it exists.
     if (isProjectLevel && !tracts.some((t) => !!t.savedId)) {
       setError('Save at least one tract first.')
+      return
+    }
+    if (activeUnsavedRef.current) {
+      setError('Save the tract first — reports are built from the saved tract.')
       return
     }
     setError(null); setQueuing(kind)
@@ -3688,9 +3702,20 @@ export default function ConfigureMap() {
   // The open tract has work not on the server: edits since the last
   // save, or never saved at all. Drives the pink Save Tract button (owner
   // 9/16) and is what the switch/leave prompts should mean.
+  // Refresh / tab close / browser Back with unsaved work asks first
+  // (reviewer 10/1: every tract lives in local state until Save Tract).
+  const anyUnsaved = dirty || nameDirty || (drawing && draft.length > 0)
+    || tracts.some((t) => !t.savedId || !t.saved)
+  useEffect(() => {
+    if (!anyUnsaved) return
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [anyUnsaved])
   const activeUnsaved = (!!activeTract && (dirty || !activeTract.saved || nameDirty))
     // A drawing with enough points to finish is unsaved work too.
     || (tool === 'drawtract' && drawing && draft.length >= 3)
+  activeUnsavedRef.current = activeUnsaved
   const handleUndo = () => undo()
   const handleRedo = () => redo()
   const undoDisabled = !histRef.current.length
@@ -4172,7 +4197,16 @@ export default function ConfigureMap() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flex: 1,
                               fontSize: 15, fontWeight: 700 }}>
                   <TractName value={projectName} busy={!!busy} placeholder="Untitled project"
-                             onCommit={(n) => setProjectName(n)} />
+                             onCommit={(n) => {
+                               setProjectName(n)
+                               // An existing project stores its new name now; a
+                               // project not yet created takes the name on its
+                               // first Save Tract (reviewer 10/1: it never persisted).
+                               if (projectId) {
+                                 updateProject(projectId, { name: n }).catch((e: any) =>
+                                   setError(e?.message || 'Could not rename the project.'))
+                               }
+                             }} />
                 </div>
                 {/* Same exit as Back to Map — was a plain <a> that
                     skipped the dirty check entirely (reviewer defect 3);
@@ -4307,12 +4341,16 @@ export default function ConfigureMap() {
                             onSelect={() => requestOpen(t.id)}
                             onCommitName={(n) => {
                               setTracts((prev) => prev.map((x) => x.id === t.id ? { ...x, name: n } : x))
-                              // The tract you have OPEN persists its rename right
-                              // away (doRename), same as the removed standalone
-                              // name card used to — any other row's rename rides
-                              // along with that tract's next Save Tract, same as
-                              // every other edit made to a tract that is not open.
-                              if (t.id === selectedTractId) void doRename(n)
+                              // The open tract persists its rename through doRename.
+                              // Any OTHER saved row persists right here too (reviewer
+                              // 10/1: it used to wait for a Save Tract that only ever
+                              // saves the open tract, so the name silently reverted).
+                              // An unsaved row's name rides with its first Save Tract.
+                              if (t.id === selectedTractId) { void doRename(n); return }
+                              if (t.savedId) {
+                                renameParcel(t.savedId, n).catch((e: any) =>
+                                  setError(e?.message || 'Could not rename that tract.'))
+                              }
                             }}
                             onRemove={() => removeTract(t.id)} />
                 ))}
@@ -4622,7 +4660,8 @@ export default function ConfigureMap() {
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       {r.status === 'done' ? (
                         <button
-                          onClick={() => void downloadReport(r.id, reportFilename(projectName, r.kind))}
+                          onClick={() => downloadReport(r.id, reportFilename(projectName, r.kind))
+                            .catch((e: any) => setError(e?.message || 'That report could not be downloaded.'))}
                           style={{ ...btn, padding: '2px 8px', fontSize: 11 }}>
                           <Download size={11} /> Download
                         </button>
