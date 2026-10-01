@@ -35,7 +35,7 @@ import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, classifyBoundary, fetchParcel, getSavedParcel, saveParcel, searchMap,
   splitGeometry, normalizeGeometry, previewSoil,
-  updateParcel, queueReport, listReports, downloadReport, getProject, updateProjectAerialYear,
+  updateParcel, queueReport, listReports, downloadReport, getProject, updateProjectAerialYear, updateProject,
   REPORT_KINDS, REPORT_LABEL, REPORT_BUSY_LABEL, USES_ELEVATION, PROJECT_REPORT_KINDS, reportFilename, type ReportRow,
   deleteReport, projectGeometry, type ProjectTractGeometry, listCounties, renameParcel,
   niceCounty, combineGeometry, fitTracts, listProjects,
