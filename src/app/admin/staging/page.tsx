@@ -230,6 +230,70 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   return updated
 }
 
+// Page picker for long staging queues: numbered buttons around the current
+// page, a type-a-number box, and Previous/Next. Pages are 0-based inside,
+// 1-based on screen.
+function Pager({ page, totalCount, pageSize, onGo }: { page: number; totalCount: number; pageSize: number; onGo: (p: number) => void }) {
+  const [typed, setTyped] = useState('')
+  const pageCount = Math.max(1, Math.ceil(totalCount / pageSize))
+  const last = pageCount - 1
+  const numbers: (number | 'gap')[] = []
+  const wanted = new Set<number>([0, last, page - 2, page - 1, page, page + 1, page + 2])
+  const sorted = Array.from(wanted).filter(n => n >= 0 && n <= last).sort((a, b) => a - b)
+  sorted.forEach((n, i) => {
+    if (i > 0 && n - sorted[i - 1] > 1) numbers.push('gap')
+    numbers.push(n)
+  })
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const n = parseInt(typed, 10)
+    if (!Number.isFinite(n)) return
+    onGo(Math.min(Math.max(1, n), pageCount) - 1)
+    setTyped('')
+  }
+  const btn = 'px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2 mt-6 mb-2">
+      <button onClick={() => onGo(page - 1)} disabled={page === 0} className={`${btn} flex items-center gap-1 bg-gg-gray-800 text-white hover:bg-gg-gray-700`}>
+        <ChevronLeft size={16} />
+        Previous
+      </button>
+      {numbers.map((n, i) =>
+        n === 'gap' ? (
+          <span key={`gap-${i}`} className="px-1 text-gg-gray-500">…</span>
+        ) : (
+          <button
+            key={n}
+            onClick={() => onGo(n)}
+            aria-current={n === page ? 'page' : undefined}
+            className={`${btn} ${n === page ? 'bg-gg-pink text-white font-semibold' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'}`}
+          >
+            {n + 1}
+          </button>
+        )
+      )}
+      <button onClick={() => onGo(page + 1)} disabled={page >= last} className={`${btn} flex items-center gap-1 bg-gg-gray-800 text-white hover:bg-gg-gray-700`}>
+        Next
+        <ChevronRight size={16} />
+      </button>
+      <form onSubmit={submit} className="flex items-center gap-2 ml-2">
+        <label className="text-sm text-gg-gray-400">Go to page</label>
+        <input
+          type="number"
+          min={1}
+          max={pageCount}
+          value={typed}
+          onChange={e => setTyped(e.target.value)}
+          placeholder={`1-${pageCount}`}
+          className="w-20 px-2 py-2 rounded-lg bg-gg-gray-800 text-white text-sm border border-gg-gray-700 focus:outline-none focus:border-gg-pink"
+        />
+        <button type="submit" disabled={!typed} className={`${btn} bg-gg-gray-800 text-white hover:bg-gg-gray-700`}>Go</button>
+      </form>
+      <span className="text-sm text-gg-gray-400 ml-2">({totalCount} total)</span>
+    </div>
+  )
+}
+
 export default function AdminStagingPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -760,6 +824,9 @@ export default function AdminStagingPage() {
   }
 
   const goToPage = (newPage: number) => {
+    const last = Math.max(0, Math.ceil(totalCount / PAGE_SIZE) - 1)
+    newPage = Math.min(Math.max(0, newPage), last)
+    if (newPage === page) return
     setPage(newPage)
     setScreenshotCache({})
     setTractImageCache({})
@@ -1935,6 +2002,10 @@ export default function AdminStagingPage() {
               </div>
             )}
 
+            {totalCount > PAGE_SIZE && filteredListings.length > 0 && (
+              <div className="mb-4"><Pager page={page} totalCount={totalCount} pageSize={PAGE_SIZE} onGo={goToPage} /></div>
+            )}
+
             {/* Staging Cards */}
             <div className="space-y-6">
               {filteredListings.map((listing) => {
@@ -2765,30 +2836,7 @@ export default function AdminStagingPage() {
               })}
             </div>
 
-            {/* Pagination Controls */}
-            {totalCount > PAGE_SIZE && (
-              <div className="flex items-center justify-center gap-4 mt-6 mb-2">
-                <button
-                  onClick={() => goToPage(page - 1)}
-                  disabled={page === 0}
-                  className="flex items-center gap-1 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
-                >
-                  <ChevronLeft size={16} />
-                  Previous
-                </button>
-                <span className="text-sm text-gg-gray-400">
-                  Page {page + 1} of {Math.ceil(totalCount / PAGE_SIZE)} ({totalCount} total)
-                </span>
-                <button
-                  onClick={() => goToPage(page + 1)}
-                  disabled={(page + 1) * PAGE_SIZE >= totalCount}
-                  className="flex items-center gap-1 px-4 py-2 bg-gg-gray-800 text-white rounded-lg hover:bg-gg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
-                >
-                  Next
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            )}
+            {totalCount > PAGE_SIZE && <Pager page={page} totalCount={totalCount} pageSize={PAGE_SIZE} onGo={goToPage} />}
           </>
         )}
 
