@@ -8,6 +8,21 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
+const STEP_LABELS: Record<string, string> = {
+  send_code: 'Code emailed',
+  verify_code: 'Code entered',
+  register: 'Account created',
+  login: 'Signed in',
+  stripe_checkout: 'Stripe payment page',
+  payment_complete: 'Payment completed',
+  iap_validate: 'Apple purchase check',
+  iap_purchase: 'Apple purchase sheet',
+  plan_screen: 'Plan screen',
+  subscribe_screen: 'Subscribe screen',
+  account_deleted: 'Account deleted',
+}
+const stepLabel = (step: string) => STEP_LABELS[step] || step
+
 interface UsageData {
   user_id: string
   last_active_at: string | null
@@ -18,6 +33,16 @@ interface UsageData {
   top_features: { label: string; count: number }[]
   sparkline: { date: string; requests: number }[]
   summary_updated_at: string | null
+}
+
+interface SignupStep {
+  id: number
+  step: string
+  status: string
+  error_message: string | null
+  source: string | null
+  user_agent: string | null
+  created_at: string
 }
 
 interface UserInfo {
@@ -62,6 +87,9 @@ export default function UserDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [usage, setUsage] = useState<UsageData | null>(null)
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
+  // Every step of this person's signup (send_code, verify_code, register,
+  // stripe_checkout, iap_purchase, login…) from signup_audit_log.
+  const [signupSteps, setSignupSteps] = useState<SignupStep[]>([])
 
   // ---- Access override ----------------------------------------------------
   const [firms, setFirms] = useState<FirmOption[]>([])
@@ -120,6 +148,16 @@ export default function UserDetailPage() {
               .then(r => (r.ok ? r.json() : { firms: [] }))
               .then(d => setFirms(d.firms || []))
               .catch(() => setFirms([]))
+            if (found?.email) {
+              fetchWithAuth(`${API_URL}/api/admin/signup-logs?email=${encodeURIComponent(found.email)}&days_back=365`)
+                .then(r => (r.ok ? r.json() : []))
+                .then(d => {
+                  const rows: SignupStep[] = Array.isArray(d) ? d : (d.logs || d.entries || [])
+                  setSignupSteps(rows.filter(r => (r as any).email?.toLowerCase() === found.email.toLowerCase())
+                    .sort((a, b) => a.created_at.localeCompare(b.created_at)))
+                })
+                .catch(() => setSignupSteps([]))
+            }
             setUsage(usageData)
             setLoading(false)
           })
@@ -322,6 +360,42 @@ export default function UserDetailPage() {
             </button>
             {ovMsg && <span className="text-sm text-gg-gray-300">{ovMsg}</span>}
           </div>
+        </div>
+
+        <div className="card mb-6">
+          <h2 className="text-lg font-semibold text-white mb-1">Signup Steps</h2>
+          <p className="text-sm text-gg-gray-400 mb-4">Every step this person took, oldest first. A red row is where they stopped or hit a problem.</p>
+          {signupSteps.length === 0 ? (
+            <p className="text-sm text-gg-gray-500">No signup activity recorded.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gg-gray-400">
+                    <th className="py-2 pr-4 font-medium">When</th>
+                    <th className="py-2 pr-4 font-medium">Step</th>
+                    <th className="py-2 pr-4 font-medium">Result</th>
+                    <th className="py-2 pr-4 font-medium">From</th>
+                    <th className="py-2 font-medium">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {signupSteps.map(r => {
+                    const bad = ['failed', 'error', 'cancelled', 'abandoned'].includes(r.status)
+                    return (
+                      <tr key={r.id} className={`border-t border-gg-gray-800 ${bad ? 'text-red-300' : 'text-gg-gray-200'}`}>
+                        <td className="py-2 pr-4 whitespace-nowrap">{new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
+                        <td className="py-2 pr-4 whitespace-nowrap">{stepLabel(r.step)}</td>
+                        <td className="py-2 pr-4 whitespace-nowrap">{r.status}</td>
+                        <td className="py-2 pr-4 whitespace-nowrap">{r.source === 'mobile' ? 'App' : r.source === 'website' ? 'Website' : (r.source || '')}</td>
+                        <td className="py-2 text-gg-gray-400">{r.error_message || ''}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <div className="card">

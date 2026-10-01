@@ -88,6 +88,19 @@ function SignUpContent() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
+
+  // Stripe sent the person back without paying: record the drop-off so the
+  // admin user page shows it (the account already exists at this point).
+  useEffect(() => {
+    if (!cancelled) return
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+    if (!token) return
+    fetch(`${API_URL}/api/signup-events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ step: 'stripe_checkout', status: 'cancelled', source: 'website', error_message: 'came back from the payment page without paying' }),
+    }).catch(() => {})
+  }, [cancelled])
   const [verificationToken, setVerificationToken] = useState<string | null>(null)
   
   // Referral state
