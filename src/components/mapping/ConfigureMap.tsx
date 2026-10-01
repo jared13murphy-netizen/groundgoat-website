@@ -2837,6 +2837,7 @@ export default function ConfigureMap() {
     if (!toSave.length) return false
     if (toSave.some((t) => !t.name.trim())) {
       setError(only ? 'Name this tract before saving.' : 'Name every tract before saving.')
+      document.getElementById('cm-tract-name')?.focus()
       return false
     }
     savingAllRef.current = true
@@ -3946,8 +3947,9 @@ export default function ConfigureMap() {
                   <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />,
                   <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />,
                   <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved}
+                              // Lit whenever unsaved, name or not (owner 10/1).
                               disabled={!!busy || (tool === 'draw' && drawing
-                                ? draft.length < 3 : !activeTract.name.trim())}
+                                ? draft.length < 3 : !activeTract)}
                               title={tool === 'draw' && drawing
                                 ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the polygon and saves the tract.')
                                 : !activeTract.name.trim() ? 'Name this tract before saving.'
