@@ -99,6 +99,17 @@ export default function SubscriptionPage() {
 
   // Upgrade plan
   const [showUpgradeConfirm, setShowUpgradeConfirm] = useState(false)
+  // Owner 10/1: an upgrade keeps the original subscription date. The server
+  // prices today's charge (premium to the next anniversary minus unused credit).
+  const [upgradePreview, setUpgradePreview] = useState<{ charged_today: number; credit_for_unused: number; premium_until_renewal: number; renews_on: string; annual_total: number } | null>(null)
+  useEffect(() => {
+    if (!showUpgradeConfirm) return
+    setUpgradePreview(null)
+    fetchWithAuth(`${API_URL}/api/subscriptions/upgrade-preview?target_type=premium_state`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setUpgradePreview(d))
+      .catch(() => setUpgradePreview(null))
+  }, [showUpgradeConfirm])
   const [upgrading, setUpgrading] = useState(false)
 
   // Reactivate (undo pending cancellation)
@@ -414,6 +425,20 @@ export default function SubscriptionPage() {
       .filter(sub => sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due')
       .reduce((total, sub) => total + (sub.monthly_price || 0), 0)
   }
+
+  // Arriving from the app's "Upgrade to Premium State" button
+  // (/account/subscription?upgrade=premium): open the confirmation as soon as
+  // the subscription has loaded. Must sit above the early returns below so
+  // React sees the same hooks on every render.
+  useEffect(() => {
+    if (loading || typeof window === 'undefined') return
+    if (new URLSearchParams(window.location.search).get('upgrade') !== 'premium') return
+    const active = subscriptionData?.areas?.filter((sub: any) => sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due') || []
+    const basic = active[0]?.subscription_type === 'basic_state'
+    const apple = active.some((sub: any) => sub.payment_platform === 'apple')
+    if (basic && active.length > 0 && !apple && canManageSubscription()) setShowUpgradeConfirm(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, subscriptionData])
 
   if (loading) {
     return (
@@ -1075,7 +1100,15 @@ export default function SubscriptionPage() {
                 </div>
               ) : (
                 <p className="text-gg-gray-500 text-sm mb-6">
-                  Prorated charges will be applied to your next invoice.
+                  {upgradePreview ? (
+                    <>
+                      <span className="text-white font-medium">${formatPrice(upgradePreview.charged_today)} charged today</span>
+                      {' '}(Premium through {upgradePreview.renews_on}: ${formatPrice(upgradePreview.premium_until_renewal)}, less ${formatPrice(upgradePreview.credit_for_unused)} credit for the unused part of your current plan).
+                      {' '}Your plan keeps its original date and renews on <span className="text-white font-medium">{upgradePreview.renews_on}</span> at ${formatPrice(upgradePreview.annual_total)}/yr.
+                    </>
+                  ) : (
+                    <>Your card is charged today for Premium up to your plan&apos;s anniversary, less a credit for the unused part of your current plan. Your plan keeps its original renewal date.</>
+                  )}
                 </p>
               )}
               <div className="flex gap-3">
