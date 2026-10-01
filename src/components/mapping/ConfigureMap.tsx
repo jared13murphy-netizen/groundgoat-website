@@ -3993,9 +3993,12 @@ export default function ConfigureMap() {
                                 : 'Fits every drawn tract to the frame and to each other so acres add up.'}
                               onClick={() => void snapTracts()} />,
                   <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved}
+                              // Owner 10/1: lit (pink) whenever anything is unsaved —
+                              // even with no name yet; pressing it then says to name
+                              // the tract and puts the cursor in the Tract name box.
                               disabled={!!busy || (tool === 'drawtract' && drawing
                                 ? draft.length < 3
-                                : !activeTract || !activeTract.name.trim())}
+                                : !activeTract)}
                               title={tool === 'drawtract' && drawing
                                 ? (draft.length < 3 ? 'Needs at least 3 points.' : 'Finishes the tract and saves it.')
                                 : !activeTract ? 'Open a tract to save it.'
@@ -4009,6 +4012,7 @@ export default function ConfigureMap() {
                                   if (result?.kind === 'tract') {
                                     if (!result.tract.name.trim()) {
                                       setError('Name this tract before saving.')
+                                      document.getElementById('cm-tract-name')?.focus()
                                       return
                                     }
                                     void saveAllTracts([result.tract.id], { tract: result.tract })
@@ -4316,6 +4320,7 @@ export default function ConfigureMap() {
                     <input
                       value={activeTract.name}
                       disabled={!!busy}
+                      id="cm-tract-name"
                       placeholder="e.g. Tract 1, Home Place, North 80"
                       aria-label="Tract name"
                       onChange={(e) => {
