@@ -428,10 +428,10 @@ export default function MapPortfolioPage() {
         </div>
 
         {isBrandingAdmin && (
-          <div style={{ ...card, marginBottom: 18 }}>
+          <div style={{ ...brandingCard, marginBottom: 22 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <FileText size={14} style={{ opacity: 0.7 }} />
-              <span style={{ fontWeight: 600, fontSize: 13 }}>Report Branding</span>
+              <FileText size={15} style={{ color: '#f58cde' }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: '#f58cde', letterSpacing: 0.2 }}>Report Branding</span>
             </div>
             <p style={{ ...muted, display: 'block', marginBottom: 12 }}>
               Your name and logo print on every PDF report your firm builds.
@@ -558,7 +558,7 @@ export default function MapPortfolioPage() {
             )}
           </div>
           {inSection.length === 0 && <p style={muted}>{empty}</p>}
-        <div style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'grid', gap: 16 }}>
           {inSection.map((p) => (
             <div key={p.id} style={{ ...card, opacity: p.archived_at ? 0.55 : 1 }}>
               {/* Stacked, not one wrapping row: in a 420px panel the old
@@ -934,8 +934,18 @@ const panel: React.CSSProperties = {
 }
 const h1: React.CSSProperties = { fontSize: 20, fontWeight: 600, margin: 0 }
 const card: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 10, padding: 14,
+  // Owner 10/1: cards were blending into the panel. One clear step lighter
+  // than the panel, a visible edge, and a soft drop so each project reads
+  // as its own tile (still dark — never white).
+  background: 'rgba(255,255,255,0.075)', border: '1px solid rgba(255,255,255,0.16)',
+  borderRadius: 12, padding: 14, boxShadow: '0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 16px rgba(0,0,0,0.35)',
+}
+/** Report Branding is settings, not a project: a dark pink-tinted card with
+ *  a pink edge so it never reads as one more project in the list. */
+const brandingCard: React.CSSProperties = {
+  background: 'linear-gradient(180deg, rgba(245,140,222,0.14), rgba(245,140,222,0.07))',
+  border: '1px solid rgba(245,140,222,0.45)', borderLeft: '4px solid #f58cde',
+  borderRadius: 12, padding: 16, boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
 }
 const btn: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
