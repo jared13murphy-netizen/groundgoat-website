@@ -2730,11 +2730,18 @@ export default function ConfigureMap() {
         } else if (under.length > 1) {
           frameGeom = (await combineGeometry(under.map((p) => p.geometry))).geometry
           frameMeta = { ll_uuids: under.map((p) => p.ll_uuid), boundary: geometryToPolys(frameGeom) }
+        } else if (ownGeoms.length > 1) {
+          // Nothing found under the tracts (Regrid gap) — fall back to
+          // fitting the tracts to each other, same as before this tract
+          // had automatic framing.
+          frameGeom = (await combineGeometry(ownGeoms)).geometry
         } else {
-          // Nothing found under the tracts (Regrid gap, or every tract
-          // is hand-drawn) — fall back to fitting the tracts to
-          // themselves, same as before this tract had automatic framing.
-          frameGeom = ownGeoms.length > 1 ? (await combineGeometry(ownGeoms)).geometry : ownGeoms[0]
+          // A lone drawn tract with no recorded parcel under it: fitting
+          // it to itself changes nothing, so say so instead of a silent
+          // "Fit 1 tract" (owner 10/1: the button must never look dead).
+          setError('No recorded parcel lines under this tract to snap to — '
+            + 'drag the corners to adjust it instead.')
+          return
         }
       }
       if (!frameGeom) {
@@ -3945,10 +3952,13 @@ export default function ConfigureMap() {
                                 setTool('drawtract'); setDrawing(true); setDraft([])
                               }} />,
                   <ToolButton key="snap-tracts" icon={Magnet} label={tracts.length <= 1 ? 'Snap to Parcel' : 'Snap Tracts'}
-                              disabled={!!busy || (tracts.length < 2
-                                && !(tracts.length === 1 && tracts[0].source.kind === 'parcel'))}
+                              // Owner 10/1: a lone HAND-DRAWN tract must snap
+                              // too (the button sat greyed out while the hint
+                              // said to press it) — the handler finds the
+                              // parcels under the drawing itself.
+                              disabled={!!busy || tracts.length < 1}
                               title={tracts.length <= 1
-                                ? 'Fits this tract to its own parcel boundary so the acres are exact.'
+                                ? 'Fits this tract to the parcel lines underneath it so the acres are exact.'
                                 : 'Fits every drawn tract to the frame and to each other so acres add up.'}
                               onClick={() => void snapTracts()} />,
                   <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
