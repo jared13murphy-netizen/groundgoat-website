@@ -32,6 +32,8 @@ export default function AccountReferralsPage() {
       try {
         const me = await fetchWithAuth(`${API_URL}/api/auth/me`)
         if (!me.ok) { router.push('/signin'); return }
+        const meData = await me.json().catch(() => null)
+        if (!meData?.referral_sharing_enabled) { router.push('/account'); return }
         const [l, e] = await Promise.all([
           fetchWithAuth(`${API_URL}/api/referral/my-link`).then(r => r.json()),
           fetchWithAuth(`${API_URL}/api/referral/my-earnings`).then(r => r.ok ? r.json() : null),
