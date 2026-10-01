@@ -437,8 +437,10 @@ export default function SubscriptionPage() {
     const basic = active[0]?.subscription_type === 'basic_state'
     const apple = active.some((sub: any) => sub.payment_platform === 'apple')
     if (basic && active.length > 0 && !apple && canManageSubscription()) setShowUpgradeConfirm(true)
+    // Re-run when the signed-in user arrives too: coming from the app's
+    // link, the subscription can load before the user object does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, subscriptionData])
+  }, [loading, subscriptionData, user])
 
   if (loading) {
     return (
