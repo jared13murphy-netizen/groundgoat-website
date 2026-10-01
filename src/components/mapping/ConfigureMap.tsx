@@ -1039,6 +1039,10 @@ export default function ConfigureMap() {
   const markCleanRef = useRef<((sh: Shape[], b: Pt[][][]) => void) | null>(null)
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
+  // A tract name typed in the Tract name box but not yet persisted
+  // (owner 10/1: Save Tract must be pink whenever even one thing is
+  // unsaved — the name included).
+  const [nameDirty, setNameDirty] = useState(false)
   /** A tract the user asked to switch to while holding unsaved work. */
   const [pendingOpen, setPendingOpen] = useState<string | null>(null)
   const requestOpenRef = useRef<((id: string) => void) | null>(null)
@@ -2888,7 +2892,7 @@ export default function ConfigureMap() {
   ]), [])
   const markClean = useCallback((sh: Shape[], b: Pt[][][]) => {
     cleanRef.current = fingerprint(sh, b)
-    setDirty(false)
+    setDirty(false); setNameDirty(false)
     // The ref is what requestOpen / Back to Map read synchronously; it
     // only used to refresh in the fingerprint effect, i.e. on the NEXT
     // edit — so a save followed by a tract switch still asked "Save
@@ -3684,7 +3688,9 @@ export default function ConfigureMap() {
   // The open tract has work not on the server: edits since the last
   // save, or never saved at all. Drives the pink Save Tract button (owner
   // 9/16) and is what the switch/leave prompts should mean.
-  const activeUnsaved = !!activeTract && (dirty || !activeTract.saved)
+  const activeUnsaved = (!!activeTract && (dirty || !activeTract.saved || nameDirty))
+    // A drawing with enough points to finish is unsaved work too.
+    || (tool === 'drawtract' && drawing && draft.length >= 3)
   const handleUndo = () => undo()
   const handleRedo = () => redo()
   const undoDisabled = !histRef.current.length
@@ -3914,7 +3920,7 @@ export default function ConfigureMap() {
                               onClick={() => { if (detail?.polygons.length) setConfirmWhat('startOver') }} />,
                   <ToolButton key="undo" icon={RotateCcw} label="Undo" disabled={undoDisabled} onClick={handleUndo} />,
                   <ToolButton key="redo" icon={RotateCw} label="Redo" disabled={redoDisabled} onClick={handleRedo} />,
-                  <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
+                  <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved}
                               disabled={!!busy || (tool === 'draw' && drawing
                                 ? draft.length < 3 : !activeTract.name.trim())}
                               title={tool === 'draw' && drawing
@@ -3961,7 +3967,7 @@ export default function ConfigureMap() {
                                 ? 'Fits this tract to the parcel lines underneath it so the acres are exact.'
                                 : 'Fits every drawn tract to the frame and to each other so acres add up.'}
                               onClick={() => void snapTracts()} />,
-                  <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved && !!activeTract?.name.trim()}
+                  <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved}
                               disabled={!!busy || (tool === 'drawtract' && drawing
                                 ? draft.length < 3
                                 : !activeTract || !activeTract.name.trim())}
@@ -4265,6 +4271,35 @@ export default function ConfigureMap() {
                   trash can right on the row. Clicking a row opens it for
                   BOTH boundary and land-type editing. */}
               <div style={card}>
+                {/* Owner 10/1: naming a tract must be as easy as naming the
+                    project — a labelled, full-width box for the OPEN tract,
+                    not just the small pencil on its row. The name persists
+                    on Enter/blur for a saved tract and rides with Save
+                    Tract for a new one; until then the button stays pink. */}
+                {activeTract && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={sectionLabel}>Tract name</div>
+                    <input
+                      value={activeTract.name}
+                      disabled={!!busy}
+                      placeholder="e.g. Tract 1, Home Place, North 80"
+                      aria-label="Tract name"
+                      onChange={(e) => {
+                        const n = e.target.value
+                        setTracts((prev) => prev.map((x) => x.id === activeTract.id ? { ...x, name: n } : x))
+                        setNameDirty(true)
+                      }}
+                      onBlur={async () => {
+                        const n = activeTract.name.trim()
+                        // A saved tract persists its name right here; a new
+                        // tract's name rides with Save Tract, so it stays
+                        // "unsaved" (pink button) until that happens.
+                        if (n && activeTract.saved) { await doRename(n); setNameDirty(false) }
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                      style={{ ...inputStyle, width: '100%', fontSize: 15, padding: '10px 12px' }} />
+                  </div>
+                )}
                 <div style={sectionLabel}>Tracts ({tracts.length})</div>
                 {tracts.map((t) => (
                   <TractRow key={t.id} t={t} selected={t.id === selectedTractId} busy={!!busy}
