@@ -113,6 +113,11 @@ interface Tract {
    *  one). */
   soilRating: number | null
   soilRatingType: string | null
+  /** County and state of the ground (from the saved record's stats or the
+   *  save response) — shown on the Tract data card for hand-drawn tracts
+   *  too (owner 10/1: always County, State). */
+  county?: string | null
+  state?: string | null
   /** Has this tract's `shapes` been fitted against the engine for its
    *  CURRENT boundary? False for a brand-new tract and again after any
    *  boundary change ('Snap tracts' rewrites `boundary`) — Stage 3
@@ -1358,6 +1363,8 @@ export default function ConfigureMap() {
           acres: rec.stats?.acres ?? null,
           soilRating: rec.stats?.soil?.rating ?? null,
           soilRatingType: rec.stats?.soil?.rating_type ?? null,
+          county: rec.stats?.county ?? null,
+          state: rec.stats?.state ?? null,
           shapes: loadedShapes,
           boundary: loadedRings,
           // The outline has to come across too. Without this it kept the
@@ -2868,6 +2875,8 @@ export default function ConfigureMap() {
           acres: Number(st.acres ?? x.acres ?? 0) || x.acres,
           soilRating: st.soil?.rating ?? x.soilRating,
           soilRatingType: st.soil?.rating_type ?? x.soilRatingType,
+          county: st.county ?? x.county ?? null,
+          state: st.state ?? x.state ?? null,
         })))
       }
       // `projectId` here is still the pre-save closed-over value — pid
@@ -4425,6 +4434,14 @@ export default function ConfigureMap() {
                 <div style={card}>
                   <div style={sectionLabel}>Tract data</div>
                   <div style={{ fontWeight: 600 }}>Hand-drawn</div>
+                  {/* County, State comes back with the save (the recorded
+                      parcel under the drawing); before the first save it is
+                      not known yet. */}
+                  <div style={{ opacity: 0.65 }}>
+                    {activeTract?.county && activeTract?.state
+                      ? `${niceCounty(activeTract.county)} County, ${activeTract.state}`
+                      : 'County, State known once saved'}
+                  </div>
                   {tractCentre && (
                     <div style={statRow}>
                       <span style={{ opacity: 0.65 }}>Centre</span>
