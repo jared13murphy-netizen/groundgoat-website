@@ -397,14 +397,16 @@ const handleResendVerification = async () => {
             description="Choose what you hear about and how"
             href="/account/notifications"
           />
-          {/* Owner 9/30: every user has a referral code; subscribers earn a
-              share of what people they refer pay in their first year. */}
-          <MenuItem
-            icon={<Gift size={20} />}
-            label="Share Ground Goat"
-            description="Your QR code and link, and what you've earned from referrals"
-            href="/account/referrals"
-          />
+          {/* Owner 10/1: the Share Ground Goat card shows only for people it
+              has been turned on for (admin Referrals screen); Tracy for now. */}
+          {user?.referral_sharing_enabled && (
+            <MenuItem
+              icon={<Gift size={20} />}
+              label="Share Ground Goat"
+              description="Your QR code and link, and what you've earned from referrals"
+              href="/account/referrals"
+            />
+          )}
         </div>
 
         {/* App Settings Note */}

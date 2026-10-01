@@ -22,6 +22,7 @@ interface Referrer {
   rate: number
   rate_is_override: boolean
   payouts_enabled: boolean
+  sharing_enabled?: boolean
   referred_count: number
   paying_count: number
   gross_collected: number
@@ -133,6 +134,19 @@ export default function AdminReferralsPage() {
     } finally { setBusy(null) }
   }
 
+  // Owner 10/1: the Share Ground Goat card/QR is per person (Tracy only for now).
+  const toggleSharing = async (r: Referrer) => {
+    setBusy(r.user_id)
+    try {
+      await fetchWithAuth(`${API_URL}/api/admin/referrals/${r.user_id}/rate`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sharing_enabled: !r.sharing_enabled }),
+      })
+      await load()
+      if (found) await search()
+    } finally { setBusy(null) }
+  }
+
   const togglePayouts = async (r: Referrer) => {
     setBusy(r.user_id)
     try {
@@ -230,6 +244,9 @@ export default function AdminReferralsPage() {
                   </div>
                 </td>
                 <td className="py-3 text-right whitespace-nowrap">
+                  <button onClick={() => toggleSharing(r)} disabled={busy === r.user_id} className={`text-xs mr-3 ${r.sharing_enabled ? 'text-green-400 hover:text-white' : 'text-gg-gray-400 hover:text-white'}`} title="Show or hide the Share Ground Goat card and QR code for this person">
+                    {r.sharing_enabled ? 'Share card: on' : 'Share card: off'}
+                  </button>
                   <button onClick={() => togglePayouts(r)} disabled={busy === r.user_id} className="text-gg-gray-400 hover:text-white text-xs mr-3">
                     {r.payouts_enabled ? 'Turn off' : 'Turn on'}
                   </button>
