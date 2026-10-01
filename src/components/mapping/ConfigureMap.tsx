@@ -907,7 +907,7 @@ export default function ConfigureMap() {
   // footer (owner: Save Tract is the only commit, Back to Map the only
   // exit) — 'leave' already covers the dirty check Back to Map needs.
   const [confirmWhat, setConfirmWhat] = useState<
-    null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver'
+    null | 'switch' | 'leave' | 'removeTract' | 'clearPolygons' | 'startOver' | 'snap'
   >(null)
   // Both exits out of Configurable Mapping — Back to Map and the Map
   // Portfolio link — route through the same 'leave' confirm and the same
@@ -2772,7 +2772,10 @@ export default function ConfigureMap() {
       setTracts((prev) => prev.map((t) => {
         const hit = res.tracts.find((r) => r.id === t.id)
         if (!hit) return t
-        return { ...t, boundary: geometryToPolys(hit.geometry), acres: hit.acres, classified: false, shapes: [] }
+        // Flagged unsaved: the new boundary only lives on the server once
+        // THIS tract is saved (reviewer 10/1: other tracts' snapped
+        // boundaries used to leave with no prompt).
+        return { ...t, boundary: geometryToPolys(hit.geometry), acres: hit.acres, classified: false, shapes: [], saved: false }
       }))
       if (res.dropped.length) {
         setError(`${res.dropped.length} tract${res.dropped.length === 1 ? '' : 's'} `
@@ -4002,7 +4005,13 @@ export default function ConfigureMap() {
                               title={tracts.length <= 1
                                 ? 'Fits this tract to the parcel lines underneath it so the acres are exact.'
                                 : 'Fits every drawn tract to the frame and to each other so acres add up.'}
-                              onClick={() => void snapTracts()} />,
+                              onClick={() => {
+                                // Snapping rewrites every boundary and clears the
+                                // land types drawn on them — ask first when there
+                                // is any to lose (reviewer 10/1).
+                                if (tracts.some((t) => t.shapes.length > 0)) setConfirmWhat('snap')
+                                else void snapTracts()
+                              }} />,
                   <ToolButton key="save-tract" icon={Save} label="Save Tract" primary={activeUnsaved}
                               // Owner 10/1: lit (pink) whenever anything is unsaved —
                               // even with no name yet; pressing it then says to name
@@ -4783,6 +4792,7 @@ export default function ConfigureMap() {
                 : confirmWhat === 'leave' ? 'Leave without saving?'
                 : confirmWhat === 'clearPolygons' ? 'Clear every polygon?'
                 : confirmWhat === 'startOver' ? 'Start over from the engine?'
+                : confirmWhat === 'snap' ? 'Snap and redraw the land types?'
                 : 'Remove this tract?'}
             </div>
             <div style={{ ...hint, marginTop: 0, marginBottom: 14, display: 'block' }}>
@@ -4799,6 +4809,11 @@ export default function ConfigureMap() {
                 ? 'Every polygon edit you have made will be thrown away and '
                   + 'replaced with the engine’s own land types for this '
                   + 'boundary. This cannot be undone with Redo once you navigate away.'
+                : confirmWhat === 'snap'
+                ? 'Snapping fits every tract to the parcel lines and clears the '
+                  + 'land-type polygons drawn on them — Land Types will ask the '
+                  + 'engine again for each tract. Every tract touched needs '
+                  + 'Save Tract afterwards.'
                 : (pendingRemoveId && tracts.find((x) => x.id === pendingRemoveId)?.savedId)
                 ? 'This tract is already saved. OK removes it here and deletes '
                   + 'its saved record too — that part cannot be undone.'
@@ -4828,6 +4843,9 @@ export default function ConfigureMap() {
                         } else if (confirmWhat === 'startOver') {
                           setConfirmWhat(null)
                           resetToEngine()
+                        } else if (confirmWhat === 'snap') {
+                          setConfirmWhat(null)
+                          void snapTracts()
                         } else {
                           const target = pendingRemoveId
                           setConfirmWhat(null); setPendingRemoveId(null)
