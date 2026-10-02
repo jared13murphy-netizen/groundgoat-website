@@ -2830,7 +2830,11 @@ export default function ConfigureMap() {
     // landed in `tractsRef` yet either).
     override?: { tractId: string; shapes: Shape[] } | { tract: Tract },
   ): Promise<boolean> => {
-    if (savingAllRef.current) return false
+    if (savingAllRef.current) {
+      // Owner 10/2: a pink Save Tract must never do "nothing" — say why.
+      setSavedMsg('Still saving the last change — one moment.')
+      return false
+    }
     // Reads `tractsRef.current`, not the `tracts` closure — this can be
     // called synchronously right after `finishDraft`, before a render
     // has landed the tract it just added/changed.
@@ -2844,7 +2848,7 @@ export default function ConfigureMap() {
     // `only`: the Stage 2 "Save Tract" button saves ONE tract — the one
     // that is open — the user saves a tract at a time (owner 9/16).
     const toSave = only ? pool.filter((t) => only.includes(t.id)) : pool
-    if (!toSave.length) return false
+    if (!toSave.length) { setError('Open a tract to save it.'); return false }
     if (toSave.some((t) => !t.name.trim())) {
       setError(only ? 'Name this tract before saving.' : 'Name every tract before saving.')
       document.getElementById('cm-tract-name')?.focus()
@@ -3993,7 +3997,7 @@ export default function ConfigureMap() {
                                 : !activeTract.name.trim() ? 'Name this tract before saving.'
                                 : 'Saves this tract to the project. You stay here.'}
                               onClick={() => {
-                                if (!selectedTractId) return
+                                if (!selectedTractId) { setError('Open a tract to save it.'); return }
                                 if (tool === 'draw' && drawing) {
                                   // The button is disabled under 3 points, so
                                   // this only ever runs with a finishable draft.
