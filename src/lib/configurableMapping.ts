@@ -565,6 +565,15 @@ export async function downloadReport(id: string, fallbackFilename: string): Prom
   URL.revokeObjectURL(url)
 }
 
+/** Owner 10/2: a project's built reports are thrown away when the editor
+ *  closes — they are rebuilt on demand, never kept. `keepalive` so the
+ *  request survives a tab close / navigation. */
+export function clearProjectReports(projectId: string) {
+  return j<{ ok: true; deleted: number }>(
+    `/api/mapping/reports?project_id=${encodeURIComponent(projectId)}`,
+    { method: 'DELETE', keepalive: true })
+}
+
 export function getBranding() {
   return j<{ name: string | null; has_logo: boolean; firm_logo_url?: string | null; logo_source?: 'report' | 'firm' | null }>('/api/mapping/branding')
 }

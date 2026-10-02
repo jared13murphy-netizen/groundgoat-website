@@ -42,8 +42,7 @@ import {
   createCma, getCma, listCmas, cmaCandidates, setCmaComps, queueCmaReport, updateCma,
   parcelsUnder, differenceGeometry,
   type Cma, type CompCandidate,
-  type LandClass, type ParcelDetail, type ParcelSummary,
-} from '@/lib/configurableMapping'
+  type LandClass, type ParcelDetail, type ParcelSummary, clearProjectReports } from '@/lib/configurableMapping'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
 import { addPlaceLabels } from '@/components/map/placeLabels'
 import {
@@ -3730,14 +3729,24 @@ export default function ConfigureMap() {
    *  shows the "Leave without saving?" confirmation first (owner 10/2). */
   const leaveScreen = useCallback((to: string) => {
     if (anyUnsaved) { setLeaveTo(to); setConfirmWhat('leave'); return }
+    // Owner 10/2: built reports do not outlive the editor session.
+    if (projectId) { try { void clearProjectReports(projectId) } catch { /* best effort */ } }
     window.location.href = to
-  }, [anyUnsaved])
+  }, [anyUnsaved, projectId])
   useEffect(() => {
     if (!anyUnsaved) return
     const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
     window.addEventListener('beforeunload', h)
     return () => window.removeEventListener('beforeunload', h)
   }, [anyUnsaved])
+  // Tab close / refresh with nothing unsaved: throw the project's built
+  // reports away too (keepalive request, fires as the page unloads).
+  useEffect(() => {
+    if (!projectId) return
+    const h = () => { try { void clearProjectReports(projectId) } catch { /* best effort */ } }
+    window.addEventListener('pagehide', h)
+    return () => window.removeEventListener('pagehide', h)
+  }, [projectId])
   const activeUnsaved = (!!activeTract && (dirty || !activeTract.saved || nameDirty))
     // A drawing with enough points to finish is unsaved work too.
     || (tool === 'drawtract' && drawing && draft.length >= 3)
@@ -4851,6 +4860,7 @@ export default function ConfigureMap() {
               <button onClick={() => {
                         if (confirmWhat === 'leave') {
                           setConfirmWhat(null)
+                          if (projectId) { try { void clearProjectReports(projectId) } catch { /* best effort */ } }
                           window.location.href = leaveTo
                         } else if (confirmWhat === 'switch') {
                           // Save FIRST, and only switch if it worked —
