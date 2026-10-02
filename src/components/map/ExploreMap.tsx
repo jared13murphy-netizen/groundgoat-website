@@ -3116,10 +3116,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const lines = [
       `Acres: ${formatDrawAcres(drawAcres)}`,
       ...(drawEngine?.covered ? [
-        `Tillable: ${formatDrawAcres(drawEngine.tillable_acres || 0)}`,
-        `Timber: ${formatDrawAcres(drawEngine.timber_acres || 0)}`,
-        `Pasture: ${formatDrawAcres(drawEngine.pasture_acres || 0)}`,
-        `Water: ${formatDrawAcres(drawEngine.water_acres || 0)}`,
+        `Tillable: ${Number(drawEngine.tillable_acres || 0).toFixed(1)} ac`,
+        `Timber: ${Number(drawEngine.timber_acres || 0).toFixed(1)} ac`,
+        `Pasture: ${Number(drawEngine.pasture_acres || 0).toFixed(1)} ac`,
+        `Water: ${Number(drawEngine.water_acres || 0).toFixed(1)} ac`,
         ...(drawEngine.rating != null ? [`Soil rating (${drawEngine.rating_type}): ${drawEngine.rating}`] : []),
       ] : []),
       `Points: ${drawPoints.length}`,
@@ -11755,7 +11755,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     <div key={label}>
                       <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>{label}</div>
                       <div style={{ color: '#fff', fontSize: 13 }}>
-                        {drawEngineLoading ? '…' : drawEngine?.covered && v != null ? `${formatDrawAcres(v)} ac` : '—'}
+                        {drawEngineLoading ? '…' : drawEngine?.covered && v != null ? `${Number(v).toFixed(1)} ac` : '—'}
                       </div>
                     </div>
                   ))}
@@ -11769,6 +11769,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     {!drawEngineLoading && drawEngine && !drawEngine.covered && (
                       <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginTop: 2 }}>
                         Land types and soil are available in IL, IA, IN, MO, NE and KS.
+                      </div>
+                    )}
+                    {!drawEngineLoading && !drawEngine && drawPoints.length >= 3 && (
+                      <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginTop: 2 }}>
+                        Land types could not be loaded for this area — try a smaller area.
                       </div>
                     )}
                   </div>
