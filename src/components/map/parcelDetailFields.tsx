@@ -134,6 +134,8 @@ export const PARCEL_DISCLAIMER_TEXT =
 
 export interface ParcelDetailFields {
   owner: string
+  /** County parcel number (Regrid parcelnumb); '' when absent. */
+  parcelId: string
   county: string
   state: string
   countyState: string
@@ -206,6 +208,8 @@ export function deriveParcelDetail(
   const record = regridData ?? parcelProps ?? {}
 
   const owner = record?.owner || parcelProps?.owner || 'Unknown'
+  const parcelIdRaw = record?.parcelnumb ?? parcelProps?.parcelnumb
+  const parcelId = typeof parcelIdRaw === 'string' || typeof parcelIdRaw === 'number' ? String(parcelIdRaw).trim() : ''
   const county = titleCase(record?.county || parcelProps?.county || '')
   const state = record?.state2 || record?.state || parcelProps?.state || parcelProps?.state_abbr || ''
   const countyState = county
@@ -333,7 +337,7 @@ export function deriveParcelDetail(
     ? ppa / soilRating : null
 
   return {
-    owner, county, state, countyState, street, cityLine, township, landTypes,
+    owner, parcelId, county, state, countyState, street, cityLine, township, landTypes,
     gisacre, saleprice, ppa,
     rawSalePrice, deedParcels, deedAcres, isDeedShare, perTillable, perRating,
     ratingLabel, soilRating, soilRatingType, tillableAcres, pctTillable,

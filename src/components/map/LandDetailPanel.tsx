@@ -590,7 +590,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   // component used inline before (see that file's deriveParcelDetail doc
   // comment).
   const derived = deriveParcelDetail(regridData, parcelProps, enrichData)
-  const { owner, county, state, countyState, street, cityLine, township,
+  const { owner, parcelId, county, state, countyState, street, cityLine, township,
     gisacre, saleprice, ppa, ratingLabel, soilRating, soilRatingType,
     tillableAcres, dominantLandcover,
     rawSalePrice, deedParcels, deedAcres, isDeedShare, perTillable, perRating } = derived
@@ -754,6 +754,9 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
           <div style={{ fontSize: 18.5, fontWeight: 700, lineHeight: '24px', color: '#1a1a1a', wordBreak: 'break-word' }}>
             {owner}
           </div>
+          {parcelId && (
+            <div style={{ fontSize: 12.5, color: 'rgba(0,0,0,0.55)', marginTop: 2, lineHeight: 1.3, wordBreak: 'break-word' }}>Parcel {parcelId}</div>
+          )}
           {street && (
             <div style={{ fontSize: 13.5, fontWeight: 600, color: 'rgba(0,0,0,0.78)', marginTop: 10, lineHeight: 1.3 }}>{street}</div>
           )}
