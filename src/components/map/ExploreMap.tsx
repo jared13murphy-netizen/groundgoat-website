@@ -765,17 +765,16 @@ const TOWN_LABEL_MIN_ZOOM = 6
 // zoom by the leading `['>', ['get','pop'], 0]` filter clause).
 // Owner 10/2: at the zoom where only Burlington / Galesburg / Quincy /
 // Peoria showed (z8, the >=20k tier) he wants the SMALL towns too — the
-// whole ladder moves one zoom step earlier. MapLibre's collision
+// whole ladder moves two zoom steps earlier (one was not enough, checked 10/2). MapLibre's collision
 // detection hides the overlaps, so the count stays readable.
 const TOWN_LABEL_ZOOM_STEP_FILTER: any = [
   'step', ['zoom'],
   false,
-  6, ['>=', ['get', 'pop'], 100000],
-  7, ['>=', ['get', 'pop'], 20000],
-  8, ['>=', ['get', 'pop'], 1000],
-  9, ['>=', ['get', 'pop'], 500],
-  10, ['>=', ['get', 'pop'], 200],
-  11, true,
+  6, ['>=', ['get', 'pop'], 20000],
+  7, ['>=', ['get', 'pop'], 1000],
+  8, ['>=', ['get', 'pop'], 500],
+  9, ['>=', ['get', 'pop'], 200],
+  10, true,
 ]
 
 type ZoomTier = 'state' | 'county' | 'tract'
