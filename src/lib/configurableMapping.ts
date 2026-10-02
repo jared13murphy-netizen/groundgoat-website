@@ -574,11 +574,33 @@ export function clearProjectReports(projectId: string) {
     { method: 'DELETE', keepalive: true })
 }
 
+export interface LibraryLogo { id: string; name: string; selected: boolean; scope: 'mine' | 'firm'; url: string }
 export function getBranding() {
-  return j<{ name: string | null; has_logo: boolean; firm_logo_url?: string | null; logo_source?: 'report' | 'firm' | null }>('/api/mapping/branding')
+  return j<{ name: string | null; has_logo: boolean; firm_logo_url?: string | null
+             logo_source?: 'report' | 'firm' | 'library' | null
+             logos?: LibraryLogo[]; selected_logo_id?: string | null; logo_url?: string | null }>('/api/mapping/branding')
 }
 
-export function setBranding(patch: { name?: string; logo_base64?: string }) {
+/** Owner 10/2 logo library: upload one more logo (becomes the pick unless
+ *  select=false); remove one; pick which prints with setBranding({logo_id}). */
+export function addLibraryLogo(name: string, logo_base64: string, select = true) {
+  return j<LibraryLogo>('/api/mapping/branding/logos', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, logo_base64, select }),
+  })
+}
+export function deleteLibraryLogo(id: string) {
+  return j<{ ok: true }>(`/api/mapping/branding/logos/${id}`, { method: 'DELETE' })
+}
+export async function fetchLibraryLogoUrl(id: string): Promise<string | null> {
+  try {
+    const res = await fetchWithAuth(`${API_URL}/api/mapping/branding/logos/${id}.png`)
+    if (!res.ok) return null
+    return URL.createObjectURL(await res.blob())
+  } catch { return null }
+}
+
+export function setBranding(patch: { name?: string; logo_base64?: string; logo_id?: string }) {
   return j<{ ok: true }>('/api/mapping/branding', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

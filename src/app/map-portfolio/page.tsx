@@ -27,8 +27,7 @@ import {
   getBranding, getProject, listProjects, listReports, queueReport,
   firmMembers, niceCounty, projectShares, renameParcel, setBranding, setProjectShares, updateProject,
   REPORT_BUSY_LABEL, REPORT_LABEL,
-  type FirmMember, type PortfolioTract, type Project, type ReportRow, type SavedParcelRow,
-} from '@/lib/configurableMapping'
+  type FirmMember, type PortfolioTract, type Project, type ReportRow, type SavedParcelRow, addLibraryLogo, deleteLibraryLogo, fetchLibraryLogoUrl, type LibraryLogo } from '@/lib/configurableMapping'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import PortfolioMap from '@/components/mapping/PortfolioMap'
 
@@ -126,7 +125,10 @@ export default function MapPortfolioPage() {
       .then(setUser)
       .catch(() => setUser(null))
   }, [allowed])
-  const isBrandingAdmin = !!user && BRANDING_ADMIN_ROLES.includes(user.account_type)
+  // Owner 10/2: every Configurable Mapping user brands their own reports
+  // (premium-state subscribers have no firm); firm members also share
+  // the firm's logo library.
+  const isBrandingAdmin = !!user
 
   // ── Report Branding (owner ask 9/23): the firm's name and logo print
   // on every PDF report the firm builds. Loaded only for an admin — a
@@ -141,6 +143,9 @@ export default function MapPortfolioPage() {
   const [brandSaving, setBrandSaving] = useState<'name' | 'logo' | 'remove' | null>(null)
   const [brandMsg, setBrandMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [localLogoPreview, setLocalLogoPreview] = useState<string | null>(null)
+  const [libraryLogos, setLibraryLogos] = useState<LibraryLogo[]>([])
+  const [libraryUrls, setLibraryUrls] = useState<Record<string, string>>({})
+  const [selectedLogoId, setSelectedLogoId] = useState<string | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
 
   const loadBranding = useCallback(async () => {
@@ -149,6 +154,13 @@ export default function MapPortfolioPage() {
       const b = await getBranding()
       setBrandName(b.name || '')
       setBrandHasLogo(b.has_logo)
+      const logos = b.logos || []
+      setLibraryLogos(logos)
+      setSelectedLogoId(b.selected_logo_id || null)
+      // Thumbnails are behind the login, so each one becomes a blob URL.
+      const urls: Record<string, string> = {}
+      await Promise.all(logos.map(async (l) => { const u = await fetchLibraryLogoUrl(l.id); if (u) urls[l.id] = u }))
+      setLibraryUrls((prev) => { Object.values(prev).forEach((u) => { try { URL.revokeObjectURL(u) } catch { /* gone */ } }); return urls })
       setFirmLogoUrl(!b.has_logo && b.firm_logo_url ? `${API_URL}${b.firm_logo_url}` : null)
       setLocalLogoPreview(null)
       const next = b.has_logo ? await fetchBrandingLogoUrl(Date.now()) : null
@@ -191,11 +203,11 @@ export default function MapPortfolioPage() {
       return null
     })
     if (!dataUrl) return
-    setLocalLogoPreview(dataUrl)
+    setLocalLogoPreview(null)
     setBrandSaving('logo')
     try {
-      await setBranding({ logo_base64: dataUrl })
-      setBrandMsg({ kind: 'ok', text: 'Logo saved.' })
+      await addLibraryLogo(file.name.replace(/\.[^.]+$/, '') || 'Logo', dataUrl, true)
+      setBrandMsg({ kind: 'ok', text: 'Logo added and selected for your reports.' })
       await loadBranding()
     } catch (e: any) {
       setBrandMsg({ kind: 'err', text: e?.message || 'Could not save that logo.' })
@@ -205,15 +217,25 @@ export default function MapPortfolioPage() {
     }
   }
 
-  const removeLogo = async () => {
-    if (!window.confirm('Remove your firm’s logo from report PDFs?')) return
+  const removeLibraryLogo = async (id: string) => {
+    if (!window.confirm('Remove this logo from your library?')) return
     setBrandSaving('remove'); setBrandMsg(null)
     try {
-      await setBranding({ logo_base64: '' })
+      await deleteLibraryLogo(id)
       setBrandMsg({ kind: 'ok', text: 'Logo removed.' })
       await loadBranding()
     } catch (e: any) {
       setBrandMsg({ kind: 'err', text: e?.message || 'Could not remove that logo.' })
+    } finally { setBrandSaving(null) }
+  }
+  const pickLogo = async (id: string | '') => {
+    setBrandSaving('logo'); setBrandMsg(null)
+    try {
+      await setBranding({ logo_id: id })
+      setSelectedLogoId(id || null)
+      setBrandMsg({ kind: 'ok', text: id ? 'That logo now prints on your reports.' : 'Reports will print without a logo.' })
+    } catch (e: any) {
+      setBrandMsg({ kind: 'err', text: e?.message || 'Could not change the logo.' })
     } finally { setBrandSaving(null) }
   }
 
@@ -438,7 +460,7 @@ export default function MapPortfolioPage() {
               <span style={{ fontWeight: 700, fontSize: 13, color: '#ffffff', letterSpacing: 0.2 }}>Report Branding</span>
             </div>
             <p style={{ ...muted, display: 'block', marginBottom: 12 }}>
-              Your name and logo print on every PDF report your firm builds.
+              Your name and the logo you pick print on every PDF report you build. Upload as many logos as you like and choose one.
             </p>
 
             {/* Row 1: company name. */}
@@ -458,50 +480,56 @@ export default function MapPortfolioPage() {
               </button>
             </div>
 
-            {/* Row 2: logo — preview, upload, remove. */}
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <div style={{
-                width: 44, height: 44, borderRadius: 6, flexShrink: 0,
-                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-              }}>
-                {(localLogoPreview || brandLogoUrl || firmLogoUrl) ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={localLogoPreview || brandLogoUrl || firmLogoUrl || undefined} alt="Firm logo"
-                       style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                ) : (
-                  <ImageIcon size={16} style={{ opacity: 0.35 }} />
-                )}
-              </div>
-              <span style={muted}>
-                {brandHasLogo || localLogoPreview
-                  ? 'Current logo'
-                  : firmLogoUrl
-                    ? 'Using your firm logo from Account settings. Upload here to use a different one on reports.'
-                    : 'No logo yet'}
-              </span>
-              <div style={{ flex: 1 }} />
-              <label style={{ ...btn, whiteSpace: 'nowrap', cursor: brandSaving ? 'not-allowed' : 'pointer',
-                              opacity: brandSaving ? 0.6 : 1 }}>
-                {brandSaving === 'logo' ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-                Upload logo
+            {/* Row 2: the logo library — pick one, upload more, remove. */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' }}>
+              <button onClick={() => void pickLogo('')} disabled={!!brandSaving}
+                      style={{ ...btn, flexDirection: 'column', width: 92, height: 92, justifyContent: 'center', gap: 6,
+                               outline: selectedLogoId ? 'none' : '2px solid #f58cde' }}
+                      title="Print reports without a logo">
+                <ImageIcon size={16} style={{ opacity: 0.6 }} />
+                <span style={{ fontSize: 11 }}>No logo</span>
+              </button>
+              {libraryLogos.map((l) => (
+                <div key={l.id} style={{ width: 92, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <button onClick={() => void pickLogo(l.id)} disabled={!!brandSaving}
+                          title={l.scope === 'firm' ? `${l.name} (firm logo)` : l.name}
+                          style={{ ...btn, width: 92, height: 92, padding: 4, justifyContent: 'center',
+                                   background: '#ffffff', outline: selectedLogoId === l.id ? '2px solid #f58cde' : 'none' }}>
+                    {libraryUrls[l.id] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={libraryUrls[l.id]} alt={l.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    ) : <Loader2 size={14} className="animate-spin" />}
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                    <span style={{ ...muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>
+                      {selectedLogoId === l.id ? '✓ ' : ''}{l.name}
+                    </span>
+                    <button onClick={() => void removeLibraryLogo(l.id)} disabled={!!brandSaving}
+                            title="Remove this logo" aria-label="Remove this logo"
+                            style={{ ...btn, padding: '2px 5px' }}>
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <label style={{ ...btn, flexDirection: 'column', width: 92, height: 92, justifyContent: 'center', gap: 6,
+                              cursor: brandSaving ? 'not-allowed' : 'pointer', opacity: brandSaving ? 0.6 : 1 }}>
+                {brandSaving === 'logo' ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                <span style={{ fontSize: 11 }}>Upload logo</span>
                 <input ref={logoInputRef} type="file" accept="image/png,image/jpeg"
                        disabled={!!brandSaving} style={{ display: 'none' }}
                        onChange={(e) => {
                          const f = e.target.files?.[0]
                          if (f) void uploadLogo(f)
+                         e.target.value = ''
                        }} />
               </label>
-              {(brandHasLogo || localLogoPreview) && (
-                <button style={{ ...btn, whiteSpace: 'nowrap' }}
-                        disabled={!!brandSaving}
-                        onClick={() => void removeLogo()}>
-                  {brandSaving === 'remove' ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                  Remove
-                </button>
-              )}
             </div>
+            {libraryLogos.length === 0 && firmLogoUrl && (
+              <p style={{ ...muted, display: 'block', marginTop: 8 }}>
+                Until you upload one here, reports use your firm logo from Account settings.
+              </p>
+            )}
 
             {brandMsg && (
               <p style={{ ...muted, display: 'block', marginTop: 8,
