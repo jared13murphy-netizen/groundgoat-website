@@ -9,6 +9,7 @@ import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from './SubjectStrip'
+import FilterCountBadge from '@/components/FilterCountBadge'
 
 interface Comparable {
   id: string
@@ -150,6 +151,13 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
     }))
   }, [sourceData, subjectLat, subjectLng])
 
+  // Badge count: filter controls that differ from default (a min/max pair is one)
+  const filterCount =
+    (filterCounty ? 1 : 0) +
+    (filterMaxDistance ? 1 : 0) +
+    (SOIL_FILTER_ENABLED && (filterMinSoil || filterMaxSoil) ? 1 : 0) +
+    (filterMinTillable || filterMaxTillable ? 1 : 0)
+
   // Get unique counties for filter
   const counties = useMemo(() => {
     const set = new Set(comparablesWithDistance.map(c => c.county))
@@ -277,7 +285,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
               </div>
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition ${
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs transition ${
                   showFilters
                     ? 'bg-gg-pink/10 border-gg-pink/30 text-gg-pink'
                     : 'bg-white/[0.03] border-white/5 text-gg-gray-400 hover:text-white'
@@ -285,6 +293,7 @@ export default function PortalComparablesPanel({ data, loading, onClose, onSelec
               >
                 <SlidersHorizontal size={12} />
                 Filter
+                <FilterCountBadge count={filterCount} />
               </button>
               <span className="text-xs text-gg-gray-500">{sorted.length} results</span>
             </div>
