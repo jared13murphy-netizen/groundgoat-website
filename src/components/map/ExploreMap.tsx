@@ -30,6 +30,8 @@ import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
+import { countActiveFilters } from '@/lib/filterBadgeCount'
+import FilterCountBadge from '@/components/FilterCountBadge'
 import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
@@ -1579,6 +1581,8 @@ interface ExploreMapProps {
   allowedStates?: string[] | null
   portalMode?: boolean
   externalFilterOpen?: boolean
+  /** Reports how many filter controls differ from default (for the nav bar's Filters badge). */
+  onActiveFilterCountChange?: (count: number) => void
   onFilterOpenChange?: (open: boolean) => void
   onViewListing?: (listingId: string) => void
   onTractSelected?: (tract: SaleDetail) => void
@@ -1972,7 +1976,7 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -4479,6 +4483,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     appliedFilters.companyName !== '' || appliedFilters.buyer !== '' || appliedFilters.seller !== '' ||
     appliedFilters.hasHouse !== null || appliedFilters.hasBuildings !== null ||
     appliedFilters.hasPolygon !== null || appliedFilters.keyword !== ''
+
+  const activeFilterCount = useMemo(
+    () => countActiveFilters(appliedFilters, DEFAULT_DATE_RANGE),
+    [appliedFilters],
+  )
+  useEffect(() => { onActiveFilterCountChange?.(activeFilterCount) }, [activeFilterCount, onActiveFilterCountChange])
 
   const polygonGeoJSON = useMemo(() => {
     const fc = buildExplorePolygonGeoJSON(tracts)
@@ -11934,6 +11944,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
         </svg>
+        <FilterCountBadge count={activeFilterCount} />
       </button>
 
       {/* Filter Panel */}

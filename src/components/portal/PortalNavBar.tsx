@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Map, Calendar, Building2, BarChart3, LogOut, User, Users, Settings, Filter, Bookmark, UserCircle, Wrench, Search } from 'lucide-react'
 import GoToSandboxButton, { isGroundGoatStaff } from '@/components/GoToSandboxButton'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
+import FilterCountBadge from '@/components/FilterCountBadge'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -16,6 +17,7 @@ interface PortalNavBarProps {
   onTabChange: (tab: TabType) => void
   onFilterToggle: () => void
   filterOpen: boolean
+  filterCount?: number
   onAnalyticsToggle?: () => void
   analyticsOpen?: boolean
   onWatchlistToggle?: () => void
@@ -42,7 +44,7 @@ interface PortalNavBarProps {
   }
 }
 
-export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, onGoatSearchToggle, onUtilitiesToggle, utilitiesActive = false, user }: PortalNavBarProps) {
+export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, filterCount = 0, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, onGoatSearchToggle, onUtilitiesToggle, utilitiesActive = false, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -126,7 +128,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
           {/* Filter button — subtle glow, bright white */}
           <button
             onClick={onFilterToggle}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 ${
+            className={`relative px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 ${
               filterOpen
                 ? 'bg-gg-pink/15 text-gg-pink border-gg-pink/30 shadow-[0_0_12px_rgba(233,30,140,0.4)]'
                 : 'border-transparent text-white font-bold hover:bg-white/5 shadow-[0_0_8px_rgba(233,30,140,0.25)]'
@@ -134,6 +136,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
           >
             <Filter size={14} className="text-gg-pink" />
             <span className="hidden md:inline">Filters</span>
+            <FilterCountBadge count={filterCount} />
           </button>
 
           {/* Watchlist button */}

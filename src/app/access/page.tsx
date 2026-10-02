@@ -91,6 +91,7 @@ function AccessPortalPageInner() {
   const [showListPanel, setShowListPanel] = useState(false)
   const [showAnalyticsPanel, setShowAnalyticsPanel] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [filterCount, setFilterCount] = useState(0)
   const [activeFilters, setActiveFilters] = useState<{ stateFilter: string; countyFilters: string[] }>({ stateFilter: '', countyFilters: [] })
   const [listings, setListings] = useState<Listing[]>([])
   const [listingsLoading, setListingsLoading] = useState(false)
@@ -893,6 +894,7 @@ function AccessPortalPageInner() {
           portalMode={true}
           externalFilterOpen={filterOpen}
           onFilterOpenChange={setFilterOpen}
+          onActiveFilterCountChange={setFilterCount}
           onViewListing={handleViewListingFromMap}
           onTractSelected={handleTractSelected}
           externalTractSelection={selectedTract}
@@ -939,6 +941,7 @@ function AccessPortalPageInner() {
         onTabChange={handleTabChange}
         onFilterToggle={handleFilterToggle}
         filterOpen={filterOpen}
+        filterCount={filterCount}
         onAnalyticsToggle={() => setShowAnalyticsPanel(!showAnalyticsPanel)}
         analyticsOpen={showAnalyticsPanel}
         onWatchlistToggle={() => setShowWatchlistPanel(!showWatchlistPanel)}
