@@ -770,8 +770,8 @@ const TOWN_LABEL_MIN_ZOOM = 6
 const TOWN_LABEL_ZOOM_STEP_FILTER: any = [
   'step', ['zoom'],
   false,
-  6, ['>=', ['get', 'pop'], 20000],
-  7, ['>=', ['get', 'pop'], 1000],
+  6, ['>=', ['get', 'pop'], 100000],   // multi-state view: unchanged
+  7, ['>=', ['get', 'pop'], 1000],     // county view: the small towns too
   8, ['>=', ['get', 'pop'], 500],
   9, ['>=', ['get', 'pop'], 200],
   10, true,
