@@ -4821,8 +4821,9 @@ export default function ConfigureMap() {
                 ? 'This tract has changes you have not saved. OK saves them and '
                   + 'opens the tract you clicked. Cancel stays on this one.'
                 : confirmWhat === 'leave'
-                ? 'This tract has changes you have not saved. OK leaves for the '
-                  + 'Explore map and throws them away. Cancel stays here.'
+                ? 'You have changes that are not saved. OK '
+                  + (leaveTo === '/map-portfolio' ? 'goes back to your Map Portfolio' : 'leaves for the Explore map')
+                  + ' and throws them away. Cancel stays here.'
                 : confirmWhat === 'clearPolygons'
                 ? 'Every land-type polygon on this tract will be removed. This '
                   + 'cannot be undone with Redo once you navigate away.'
