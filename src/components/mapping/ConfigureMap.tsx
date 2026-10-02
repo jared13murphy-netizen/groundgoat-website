@@ -4369,13 +4369,12 @@ export default function ConfigureMap() {
                         setTracts((prev) => prev.map((x) => x.id === activeTract.id ? { ...x, name: n } : x))
                         setNameDirty(true)
                       }}
-                      onBlur={async () => {
-                        const n = activeTract.name.trim()
-                        // A saved tract persists its name right here; a new
-                        // tract's name rides with Save Tract, so it stays
-                        // "unsaved" (pink button) until that happens.
-                        if (n && activeTract.saved) { await doRename(n); setNameDirty(false) }
-                      }}
+                      // No rename-on-blur (10/2): blurring onto Save Tract
+                      // started a rename that set `busy`, which disabled Save
+                      // Tract for the very click that caused the blur — the
+                      // press was swallowed. The name now rides with Save
+                      // Tract for saved and new tracts alike (the PUT carries
+                      // it), and the button stays pink until then.
                       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                       style={{ ...inputStyle, width: '100%', fontSize: 15, padding: '10px 12px' }} />
                   </div>
