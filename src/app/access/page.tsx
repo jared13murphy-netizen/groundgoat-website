@@ -361,6 +361,13 @@ function AccessPortalPageInner() {
   // Comparables mode
   const [resetFiltersSignal, setResetFiltersSignal] = useState(0)
   const [subjectTractId, setSubjectTractId] = useState<string | null>(null)
+  // Parcel-subject comp mode (owner 10/2): a Regrid parcel instead of a
+  // tract is the subject. The map has no subject tract, so it shows the
+  // sold comps in the bbox around the parcel.
+  const [subjectParcel, setSubjectParcel] = useState<{ ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null } | null>(null)
+  // True in either comp mode. ExploreMap keys comp mode off `subjectTractId`,
+  // so a parcel subject hands it a non-tract sentinel (never a real tract id).
+  const compModeOn = Boolean(subjectTractId || subjectParcel)
   const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [comparablesSubjectInfo, setComparablesSubjectInfo] = useState<any>(null)
   const [showComparablesReportPanel, setShowComparablesReportPanel] = useState(false)
@@ -608,6 +615,8 @@ function AccessPortalPageInner() {
   }
 
   const handleToggleReport = (tract: TractSaleData) => {
+    // The subject parcel is never its own comparable.
+    if (subjectParcel && tract.id === subjectParcel.ll_uuid) return
     const isAdding = !reportIds.has(tract.id)
     // Both updaters are PURE and independent. They used to be nested —
     // setReportTracts was called from inside the setReportIds updater —
@@ -707,7 +716,8 @@ function AccessPortalPageInner() {
 
   const [comparablesLoading, setComparablesLoading] = useState(false)
 
-  const handleFindComparables = async (tractId: string, county: string, state: string) => {
+  // Shared by both comp entry points (tract and parcel subject).
+  const beginCompMode = () => {
     // Show loading, close other panels, switch to map
     setComparablesLoading(true)
     setMapListingId(null)
@@ -719,7 +729,6 @@ function AccessPortalPageInner() {
     // the user closes comp mode, with subjectInfo=null (no subject card).
     setShowMainReportPanel(false)
     setActiveTab('map')
-    setSubjectTractId(tractId)
     // Clear any explore-map status filter (Live/Listed pill) before
     // entering comp mode — otherwise a stale non-sold status survives
     // into the comp query. ExploreMap's own comp-mode override only
@@ -740,6 +749,12 @@ function AccessPortalPageInner() {
     // true = clear the search WITHOUT the wide-bbox refit, which would
     // otherwise fit the camera to every result in the country.
     clearActiveSearch(true)
+  }
+
+  const handleFindComparables = async (tractId: string, county: string, state: string) => {
+    beginCompMode()
+    setSubjectParcel(null)
+    setSubjectTractId(tractId)
 
     // Fetch subject tract info for the panel header
     try {
@@ -797,6 +812,48 @@ function AccessPortalPageInner() {
     setComparablesLoading(false)
   }
 
+  // Parcel as the comp subject: same teardown as a tract, then the parcel
+  // endpoint (same response shape as the tract one) for the subject card.
+  const handleFindParcelComparables = async (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null }) => {
+    beginCompMode()
+    setSubjectTractId(null)
+    setSubjectParcel(p)
+    try {
+      const compResponse = await fetchWithAuth(`${API_URL}/api/comparables/parcel/${p.ll_uuid}?months_back=24&include_neighboring=true&limit=1`)
+      if (compResponse.ok) {
+        const compData = await compResponse.json()
+        const sc = compData.search_criteria || {}
+        setComparablesSubjectInfo({
+          ...sc,
+          county: sc.county || p.county,
+          state: sc.state || p.state,
+          tract_id: null,
+          listing_id: null,
+          subject_kind: 'parcel',
+        })
+        const subLat = sc.subject_latitude ?? p.lat
+        const subLng = sc.subject_longitude ?? p.lng
+        if (subLat && subLng) {
+          setSubjectTractLocation({ lat: subLat, lng: subLng })
+          setZoomToLocation(null)
+          setTimeout(() => {
+            setZoomToLocation({ lat: subLat, lng: subLng, zoom: 13 })
+            setTimeout(() => setZoomToLocation(null), 3000)
+          }, 100)
+        }
+      } else {
+        setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: 'parcel' })
+      }
+    } catch (err) {
+      console.error('Failed to fetch subject parcel info:', err)
+      setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: 'parcel' })
+    }
+    setReportIds(new Set())
+    setReportTracts([])
+    setShowComparablesReportPanel(true)
+    setComparablesLoading(false)
+  }
+
   // Deep-link into comp mode: ?comparablesTractId=&county=&state= (e.g. the
   // "Find Comparables" link on a listing, or the retired
   // /listings/[id]/comparables route redirecting here) opens the REAL comp
@@ -817,6 +874,7 @@ function AccessPortalPageInner() {
 
   const handleCloseComparables = () => {
     setSubjectTractId(null)
+    setSubjectParcel(null)
     setSubjectTractLocation(null)
     setComparablesSubjectInfo(null)
     setShowComparablesReportPanel(false)
@@ -897,7 +955,8 @@ function AccessPortalPageInner() {
           pinnedTractPolygon={pinnedTractPolygon}
           sharedPin={sharedPin}
           sharedArea={sharedArea}
-          subjectTractId={subjectTractId}
+          subjectTractId={subjectTractId || (subjectParcel ? `parcel:${subjectParcel.ll_uuid}` : null)}
+          onFindParcelComparables={handleFindParcelComparables}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
           applyExternalFilters={chatAppliedFilters}
@@ -1127,7 +1186,7 @@ function AccessPortalPageInner() {
               /* Report actions are premium (owner 2026-08-17): passing undefined
                  hides "+ Report" entirely, matching the parcel panel and the
                  mobile tract sheet, which already gate on premium access. */
-              onToggleReport={(!canUseReportsFor(user) && !subjectTractId) ? undefined : (tract) => {
+              onToggleReport={(!canUseReportsFor(user) && !compModeOn) ? undefined : (tract) => {
                 handleToggleReport(tract)
                 setSelectedTract(null)
               }}
@@ -1146,7 +1205,7 @@ function AccessPortalPageInner() {
                  Report was never premium-gated, so gating it here would
                  remove the only way to add a comparable for anyone who
                  reached comp mode without the flag. */
-              compMode={Boolean(subjectTractId)}
+              compMode={compModeOn}
             />
           </motion.div>
         )}
@@ -1157,7 +1216,7 @@ function AccessPortalPageInner() {
         <div className="fixed inset-0 z-[600] bg-black/60 backdrop-blur-sm flex items-center justify-center">
           <div className="bg-gg-gray-900 rounded-2xl p-8 border border-white/10 text-center shadow-2xl">
             <Loader2 className="animate-spin text-gg-pink mx-auto mb-3" size={36} />
-            <p className="text-sm font-medium">Loading Subject Tract...</p>
+            <p className="text-sm font-medium">Loading Subject...</p>
             <p className="text-xs text-gg-gray-400 mt-1">Preparing comparable sales view</p>
           </div>
         </div>
@@ -1294,7 +1353,7 @@ function AccessPortalPageInner() {
           "Show Owned Ground" they were stuck with the owner's dots on the
           map for good. This standalone bubble is the same affordance, in
           the same spot, for anyone who cannot see the chat panel. */}
-      {!subjectTractId && activeSearchQuery &&
+      {!compModeOn && activeSearchQuery &&
         !(user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2">
           <div
@@ -1309,7 +1368,7 @@ function AccessPortalPageInner() {
           </div>
         </div>
       )}
-      {!subjectTractId &&
+      {!compModeOn &&
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
           allowedStates={allowedStates}

@@ -57,6 +57,8 @@ interface SubjectInfo {
   tract_id?: string | null
   subject_auction_date?: string | null
   subject_company?: string | null
+  /** 'parcel' when a Regrid parcel (not a tract) is the subject. */
+  subject_kind?: string | null
 }
 
 interface PortalComparablesReportPanelProps {
@@ -220,7 +222,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
           <div className="bg-gg-pink/5 rounded-xl p-4 border border-gg-pink/20">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-2 h-2 rounded-full bg-gg-pink" />
-              <span className="text-xs font-semibold text-gg-pink uppercase tracking-wider">Subject Tract</span>
+              <span className="text-xs font-semibold text-gg-pink uppercase tracking-wider">{subjectInfo.subject_kind === 'parcel' ? 'Subject Parcel' : 'Subject Tract'}</span>
             </div>
             <div className="text-sm font-bold mb-1">
               {subjectInfo.county}, {subjectInfo.state}
