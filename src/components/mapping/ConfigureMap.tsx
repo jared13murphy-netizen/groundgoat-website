@@ -3719,6 +3719,13 @@ export default function ConfigureMap() {
   // (reviewer 10/1: every tract lives in local state until Save Tract).
   const anyUnsaved = dirty || nameDirty || (drawing && draft.length > 0)
     || tracts.some((t) => !t.savedId || !t.saved)
+  /** Every way out of this screen (Back to Map, the Map Portfolio link,
+   *  Return to Portfolio) goes through here: with ANY unsaved work it
+   *  shows the "Leave without saving?" confirmation first (owner 10/2). */
+  const leaveScreen = useCallback((to: string) => {
+    if (anyUnsaved) { setLeaveTo(to); setConfirmWhat('leave'); return }
+    window.location.href = to
+  }, [anyUnsaved])
   useEffect(() => {
     if (!anyUnsaved) return
     const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
@@ -3764,8 +3771,7 @@ export default function ConfigureMap() {
             where a back control belongs — the panel is for the tract. */}
         <button
           onClick={() => {
-            if (dirty || tracts.some((t) => !t.savedId || !t.saved)) { setLeaveTo('/access'); setConfirmWhat('leave'); return }
-            window.location.href = '/access'
+            leaveScreen('/access')
           }}
           style={{
             position: 'absolute', top: 14, left: 14, zIndex: 30,
@@ -3841,6 +3847,22 @@ export default function ConfigureMap() {
               boxShadow: '0 2px 8px rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
             }}>
             Aerial: {aerialYear === null ? 'Latest' : aerialYear}
+          </button>
+          {/* Owner 10/2: a way back to the Map Portfolio from the map
+              itself, under the aerial-year button. Same unsaved-work
+              confirmation as every other exit. */}
+          <button
+            type="button"
+            onClick={() => leaveScreen('/map-portfolio')}
+            title="Back to your Map Portfolio"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
+              padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
+              background: 'rgba(15,21,32,0.85)', border: '1px solid rgba(255,255,255,0.18)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
+            }}>
+            <ArrowLeft size={14} /> Return to Portfolio
           </button>
         </div>
         {/* Bottom gradient (owner item 3, 2026-09-22): "these buttons
@@ -4239,12 +4261,7 @@ export default function ConfigureMap() {
                     /access. */}
                 <button
                   type="button"
-                  onClick={() => {
-                    if (dirty || tracts.some((t) => !t.savedId || !t.saved)) {
-                      setLeaveTo('/map-portfolio'); setConfirmWhat('leave'); return
-                    }
-                    window.location.href = '/map-portfolio'
-                  }}
+                  onClick={() => leaveScreen('/map-portfolio')}
                   style={{
                     fontSize: 12, color: '#f58cde', textDecoration: 'none', flex: 'none',
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
