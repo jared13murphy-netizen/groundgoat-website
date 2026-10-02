@@ -3125,7 +3125,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ...(drawEngine?.covered ? [
         `Tillable: ${Number(drawEngine.tillable_acres || 0).toFixed(1)} ac`,
         `Timber: ${Number(drawEngine.timber_acres || 0).toFixed(1)} ac`,
-        `Pasture: ${Number(drawEngine.pasture_acres || 0).toFixed(1)} ac`,
         `Water: ${Number(drawEngine.water_acres || 0).toFixed(1)} ac`,
         ...(drawEngine.rating != null ? [`Soil rating (${drawEngine.rating_type}): ${drawEngine.rating}`] : []),
       ] : []),
@@ -11278,7 +11277,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             </span>
           </div>
           <button
-            onClick={() => setUtilitiesOpen(false)}
+            onClick={() => {
+              // Owner 10/2: closing the panel mid-Quick Draw is the same as
+              // Cancel — the drawing never lingers on the map.
+              if (utilitiesView === 'drawArea') { setDrawPoints([]); setDrawMode(false); setUtilitiesView('menu') }
+              setUtilitiesOpen(false)
+            }}
             aria-label="Close"
             style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 14 }}
           >
@@ -11766,7 +11770,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   {([
                     ['Tillable', drawEngine?.tillable_acres],
                     ['Timber', drawEngine?.timber_acres],
-                    ['Pasture', drawEngine?.pasture_acres],
                     ['Water', drawEngine?.water_acres],
                   ] as [string, number | null | undefined][]).map(([label, v]) => (
                     <div key={label}>

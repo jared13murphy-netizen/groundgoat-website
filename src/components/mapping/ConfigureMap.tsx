@@ -3596,17 +3596,19 @@ export default function ConfigureMap() {
   useEffect(() => {
     // Runs in 'outline' mode too: the tract row in the Tracts card shows
     // the rating in every mode (owner 9/16), not only the Acres card.
-    if (!activeTract || !detail) { setSoil(null); return }
+    if (!activeTract) { setSoil(null); return }
     const tillable = shapes.filter((sh) => sh.cls === 'tillable')
       .map((sh) => polysToGeometry(sh.polys)).filter(Boolean)
     if (!tillable.length) { setSoil(null); return }
-    const st = detail.parcel?.state || null
-    if (!st) return
+    // A hand-drawn tract has no parcel record yet, so no state here — the
+    // server infers it from the ground under the polygons (owner 10/2:
+    // the soil rating never calculated for a newly drawn tract).
+    const st = detail?.parcel?.state || activeTract.state || null
     let cancelled = false
     setSoilBusy(true)
     const t = setTimeout(async () => {
       try {
-        const r = await previewSoil(tillable, st, detail.boundary)
+        const r = await previewSoil(tillable, st, detail?.boundary ?? polysToGeometry(activeTract.boundary))
         if (!cancelled) {
           setSoil({ rating: r.rating, rating_type: r.rating_type })
           // Keep it on the tract itself so the row still shows it after
