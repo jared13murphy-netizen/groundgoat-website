@@ -51,7 +51,7 @@ import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 // 2a09575, 8/27); they now live as Utilities-panel tiles instead, plus a
 // "Show My Project Maps" toggle. All three share one gate — see
 // canUseProjectMaps below.
-import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract } from '@/lib/configurableMapping'
+import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract, drawStats, type DrawStats } from '@/lib/configurableMapping'
 
 // Zoom split for the user's project tracts (owner 9/22): below this the
 // map shows one badge per PROJECT, above it the individual tract names.
@@ -3087,11 +3087,41 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     : null
   const drawAcres = drawPoints.length >= 3 ? acresFromRing(drawPoints) : 0
+  // Owner 10/2: Quick Draw shows tillable / timber / pasture / water acres
+  // and the state soil rating from the engine (IL IA IN MO NE KS), not
+  // just total acres. Debounced so a dot-by-dot draw fires one call.
+  const [drawEngine, setDrawEngine] = useState<DrawStats | null>(null)
+  const [drawEngineLoading, setDrawEngineLoading] = useState(false)
+  useEffect(() => {
+    if (drawPoints.length < 3) { setDrawEngine(null); return }
+    let cancelled = false
+    setDrawEngineLoading(true)
+    const t = setTimeout(async () => {
+      try {
+        const ring = drawPoints.map((p) => [p.lng, p.lat])
+        ring.push(ring[0])
+        const r = await drawStats({ type: 'Polygon', coordinates: [ring] })
+        if (!cancelled) setDrawEngine(r)
+      } catch {
+        if (!cancelled) setDrawEngine(null)
+      } finally {
+        if (!cancelled) setDrawEngineLoading(false)
+      }
+    }, 600)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [drawPoints])
 
   const handleCopyDrawStats = useCallback(async () => {
     if (drawPoints.length < 3 || !drawCentroid) return
     const lines = [
       `Acres: ${formatDrawAcres(drawAcres)}`,
+      ...(drawEngine?.covered ? [
+        `Tillable: ${formatDrawAcres(drawEngine.tillable_acres || 0)}`,
+        `Timber: ${formatDrawAcres(drawEngine.timber_acres || 0)}`,
+        `Pasture: ${formatDrawAcres(drawEngine.pasture_acres || 0)}`,
+        `Water: ${formatDrawAcres(drawEngine.water_acres || 0)}`,
+        ...(drawEngine.rating != null ? [`Soil rating (${drawEngine.rating_type}): ${drawEngine.rating}`] : []),
+      ] : []),
       `Points: ${drawPoints.length}`,
       `Center: ${drawCentroid.lat.toFixed(6)}, ${drawCentroid.lng.toFixed(6)}`,
     ]
@@ -3105,7 +3135,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // clipboard permission denied or unavailable — silently no-op,
       // same as the rest of this file's best-effort clipboard calls.
     }
-  }, [drawPoints, drawCentroid, drawAcres, drawGeo])
+  }, [drawPoints, drawCentroid, drawAcres, drawGeo, drawEngine])
 
   const handleClearDrawArea = useCallback(() => {
     setDrawPoints([])
@@ -11713,6 +11743,37 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   {drawPoints.length >= 3 ? formatDrawAcres(drawAcres) : '—'}
                 </div>
               </div>
+
+              {drawPoints.length >= 3 && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {([
+                    ['Tillable', drawEngine?.tillable_acres],
+                    ['Timber', drawEngine?.timber_acres],
+                    ['Pasture', drawEngine?.pasture_acres],
+                    ['Water', drawEngine?.water_acres],
+                  ] as [string, number | null | undefined][]).map(([label, v]) => (
+                    <div key={label}>
+                      <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>{label}</div>
+                      <div style={{ color: '#fff', fontSize: 13 }}>
+                        {drawEngineLoading ? '…' : drawEngine?.covered && v != null ? `${formatDrawAcres(v)} ac` : '—'}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>
+                      Soil rating{drawEngine?.rating_type ? ` (${drawEngine.rating_type})` : ''}
+                    </div>
+                    <div style={{ color: '#fff', fontSize: 13 }}>
+                      {drawEngineLoading ? '…' : drawEngine?.covered && drawEngine.rating != null ? drawEngine.rating : '—'}
+                    </div>
+                    {!drawEngineLoading && drawEngine && !drawEngine.covered && (
+                      <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginTop: 2 }}>
+                        Land types and soil are available in IL, IA, IN, MO, NE and KS.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Points</div>

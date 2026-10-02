@@ -613,6 +613,22 @@ export function normalizeGeometry(boundary: any, polygons: { cls: LandClass; geo
  *  asks the engine about the boundary the user actually drew.
  *  `engine_covered` false = part of it sits on ground the engine has not
  *  published; say so rather than drawing it as bare. */
+/** Quick Draw stats (owner 10/2): engine land-type acres + the state soil
+ *  rating over the tillable ground for ANY drawn polygon; `covered` is
+ *  false outside the six engine states (then only `acres` is real). */
+export interface DrawStats {
+  acres: number; state: string | null; county: string | null; covered: boolean
+  tillable_acres: number | null; timber_acres: number | null; pasture_acres: number | null
+  water_acres: number | null; rating: number | null; rating_type: string | null
+}
+export function drawStats(boundary: any) {
+  return j<DrawStats>('/api/mapping/geometry/draw-stats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ boundary }),
+  })
+}
+
 export function classifyBoundary(boundary: any, state?: string | null) {
   return j<{ polygons: { cls: LandClass; acres: number; geometry: any }[]
              source: string; engine_covered: boolean; state: string | null }>(
