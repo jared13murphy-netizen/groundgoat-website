@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Mail, Download, Check, Loader2, Layers } from 'lucide-react'
+import { Mail, Download, Check, Loader2, Layers, BarChart3 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
@@ -232,11 +232,15 @@ interface LandDetailPanelProps {
   // Returns a promise so the button can show a spinner until the dots
   // actually land. `void` is still accepted for callers that don't.
   onShowOwnedGround?: (ownerName: string, state?: string | null, county?: string | null, lat?: number | null, lng?: number | null) => void | Promise<void>
+  /** "Find Comps" (owner 10/2): make this parcel the comparables subject.
+      Shown only with report access (same firm/premium gate as the backend
+      endpoint) and a resolved ll_uuid; hidden in comp mode. */
+  onFindComparables?: (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null }) => void
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround, onFindComparables }: LandDetailPanelProps) {
   // Show Owned Ground fetch is async and can take a moment on a large
   // owner; without a spinner the button looks dead and gets double-clicked
   // (owner 2026-08-20). Mobile already had one — this brings web to parity.
@@ -1226,6 +1230,40 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 </>
               )}
             </div>
+            {/* Find Comps (owner 10/2) — same look as the tract slide-out's
+                button (pink tint + BarChart3), own row under the report
+                buttons. Needs a resolved ll_uuid (the comps endpoint is
+                keyed on it) and the same report access as the backend. */}
+            {onFindComparables && canUseReports && !compMode && llUuid && (
+              <button
+                onClick={() => onFindComparables({
+                  ll_uuid: llUuid,
+                  county: county && county !== 'Unknown' ? county : '',
+                  state: state && state !== 'Unknown' ? state : '',
+                  lat: ownedGroundLat,
+                  lng: ownedGroundLng,
+                })}
+                style={{
+                  width: '100%',
+                  marginTop: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '11px 10px',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: '1px solid rgba(233,30,140,0.3)',
+                  background: 'rgba(233,30,140,0.08)',
+                  color: '#E91E8C',
+                  cursor: 'pointer',
+                }}
+              >
+                <BarChart3 size={14} />
+                Find Comps
+              </button>
+            )}
             {/* Success is no longer reported here: the job is only queued
                 at this point, so the floating ReportJobsIndicator (root
                 layout) shows the real "sent" confirmation once it's

@@ -1620,6 +1620,9 @@ interface ExploreMapProps {
       boundary always shows up after a zoom-to-tract action. Same
       single-ring-or-list-of-rings shape as zoomToBoundsSignal.coords. */
   pinnedTractPolygon?: { id: string; coords: [number, number][] | [number, number][][] } | null
+  /** Parcel slide-out "Find Comps": hands the parcel up to the page, which
+      enters parcel-subject comp mode. Absent = no button. */
+  onFindParcelComparables?: (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null }) => void
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
@@ -1976,7 +1979,7 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -10996,6 +10999,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
            one panel. */
         compMode={Boolean(subjectTractId)}
         onShowOwnedGround={onShowOwnedGround}
+        onFindComparables={onFindParcelComparables ? (p) => {
+          setLandDetail(null)
+          onFindParcelComparables(p)
+        } : undefined}
       />
 
       {/* Goat Search animation overlay — renders while a chat-driven
