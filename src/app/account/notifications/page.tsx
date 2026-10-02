@@ -1,10 +1,20 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+// Notifications settings — same shape as the app's screen (owner 10/2: "the
+// website and app need to have the same push notification capabilities"):
+//   1. Push notifications master switch
+//   2. My counties — one row per subscribed state, opens a county picker
+//      (checked = alerts on; nothing saved until Save)
+//   3. What to send me — the four core switches
+//   4. More options — the full per-category email + push lists, collapsed
+// Endpoints are the ones the app uses: /api/me/notification-preferences,
+// /api/me/notification-geo, /api/states/{id}/counties.
+
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bell, ChevronDown, ChevronUp, Check, Loader2 } from 'lucide-react'
+import { ArrowLeft, Bell, ChevronDown, ChevronUp, ChevronRight, Loader2, Search, X } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -51,42 +61,46 @@ interface County {
   name: string
 }
 
-// Per-row save state for preference toggles: idle | saving | saved | error
-type RowState = 'idle' | 'saving' | 'saved' | 'error'
+interface PrefChange {
+  channel: 'email' | 'push'
+  category: string
+  enabled: boolean
+}
 
-// Per-county save state: idle | saving | error
-type CountyRowState = 'idle' | 'saving' | 'error'
+// The four simple switches. Keys match the server catalog
+// (notification_catalog.py); labels are the fallback if a key ever changes.
+const CORE_CATEGORIES = [
+  { category: 'new_listings', label: 'New listings' },
+  { category: 'auction_reminders', label: 'Auction reminders' },
+  { category: 'results', label: 'Auction results' },
+  { category: 'weekly_recap', label: 'Weekly Recap' },
+]
+
+const SAVE_CONCURRENCY = 6
+
+const prefKey = (p: { channel: string; category: string }) => `${p.channel}:${p.category}`
 
 // ─── Toggle ──────────────────────────────────────────────────────────────────
 
-function Toggle({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: boolean
-  disabled: boolean
-  onChange: () => void
-}) {
+function Toggle({ value, disabled, onChange }: { value: boolean; disabled: boolean; onChange: () => void }) {
   return (
     <div className="flex items-center justify-center min-w-[44px] min-h-[44px]">
       <button
+        type="button"
         role="switch"
         aria-checked={value}
         onClick={onChange}
         disabled={disabled}
         className={[
-          'relative w-10 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gg-pink',
+          'relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gg-pink',
           value ? 'bg-gg-pink' : 'bg-gg-gray-600',
           disabled ? 'opacity-50 pointer-events-none' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
+        ].filter(Boolean).join(' ')}
       >
         <span
           className={[
             'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200',
-            value ? 'translate-x-4' : 'translate-x-0',
+            value ? 'translate-x-5' : 'translate-x-0',
           ].join(' ')}
         />
       </button>
@@ -94,481 +108,256 @@ function Toggle({
   )
 }
 
-// ─── Skeleton rows ────────────────────────────────────────────────────────────
-
-function SkeletonRow({ last = false }: { last?: boolean }) {
-  return (
-    <div
-      className={`flex items-center justify-between py-4 ${last ? '' : 'border-b border-gg-gray-700'}`}
-    >
-      <div className="flex-1 space-y-2 pr-4">
-        <div className="h-4 w-32 bg-gg-gray-700 animate-pulse rounded" />
-        <div className="h-3 w-56 bg-gg-gray-700 animate-pulse rounded" />
-      </div>
-      <div className="w-10 h-6 bg-gg-gray-700 animate-pulse rounded-full" />
-    </div>
-  )
-}
-
 // ─── Preference row ───────────────────────────────────────────────────────────
 
 function PrefRow({
-  entry,
+  label,
+  description,
   isLast,
   locked,
   value,
-  rowState,
+  busy,
   onToggle,
 }: {
-  entry: CatalogEntry
+  label: string
+  description?: string | null
   isLast: boolean
   locked: boolean
   value: boolean
-  rowState: RowState
+  busy: boolean
   onToggle: () => void
 }) {
-  const isSaving = rowState === 'saving'
-
-  if (locked) {
-    return (
-      <div
-        className={`flex items-center justify-between py-4 ${isLast ? '' : 'border-b border-gg-gray-700'}`}
-      >
-        <div className="flex-1 pr-4 min-w-0">
-          <span className="text-sm font-medium text-white">{entry.label}</span>
-          {entry.description && (
-            <p className="text-xs text-gg-gray-400 mt-0.5">{entry.description}</p>
-          )}
-        </div>
-        <span className="text-xs text-gg-gray-500 whitespace-nowrap bg-gg-gray-700 px-2 py-1 rounded-full">
+  return (
+    <div className={`flex items-center justify-between py-3.5 ${isLast ? '' : 'border-b border-gg-gray-700'}`}>
+      <div className="flex-1 pr-4 min-w-0">
+        <span className="text-sm font-medium text-white">{label}</span>
+        {description && <p className="text-xs text-gg-gray-400 mt-0.5">{description}</p>}
+      </div>
+      {locked ? (
+        <span className="text-xs text-gg-gray-400 whitespace-nowrap bg-gg-gray-700 px-2 py-1 rounded-full">
           Always on
         </span>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className={`flex items-center justify-between py-4 ${isLast ? '' : 'border-b border-gg-gray-700'}`}
-    >
-      <div className="flex-1 pr-4 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-white">{entry.label}</span>
-          {rowState === 'saved' && (
-            <span className="flex items-center gap-1 text-xs text-green-400">
-              <Check size={12} />
-              Saved
-            </span>
-          )}
-          {rowState === 'error' && (
-            <button
-              onClick={onToggle}
-              disabled={isSaving}
-              className="text-xs text-red-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Could not save. Tap to try again.
-            </button>
-          )}
-        </div>
-        {entry.description && (
-          <p className="text-xs text-gg-gray-400 mt-0.5">{entry.description}</p>
-        )}
-      </div>
-      <Toggle value={value} disabled={isSaving} onChange={onToggle} />
-    </div>
-  )
-}
-
-// ─── Channel sub-section ──────────────────────────────────────────────────────
-
-function ChannelSection({
-  title,
-  channel,
-  catalog,
-  prefs,
-  lockedSet,
-  rowStates,
-  loading,
-  onToggle,
-}: {
-  title: string
-  channel: 'email' | 'push'
-  catalog: CatalogEntry[]
-  prefs: Record<string, boolean>
-  lockedSet: Set<string>
-  // rowStates keyed by `${channel}:${category}`
-  rowStates: Record<string, RowState>
-  loading: boolean
-  onToggle: (category: string, channel: string) => void
-}) {
-  if (!loading && catalog.length === 0) return null
-
-  return (
-    <div className="mb-6">
-      <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-4">
-        {title}
-      </h3>
-      {loading ? (
-        <>
-          <SkeletonRow />
-          <SkeletonRow />
-          <SkeletonRow last />
-        </>
       ) : (
-        catalog.map((entry, idx) => {
-          const isLast = idx === catalog.length - 1
-          const locked = lockedSet.has(entry.category)
-          const value = prefs[entry.category] ?? true
-          const rowStateKey = `${channel}:${entry.category}`
-          const rowState = rowStates[rowStateKey] ?? 'idle'
-          return (
-            <PrefRow
-              key={entry.category}
-              entry={entry}
-              isLast={isLast}
-              locked={locked}
-              value={value}
-              rowState={rowState}
-              onToggle={() => onToggle(entry.category, channel)}
-            />
-          )
-        })
+        <Toggle value={value} disabled={busy} onChange={onToggle} />
       )}
     </div>
   )
 }
 
-// ─── State accordion ──────────────────────────────────────────────────────────
+// ─── County picker (modal) ────────────────────────────────────────────────────
+//
+// Checked = alerts ON = NOT muted. Nothing is written until Save; Save sends
+// one PUT /api/me/notification-geo per changed county (muted = !checked).
 
-function StateAccordion({
+function CountyPicker({
   state,
-  mutedForState,
-  autoExpand,
+  counties,
+  mutedSet,
+  onClose,
+  onSaved,
+  onReload,
 }: {
   state: GeoState
-  mutedForState: Set<string>
-  autoExpand: boolean
+  counties: County[] | null | undefined
+  mutedSet: Set<string>
+  onClose: () => void
+  onSaved: (abbrev: string, nextMuted: Set<string>) => void
+  onReload: () => void
 }) {
-  const [open, setOpen] = useState(autoExpand)
-  const [counties, setCounties] = useState<County[] | null>(null)
-  const [loadingCounties, setLoadingCounties] = useState(false)
-  const [countyError, setCountyError] = useState(false)
+  const [checked, setChecked] = useState<Set<string>>(new Set())
   const [search, setSearch] = useState('')
-  // Per-county muted state (local mirror)
-  const [muted, setMuted] = useState<Set<string>>(new Set(mutedForState))
-  // Per-county save state
-  const [countyStates, setCountyStates] = useState<Record<string, CountyRowState>>({})
-  // In-flight guard per county name
-  const inFlight = useRef<Set<string>>(new Set())
-  // Error messages per county
-  const [countyErrors, setCountyErrors] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const mutedRef = useRef(mutedSet)
+  mutedRef.current = mutedSet
 
-  // Load counties on first expand
-  const loadCounties = useCallback(async () => {
-    if (counties !== null) return // already cached
-    setLoadingCounties(true)
-    setCountyError(false)
-    try {
-      const res = await fetchWithAuth(`${API_URL}/api/states/${state.stateId}/counties`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: County[] = await res.json()
-      setCounties(data)
-    } catch {
-      setCountyError(true)
-    } finally {
-      setLoadingCounties(false)
-    }
-  // `counties` is intentionally omitted: the early-return guard (`if (counties !== null) return`)
-  // reads the state at call time via the closure captured inside the async body,
-  // so including it in the dep array would recreate the callback on every county load
-  // without changing behavior. The guard itself is what prevents duplicate fetches.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.stateId])
-
-  const handleToggle = useCallback(() => {
-    const next = !open
-    setOpen(next)
-    if (next && counties === null) {
-      loadCounties()
-    }
-  }, [open, counties, loadCounties])
-
-  // Auto-expand on mount if requested
   useEffect(() => {
-    if (autoExpand && counties === null) {
-      loadCounties()
+    if (counties) {
+      setChecked(new Set(counties.filter((c) => !mutedRef.current.has(c.name)).map((c) => c.name)))
+      setSearch('')
+      setSaveError(null)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.abbrev, counties])
+
+  // Escape closes, like the app's back button.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !saving) onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, saving])
+
+  const toggle = useCallback((name: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name); else next.add(name)
+      return next
+    })
   }, [])
 
-  const handleCountyToggle = async (countyName: string) => {
-    if (inFlight.current.has(countyName)) return
-    inFlight.current.add(countyName)
+  const visible = useMemo(() => {
+    if (!counties) return []
+    const q = search.trim().toLowerCase()
+    return q ? counties.filter((c) => c.name.toLowerCase().includes(q)) : counties
+  }, [counties, search])
 
-    const currentlyMuted = muted.has(countyName)
-    const newMuted = !currentlyMuted // toggling ON means unmuting; toggling OFF means muting
+  // Counties whose draft differs from what is saved on the server.
+  const changes = useMemo(() => {
+    if (!counties) return []
+    return counties.filter((c) => checked.has(c.name) === mutedSet.has(c.name))
+  }, [counties, checked, mutedSet])
 
-    // Optimistic update
-    setMuted((prev) => {
-      const next = new Set(prev)
-      if (newMuted) {
-        next.add(countyName)
-      } else {
-        next.delete(countyName)
-      }
-      return next
-    })
-    setCountyStates((prev) => ({ ...prev, [countyName]: 'saving' }))
-    setCountyErrors((prev) => {
-      const next = { ...prev }
-      delete next[countyName]
-      return next
-    })
-
-    try {
-      const res = await fetchWithAuth(`${API_URL}/api/me/notification-geo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          state: state.abbrev,
-          county: countyName,
-          muted: newMuted,
-        }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setCountyStates((prev) => ({ ...prev, [countyName]: 'idle' }))
-    } catch {
-      // Revert
-      setMuted((prev) => {
-        const next = new Set(prev)
-        if (newMuted) {
-          next.delete(countyName)
-        } else {
-          next.add(countyName)
+  const handleSave = useCallback(async () => {
+    if (changes.length === 0 || saving) return
+    setSaving(true)
+    setSaveError(null)
+    const nextMuted = new Set(mutedRef.current)
+    let failed = 0
+    let i = 0
+    const worker = async () => {
+      while (i < changes.length) {
+        const county = changes[i++]
+        const muted = !checked.has(county.name)
+        try {
+          const res = await fetchWithAuth(`${API_URL}/api/me/notification-geo`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: state.abbrev, county: county.name, muted }),
+          })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          if (muted) nextMuted.add(county.name); else nextMuted.delete(county.name)
+        } catch {
+          failed += 1
         }
-        return next
-      })
-      setCountyStates((prev) => ({ ...prev, [countyName]: 'error' }))
-      setCountyErrors((prev) => ({ ...prev, [countyName]: 'Could not save. Try again.' }))
-    } finally {
-      inFlight.current.delete(countyName)
+      }
     }
-  }
-
-  const handleSelectAll = () => {
-    if (!counties) return
-    // Snapshot which counties need to change NOW (currently muted → unmute).
-    // Using muted directly here is safe — we only read the snapshot to build
-    // the work list; each county's own PUT+revert uses functional setState.
-    const toUnmute = counties.filter((c) => muted.has(c.name) && !inFlight.current.has(c.name))
-    for (const county of toUnmute) {
-      const countyName = county.name
-      if (inFlight.current.has(countyName)) continue
-      inFlight.current.add(countyName)
-
-      // Optimistic: unmute this county
-      setMuted((prev) => {
-        const next = new Set(prev)
-        next.delete(countyName)
-        return next
-      })
-      setCountyStates((prev) => ({ ...prev, [countyName]: 'saving' }))
-      setCountyErrors((prev) => {
-        const next = { ...prev }
-        delete next[countyName]
-        return next
-      })
-
-      fetchWithAuth(`${API_URL}/api/me/notification-geo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: state.abbrev, county: countyName, muted: false }),
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          setCountyStates((prev) => ({ ...prev, [countyName]: 'idle' }))
-        })
-        .catch(() => {
-          // Revert only this county
-          setMuted((prev) => {
-            const next = new Set(prev)
-            next.add(countyName)
-            return next
-          })
-          setCountyStates((prev) => ({ ...prev, [countyName]: 'error' }))
-          setCountyErrors((prev) => ({ ...prev, [countyName]: 'Could not save. Try again.' }))
-        })
-        .finally(() => {
-          inFlight.current.delete(countyName)
-        })
+    await Promise.all(Array.from({ length: Math.min(SAVE_CONCURRENCY, changes.length) }, worker))
+    onSaved(state.abbrev, nextMuted)
+    setSaving(false)
+    if (failed > 0) {
+      setSaveError(`${failed} ${failed === 1 ? 'county' : 'counties'} didn't save. Try again.`)
+    } else {
+      onClose()
     }
-  }
+  }, [state.abbrev, changes, checked, saving, onSaved, onClose])
 
-  const handleClearAll = () => {
-    if (!counties) return
-    // Snapshot which counties need to change NOW (currently unmuted → mute).
-    const toMute = counties.filter((c) => !muted.has(c.name) && !inFlight.current.has(c.name))
-    for (const county of toMute) {
-      const countyName = county.name
-      if (inFlight.current.has(countyName)) continue
-      inFlight.current.add(countyName)
-
-      // Optimistic: mute this county
-      setMuted((prev) => {
-        const next = new Set(prev)
-        next.add(countyName)
-        return next
-      })
-      setCountyStates((prev) => ({ ...prev, [countyName]: 'saving' }))
-      setCountyErrors((prev) => {
-        const next = { ...prev }
-        delete next[countyName]
-        return next
-      })
-
-      fetchWithAuth(`${API_URL}/api/me/notification-geo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: state.abbrev, county: countyName, muted: true }),
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          setCountyStates((prev) => ({ ...prev, [countyName]: 'idle' }))
-        })
-        .catch(() => {
-          // Revert only this county
-          setMuted((prev) => {
-            const next = new Set(prev)
-            next.delete(countyName)
-            return next
-          })
-          setCountyStates((prev) => ({ ...prev, [countyName]: 'error' }))
-          setCountyErrors((prev) => ({ ...prev, [countyName]: 'Could not save. Try again.' }))
-        })
-        .finally(() => {
-          inFlight.current.delete(countyName)
-        })
-    }
-  }
-
-  const filteredCounties = counties
-    ? counties.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
-    : []
-
-  const countyCount = counties ? counties.length : null
+  const total = counties ? counties.length : 0
+  const onCount = counties ? counties.filter((c) => checked.has(c.name)).length : 0
 
   return (
-    <div className="border border-gg-gray-700 rounded-xl overflow-hidden mb-3">
-      {/* Accordion header */}
-      <button
-        onClick={handleToggle}
-        className="w-full flex items-center justify-between px-5 py-4 bg-gg-gray-800 hover:bg-gg-gray-700 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">{state.name}</span>
-          {countyCount !== null && (
-            <span className="text-xs text-gg-gray-400">
-              ({countyCount} {countyCount === 1 ? 'county' : 'counties'})
-            </span>
-          )}
-          {loadingCounties && <Loader2 size={14} className="animate-spin text-gg-pink" />}
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-6" role="dialog" aria-modal="true" aria-label={`${state.name} counties`}>
+      <div className="w-full sm:max-w-lg bg-gg-gray-900 border border-gg-gray-700 rounded-t-2xl sm:rounded-2xl flex flex-col max-h-[92vh] sm:max-h-[80vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-gg-gray-700">
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-white truncate">{state.name}</h2>
+            <p className="text-xs text-gg-gray-400">
+              {counties ? `${onCount} of ${total} counties on` : 'Loading counties…'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            aria-label="Close"
+            className="w-9 h-9 rounded-lg bg-gg-gray-800 hover:bg-gg-gray-700 text-gg-gray-300 hover:text-white flex items-center justify-center disabled:opacity-50"
+          >
+            <X size={18} />
+          </button>
         </div>
-        {open ? (
-          <ChevronUp size={16} className="text-gg-gray-400 flex-shrink-0" />
-        ) : (
-          <ChevronDown size={16} className="text-gg-gray-400 flex-shrink-0" />
-        )}
-      </button>
 
-      {/* Accordion body */}
-      {open && (
-        <div className="bg-gg-gray-900 px-5 py-4">
-          {countyError ? (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-red-400">Failed to load counties.</p>
+        {/* Search + bulk */}
+        <div className="px-5 py-3 space-y-2 border-b border-gg-gray-700">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-500" />
+            <input
+              type="text"
+              placeholder="Search counties…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-white text-gg-black placeholder-gg-gray-500 border border-gg-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:border-gg-pink focus:outline-none"
+            />
+          </div>
+          {counties && counties.length > 0 && (
+            <div className="flex gap-2">
               <button
-                onClick={() => {
-                  setCountyError(false)
-                  loadCounties()
-                }}
-                className="text-sm text-gg-pink hover:underline"
+                type="button"
+                onClick={() => setChecked(new Set(counties.map((c) => c.name)))}
+                className="px-3 py-1.5 rounded-lg bg-gg-gray-700 hover:bg-gg-gray-600 text-xs font-medium text-white"
               >
+                All on
+              </button>
+              <button
+                type="button"
+                onClick={() => setChecked(new Set())}
+                className="px-3 py-1.5 rounded-lg bg-gg-gray-700 hover:bg-gg-gray-600 text-xs font-medium text-white"
+              >
+                All off
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto px-5">
+          {counties === undefined ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 size={20} className="animate-spin text-gg-pink" />
+            </div>
+          ) : counties === null ? (
+            <div className="flex items-center justify-between py-6">
+              <p className="text-sm text-red-400">Couldn&apos;t load counties.</p>
+              <button type="button" onClick={onReload} className="px-3 py-1.5 rounded-lg bg-gg-pink text-white text-xs font-semibold">
                 Try again
               </button>
             </div>
-          ) : loadingCounties ? (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 size={20} className="animate-spin text-gg-pink" />
-            </div>
-          ) : counties !== null && counties.length === 0 ? (
-            <p className="text-sm text-gg-gray-400">No counties available for this state.</p>
-          ) : counties !== null ? (
-            <>
-              {/* Search + Select all / Clear all */}
-              <div className="mb-3 space-y-2">
-                <input
-                  type="text"
-                  placeholder="Search counties…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
-                />
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleSelectAll}
-                    className="text-xs text-gg-pink hover:underline"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    onClick={handleClearAll}
-                    className="text-xs text-gg-gray-400 hover:text-white hover:underline"
-                  >
-                    Clear all
-                  </button>
-                </div>
-              </div>
-
-              {/* County list */}
-              {filteredCounties.length === 0 ? (
-                <p className="text-sm text-gg-gray-400 py-2">No counties match.</p>
-              ) : (
-                <div className="max-h-72 overflow-y-auto -mx-5 px-5 space-y-0">
-                  {filteredCounties.map((county, idx) => {
-                    const isLast = idx === filteredCounties.length - 1
-                    const isMuted = muted.has(county.name)
-                    const isOn = !isMuted
-                    const cState = countyStates[county.name] ?? 'idle'
-                    const isSaving = cState === 'saving'
-                    const errMsg = countyErrors[county.name]
-
-                    return (
-                      <div
-                        key={county.id}
-                        className={`flex items-center justify-between py-3 ${isLast ? '' : 'border-b border-gg-gray-800'}`}
-                      >
-                        <div className="flex-1 pr-4 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm text-white">{county.name}</span>
-                            {errMsg && (
-                              <span className="text-xs text-red-400">{errMsg}</span>
-                            )}
-                          </div>
-                        </div>
-                        <Toggle
-                          value={isOn}
-                          disabled={isSaving}
-                          onChange={() => handleCountyToggle(county.name)}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </>
-          ) : null}
+          ) : visible.length === 0 ? (
+            <p className="text-sm text-gg-gray-400 py-6">No counties match.</p>
+          ) : (
+            visible.map((county, idx) => {
+              const on = checked.has(county.name)
+              return (
+                <label
+                  key={county.id}
+                  className={`flex items-center justify-between py-3 cursor-pointer ${idx === visible.length - 1 ? '' : 'border-b border-gg-gray-800'}`}
+                >
+                  <span className="text-sm text-white">{county.name}</span>
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggle(county.name)}
+                    className="w-5 h-5 accent-[#f58cde] rounded"
+                    aria-label={`${county.name} alerts`}
+                  />
+                </label>
+              )
+            })
+          )}
         </div>
-      )}
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-gg-gray-700 space-y-2">
+          {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-lg bg-gg-gray-700 hover:bg-gg-gray-600 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || changes.length === 0}
+              className="flex-1 py-2.5 rounded-lg bg-gg-pink hover:bg-gg-pink-dark text-sm font-semibold text-white disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving && <Loader2 size={14} className="animate-spin" />}
+              {changes.length > 0 ? `Save ${changes.length} ${changes.length === 1 ? 'change' : 'changes'}` : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -578,215 +367,161 @@ function StateAccordion({
 export default function NotificationsPage() {
   const router = useRouter()
 
-  // ── Prefs state ─────────────────────────────────────────────────────────────
-  const [prefsLoading, setPrefsLoading] = useState(true)
-  const [prefsFetchError, setPrefsFetchError] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
-  // Local mirror: `${channel}:${category}` → enabled
-  const [prefs, setPrefs] = useState<Record<string, boolean>>({})
-  // Per-row UI state keyed by `${channel}:${category}`
-  const [rowStates, setRowStates] = useState<Record<string, RowState>>({})
-  // Set of `${channel}:${category}` that are locked
-  const [lockedKeys, setLockedKeys] = useState<Set<string>>(new Set())
-  // Timeout IDs for "Saved" indicator — cleared on unmount
-  const savedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-  // In-flight guard keyed by `${channel}:${category}`
-  const inFlight = useRef<Set<string>>(new Set())
+  const [preferences, setPreferences] = useState<Preference[]>([])
+  const prefsRef = useRef<Preference[]>([])
+  prefsRef.current = preferences
+  const [prefBusy, setPrefBusy] = useState<Set<string>>(new Set())
+  const [prefError, setPrefError] = useState<string | null>(null)
+  const [showMore, setShowMore] = useState(false)
 
-  // ── Geo state ────────────────────────────────────────────────────────────────
-  const [geoLoading, setGeoLoading] = useState(true)
-  const [geoFetchError, setGeoFetchError] = useState(false)
+  const [geoError, setGeoError] = useState<string | null>(null)
   const [geoStates, setGeoStates] = useState<GeoState[]>([])
-  const [geoMuted, setGeoMuted] = useState<MutedEntry[]>([])
-  // Whether the user has location-enabled categories (determines if we even call geo)
-  const [hasLocationCategories, setHasLocationCategories] = useState(false)
+  const [mutedByState, setMutedByState] = useState<Record<string, Set<string>>>({})
+  // stateId -> counties | null (failed) | undefined (loading)
+  const [countiesByState, setCountiesByState] = useState<Record<number, County[] | null | undefined>>({})
+  const [pickerState, setPickerState] = useState<GeoState | null>(null)
 
-  // ── Load prefs ───────────────────────────────────────────────────────────────
-
-  const loadPrefs = useCallback(async () => {
-    setPrefsLoading(true)
-    setPrefsFetchError(false)
-
-    const token = localStorage.getItem('auth_token')
-    if (!token) {
-      router.push('/signin')
-      return
+  const loadCounties = useCallback(async (state: GeoState) => {
+    setCountiesByState((prev) => ({ ...prev, [state.stateId]: undefined }))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/states/${state.stateId}/counties`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setCountiesByState((prev) => ({ ...prev, [state.stateId]: Array.isArray(data) ? data : [] }))
+    } catch {
+      setCountiesByState((prev) => ({ ...prev, [state.stateId]: null }))
     }
+  }, [])
 
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    setGeoError(null)
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+    if (!token) { router.push('/signin'); return }
+    let prefsData: PrefsResponse
     try {
       const res = await fetchWithAuth(`${API_URL}/api/me/notification-preferences`)
-      if (!res.ok) {
-        if (res.status === 401) {
-          router.push('/signin')
-          return
-        }
-        throw new Error(`HTTP ${res.status}`)
-      }
-
-      const data: PrefsResponse = await res.json()
-      setCatalog(data.catalog)
-
-      const prefMap: Record<string, boolean> = {}
-      const locked = new Set<string>()
-      for (const p of data.preferences) {
-        const key = `${p.channel}:${p.category}`
-        prefMap[key] = p.enabled
-        if (p.locked) locked.add(key)
-      }
-      setPrefs(prefMap)
-      setLockedKeys(locked)
-      setRowStates({})
-
-      // Determine if user has any location-gated categories in the catalog
-      // (i.e. categories that appear with push channel — location alerts require subscription)
-      // We gate the geo section: only show it if the user has push prefs returned.
-      const hasPush = data.preferences.some((p) => p.channel === 'push')
-      setHasLocationCategories(hasPush)
+      if (res.status === 401) { router.push('/signin'); return }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      prefsData = await res.json()
     } catch {
-      setPrefsFetchError(true)
-    } finally {
-      setPrefsLoading(false)
-    }
-  }, [router])
-
-  // ── Load geo ─────────────────────────────────────────────────────────────────
-
-  const loadGeo = useCallback(async () => {
-    setGeoLoading(true)
-    setGeoFetchError(false)
-    try {
-      const res = await fetchWithAuth(`${API_URL}/api/me/notification-geo`)
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-      const data: GeoResponse = await res.json()
-      setGeoStates(data.states.sort((a, b) => a.name.localeCompare(b.name)))
-      setGeoMuted(data.muted)
-    } catch {
-      setGeoFetchError(true)
-    } finally {
-      setGeoLoading(false)
-    }
-  }, [])
-
-  // ── Bootstrap ─────────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    const token = localStorage.getItem('auth_token')
-    if (!token) {
-      router.push('/signin')
+      setLoadError(true)
+      setLoading(false)
       return
     }
-    loadPrefs()
-  }, [router, loadPrefs])
-
-  // Start geo load once we know the user has push prefs (location categories)
-  useEffect(() => {
-    if (hasLocationCategories) {
-      loadGeo()
-    } else if (!prefsLoading) {
-      // Prefs loaded and no push categories — skip geo entirely
-      setGeoLoading(false)
+    setCatalog(prefsData.catalog ?? [])
+    setPreferences(prefsData.preferences ?? [])
+    // Geo is optional — the counties section simply hides if it fails.
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/me/notification-geo`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const geo: GeoResponse = await res.json()
+      const byState: Record<string, Set<string>> = {}
+      for (const m of geo.muted ?? []) {
+        if (!byState[m.state]) byState[m.state] = new Set()
+        byState[m.state].add(m.county)
+      }
+      const states = geo.states ?? []
+      setGeoStates(states)
+      setMutedByState(byState)
+      states.forEach((s) => { loadCounties(s) })
+    } catch {
+      setGeoError("Couldn't load your counties.")
+      setGeoStates([])
     }
-  }, [hasLocationCategories, prefsLoading, loadGeo])
+    setLoading(false)
+  }, [router, loadCounties])
 
-  // Clear all pending "Saved" timers on unmount
-  useEffect(() => {
-    const timers = savedTimers.current
-    return () => {
-      for (const id of Object.values(timers)) clearTimeout(id)
-    }
-  }, [])
+  useEffect(() => { load() }, [load])
 
-  // ── Save single preference ────────────────────────────────────────────────────
-
-  const handleToggle = async (category: string, channel: string) => {
-    // rowState and inFlight both keyed by `${channel}:${category}` to avoid
-    // cross-channel collision when a category appears in both email and push.
-    const key = `${channel}:${category}`
-    if (inFlight.current.has(key)) return
-    inFlight.current.add(key)
-
-    const newValue = !prefs[key]
-
-    // Optimistic update
-    setPrefs((prev) => ({ ...prev, [key]: newValue }))
-    setRowStates((prev) => ({ ...prev, [key]: 'saving' }))
-
+  // ── Save one or more category changes in a single PUT (optimistic) ────────
+  const applyPrefChanges = useCallback(async (changes: PrefChange[]) => {
+    if (changes.length === 0) return
+    const keys = changes.map(prefKey)
+    const keySet = new Set(keys)
+    const newValue: Record<string, boolean> = {}
+    changes.forEach((c) => { newValue[prefKey(c)] = c.enabled })
+    const oldValue: Record<string, boolean> = {}
+    prefsRef.current.forEach((p) => { if (keySet.has(prefKey(p))) oldValue[prefKey(p)] = p.enabled })
+    setPrefError(null)
+    setPreferences((prev) => prev.map((p) => (keySet.has(prefKey(p)) ? { ...p, enabled: newValue[prefKey(p)] } : p)))
+    setPrefBusy((prev) => { const next = new Set(prev); keys.forEach((k) => next.add(k)); return next })
     try {
       const res = await fetchWithAuth(`${API_URL}/api/me/notification-preferences`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          preferences: [{ channel, category, enabled: newValue }],
-        }),
+        body: JSON.stringify({ preferences: changes }),
       })
-
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
-      // Re-read canonical state from server response
       const data: PrefsResponse = await res.json()
-      const prefMap: Record<string, boolean> = {}
-      const newLocked = new Set<string>()
-      for (const p of data.preferences) {
-        const k = `${p.channel}:${p.category}`
-        prefMap[k] = p.enabled
-        if (p.locked) newLocked.add(k)
-      }
-      setPrefs(prefMap)
-      setLockedKeys(newLocked)
-
-      setRowStates((prev) => ({ ...prev, [key]: 'saved' }))
-
-      if (savedTimers.current[key]) clearTimeout(savedTimers.current[key])
-      savedTimers.current[key] = setTimeout(() => {
-        setRowStates((prev) => {
-          if (prev[key] === 'saved') return { ...prev, [key]: 'idle' }
-          return prev
-        })
-      }, 2000)
+      if (Array.isArray(data.preferences)) setPreferences(data.preferences)
     } catch {
-      setPrefs((prev) => ({ ...prev, [key]: !newValue }))
-      setRowStates((prev) => ({ ...prev, [key]: 'error' }))
+      setPreferences((prev) => prev.map((p) => (keySet.has(prefKey(p)) ? { ...p, enabled: oldValue[prefKey(p)] } : p)))
+      setPrefError("Couldn't save. Please try again.")
     } finally {
-      inFlight.current.delete(key)
+      setPrefBusy((prev) => { const next = new Set(prev); keys.forEach((k) => next.delete(k)); return next })
+    }
+  }, [])
+
+  const handlePrefToggle = useCallback((pref: Preference) => {
+    if (prefBusy.has(prefKey(pref))) return
+    applyPrefChanges([{ channel: pref.channel, category: pref.category, enabled: !pref.enabled }])
+  }, [prefBusy, applyPrefChanges])
+
+  // ── Derived data ───────────────────────────────────────────────────────────
+  const catalogByKey: Record<string, CatalogEntry> = {}
+  for (const entry of catalog) for (const ch of entry.channels ?? []) catalogByKey[`${ch}:${entry.category}`] = entry
+
+  const emailPrefs = preferences.filter((p) => p.channel === 'email')
+  const pushPrefs = preferences.filter((p) => p.channel === 'push')
+
+  // Resolve each core switch to the user's pref row: match by catalog key,
+  // falling back to the label; prefer push, else the first channel. A
+  // category the plan doesn't include has no pref row and is hidden.
+  const coreRows: { pref: Preference; entry: CatalogEntry }[] = []
+  for (const core of CORE_CATEGORIES) {
+    const entry = catalog.find((e) => e.category === core.category)
+      || catalog.find((e) => (e.label || '').toLowerCase() === core.label.toLowerCase())
+    if (!entry) continue
+    const channel = (entry.channels ?? []).includes('push') ? 'push' : (entry.channels ?? [])[0]
+    const pref = preferences.find((p) => p.channel === channel && p.category === entry.category)
+    if (pref) coreRows.push({ pref, entry })
+  }
+  const corePushPrefs = coreRows.map((r) => r.pref).filter((p) => p.channel === 'push' && !p.locked)
+  const unlockedPushPrefs = pushPrefs.filter((p) => !p.locked)
+  const masterOn = unlockedPushPrefs.some((p) => p.enabled)
+
+  const handleMasterToggle = () => {
+    if (!masterOn) {
+      applyPrefChanges(corePushPrefs.filter((p) => !p.enabled).map((p) => ({ channel: 'push', category: p.category, enabled: true })))
+    } else {
+      applyPrefChanges(unlockedPushPrefs.filter((p) => p.enabled).map((p) => ({ channel: 'push', category: p.category, enabled: false })))
     }
   }
 
-  // ── Derived: split catalog by channel ────────────────────────────────────────
-
-  const emailCatalog = catalog.filter((c) => c.channels.includes('email'))
-  const pushCatalog = catalog.filter((c) => c.channels.includes('push'))
-
-  // Build per-channel locked sets (just the category string, not the composite key)
-  const emailLockedSet = new Set(
-    Array.from(lockedKeys)
-      .filter((k) => k.startsWith('email:'))
-      .map((k) => k.slice('email:'.length)),
-  )
-  const pushLockedSet = new Set(
-    Array.from(lockedKeys)
-      .filter((k) => k.startsWith('push:'))
-      .map((k) => k.slice('push:'.length)),
-  )
-
-  // Build per-channel prefs maps (just the category portion as key)
-  const emailPrefs: Record<string, boolean> = {}
-  const pushPrefs: Record<string, boolean> = {}
-  for (const [key, val] of Object.entries(prefs)) {
-    if (key.startsWith('email:')) emailPrefs[key.slice('email:'.length)] = val
-    else if (key.startsWith('push:')) pushPrefs[key.slice('push:'.length)] = val
+  const sortedGeoStates = [...geoStates].sort((a, b) => a.name.localeCompare(b.name))
+  const countyCountText = (state: GeoState) => {
+    const counties = countiesByState[state.stateId]
+    if (counties === undefined) return 'Loading…'
+    if (counties === null) return 'Tap to load counties'
+    const muted = mutedByState[state.abbrev] || new Set<string>()
+    const on = counties.filter((c) => !muted.has(c.name)).length
+    return `${on} of ${counties.length} counties`
   }
+  const openPicker = (state: GeoState) => {
+    if (countiesByState[state.stateId] === null) loadCounties(state)
+    setPickerState(state)
+  }
+  const handleCountiesSaved = useCallback((abbrev: string, nextMuted: Set<string>) => {
+    setMutedByState((prev) => ({ ...prev, [abbrev]: nextMuted }))
+  }, [])
 
-  // rowStates is keyed by `${channel}:${category}` — the same composite key used by
-  // prefs/lockedKeys/inFlight. ChannelSection receives the full map and looks up each
-  // entry by `${channel}:${entry.category}`, so email and push rows never share state.
-
-  // ── Loading state ─────────────────────────────────────────────────────────────
-
-  const isFullPageLoading = prefsLoading || (hasLocationCategories && geoLoading)
-
-  if (isFullPageLoading) {
+  // ── Render ────────────────────────────────────────────────────────────────
+  if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
         <Loader2 size={32} className="animate-spin text-gg-pink" />
@@ -794,10 +529,7 @@ export default function NotificationsPage() {
     )
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
-
-  const showGeoSection = hasLocationCategories && !geoFetchError && geoStates.length > 0
-  const autoExpandSingleState = geoStates.length === 1
+  const sectionCard = 'bg-gg-gray-800 border border-gg-gray-700 rounded-xl px-5'
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -815,88 +547,155 @@ export default function NotificationsPage() {
               <Bell size={20} className="text-gg-pink" />
               <h1 className="font-display text-3xl font-bold text-white">Notifications</h1>
             </div>
-            <p className="text-gg-gray-400">Choose what you hear about and how</p>
+            <p className="text-gg-gray-400">Choose what you hear about and where</p>
           </div>
         </div>
 
-        {/* Full-page fetch error (prefs failed) */}
-        {prefsFetchError && (
-          <div className="card mb-6">
-            <p className="text-sm text-red-400 mb-3">Could not load notification preferences.</p>
-            <button onClick={loadPrefs} className="text-sm text-gg-pink hover:underline">
+        {loadError ? (
+          <div className={`${sectionCard} py-6 text-center`}>
+            <p className="text-sm text-white mb-3">Couldn&apos;t load notification settings.</p>
+            <button type="button" onClick={load} className="px-4 py-2 rounded-lg bg-gg-pink text-white text-sm font-semibold">
               Try again
             </button>
           </div>
-        )}
+        ) : (
+          <>
+            {prefError && (
+              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400">{prefError}</div>
+            )}
 
-        {/* Geo error banner (prefs ok, geo failed) */}
-        {!prefsFetchError && hasLocationCategories && geoFetchError && (
-          <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center justify-between">
-            <p className="text-sm text-red-400">
-              Could not load alert location settings.
-            </p>
-            <button
-              onClick={loadGeo}
-              className="text-sm text-gg-pink hover:underline whitespace-nowrap ml-4"
-            >
-              Try again
-            </button>
-          </div>
-        )}
+            {/* 1. Master push switch */}
+            {pushPrefs.length > 0 && (
+              <div className={`${sectionCard} py-2 mb-6 flex items-center justify-between`}>
+                <div>
+                  <p className="text-base font-semibold text-white">Push notifications</p>
+                  <p className="text-xs text-gg-gray-400">{masterOn ? 'On' : 'Off'} · delivered to the Ground Goat app on your phone</p>
+                </div>
+                <Toggle value={masterOn} disabled={prefBusy.size > 0} onChange={handleMasterToggle} />
+              </div>
+            )}
 
-        {/* Section 1: Category toggles */}
-        {!prefsFetchError && (
-          <div className="card mb-6">
-            <ChannelSection
-              title="Email notifications"
-              channel="email"
-              catalog={emailCatalog}
-              prefs={emailPrefs}
-              lockedSet={emailLockedSet}
-              rowStates={rowStates}
-              loading={prefsLoading}
-              onToggle={handleToggle}
-            />
-            <ChannelSection
-              title="Push notifications"
-              channel="push"
-              catalog={pushCatalog}
-              prefs={pushPrefs}
-              lockedSet={pushLockedSet}
-              rowStates={rowStates}
-              loading={prefsLoading}
-              onToggle={handleToggle}
-            />
-          </div>
-        )}
+            {/* 2. My counties */}
+            {geoError && (
+              <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center justify-between">
+                <p className="text-sm text-red-400">{geoError}</p>
+                <button type="button" onClick={load} className="px-3 py-1.5 rounded-lg bg-gg-pink text-white text-xs font-semibold">Try again</button>
+              </div>
+            )}
+            {sortedGeoStates.length > 0 && (
+              <div className="mb-6">
+                <h2 className="text-xs font-semibold text-white uppercase tracking-wider mb-1">My counties</h2>
+                <p className="text-xs text-gg-gray-400 mb-3">You&apos;ll only get alerts for the counties you pick. Change this any time.</p>
+                <div className={sectionCard}>
+                  {sortedGeoStates.map((state, i) => (
+                    <button
+                      type="button"
+                      key={state.stateId}
+                      onClick={() => openPicker(state)}
+                      className={`w-full flex items-center justify-between py-3.5 text-left ${i === sortedGeoStates.length - 1 ? '' : 'border-b border-gg-gray-700'}`}
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-white">{state.name}</p>
+                        <p className="text-xs text-gg-gray-400">{countyCountText(state)}</p>
+                      </div>
+                      <ChevronRight size={18} className="text-gg-gray-400 flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-        {/* Section 2: Alert locations (county filter) */}
-        {showGeoSection && (
-          <div className="card">
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold text-white mb-1">Alert locations</h2>
-              <p className="text-xs text-gg-gray-400">
-                All counties in your subscribed states are on by default — turn off any county you
-                don&apos;t want alerts for.
-              </p>
-            </div>
+            {/* 3. What to send me */}
+            {coreRows.length > 0 && (
+              <div className="mb-6">
+                <h2 className="text-xs font-semibold text-white uppercase tracking-wider mb-3">What to send me</h2>
+                <div className={sectionCard}>
+                  {coreRows.map(({ pref, entry }, i) => (
+                    <PrefRow
+                      key={prefKey(pref)}
+                      label={entry.label}
+                      isLast={i === coreRows.length - 1}
+                      locked={pref.locked}
+                      value={pref.enabled}
+                      busy={prefBusy.has(prefKey(pref))}
+                      onToggle={() => handlePrefToggle(pref)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
-            {geoStates.map((state) => {
-              const mutedForState = new Set(
-                geoMuted.filter((m) => m.state === state.abbrev).map((m) => m.county),
-              )
-              return (
-                <StateAccordion
-                  key={state.stateId}
-                  state={state}
-                  mutedForState={mutedForState}
-                  autoExpand={autoExpandSingleState}
-                />
-              )
-            })}
-          </div>
+            {/* 4. More options — the full per-category list */}
+            {(emailPrefs.length > 0 || pushPrefs.length > 0) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowMore((v) => !v)}
+                  className="w-full flex items-center justify-between py-3 text-sm font-medium text-white"
+                >
+                  <span>More options</span>
+                  {showMore ? <ChevronUp size={18} className="text-gg-gray-400" /> : <ChevronDown size={18} className="text-gg-gray-400" />}
+                </button>
+                {showMore && (
+                  <div className={`${sectionCard} py-3`}>
+                    {emailPrefs.length > 0 && (
+                      <>
+                        <h3 className="text-xs font-semibold text-white uppercase tracking-wider pt-2 pb-1">Email notifications</h3>
+                        {emailPrefs.map((pref, i) => {
+                          const entry = catalogByKey[prefKey(pref)]
+                          return (
+                            <PrefRow
+                              key={prefKey(pref)}
+                              label={entry?.label ?? pref.category}
+                              description={entry?.description}
+                              isLast={i === emailPrefs.length - 1}
+                              locked={pref.locked}
+                              value={pref.enabled}
+                              busy={prefBusy.has(prefKey(pref))}
+                              onToggle={() => handlePrefToggle(pref)}
+                            />
+                          )
+                        })}
+                      </>
+                    )}
+                    {pushPrefs.length > 0 && (
+                      <>
+                        <h3 className={`text-xs font-semibold text-white uppercase tracking-wider pb-1 ${emailPrefs.length > 0 ? 'pt-5' : 'pt-2'}`}>Push notifications</h3>
+                        {pushPrefs.map((pref, i) => {
+                          const entry = catalogByKey[prefKey(pref)]
+                          return (
+                            <PrefRow
+                              key={prefKey(pref)}
+                              label={entry?.label ?? pref.category}
+                              description={entry?.description}
+                              isLast={i === pushPrefs.length - 1}
+                              locked={pref.locked}
+                              value={pref.enabled}
+                              busy={prefBusy.has(prefKey(pref))}
+                              onToggle={() => handlePrefToggle(pref)}
+                            />
+                          )
+                        })}
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </>
         )}
       </div>
+
+      {pickerState && (
+        <CountyPicker
+          state={pickerState}
+          counties={countiesByState[pickerState.stateId]}
+          mutedSet={mutedByState[pickerState.abbrev] || new Set<string>()}
+          onClose={() => setPickerState(null)}
+          onSaved={handleCountiesSaved}
+          onReload={() => loadCounties(pickerState)}
+        />
+      )}
     </div>
   )
 }
