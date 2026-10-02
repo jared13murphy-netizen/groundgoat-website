@@ -3800,8 +3800,12 @@ export default function ConfigureMap() {
             the screen. `zIndex: 31` clears both the toolbar (30) and its
             gradient band (20). */}
         <div style={compact
-          ? { position: 'absolute', top: 58, left: 14, zIndex: 31 }
-          : { position: 'absolute', bottom: 16 + 74 + 8, left: 10, zIndex: 31 }}>
+          ? { position: 'absolute', top: 58, left: 14, zIndex: 31,
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }
+          : { position: 'absolute', bottom: 16 + 74 + 8, left: 10, zIndex: 31,
+              // Stacked: the aerial-year button with Return to Portfolio
+              // directly under it (owner 10/2).
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
           {aerialPickerOpen && (
             <div style={{
               position: 'absolute', left: 0,
