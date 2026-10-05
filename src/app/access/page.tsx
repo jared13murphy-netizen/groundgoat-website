@@ -464,6 +464,12 @@ function AccessPortalPageInner() {
         router.replace('/')
         return
       }
+      // Owner 10/5: basic_state is app-only — no Explore map on the
+      // website. /me says so via can_use_web_map (premium/firm/staff).
+      if (userData?.can_use_web_map === false) {
+        router.replace('/account')
+        return
+      }
 
       setUser(userData)
     } catch {

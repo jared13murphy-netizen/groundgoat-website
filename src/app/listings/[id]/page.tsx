@@ -509,6 +509,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
 
                   {/* Find Comparables Button — opens the real comp map on
                       /access (comp mode), not the orphaned /comparables page */}
+                  {user?.can_use_reports !== false && (
                   <Link
                     href={`/access?comparablesTractId=${tract.id}&county=${encodeURIComponent(listing.county)}&state=${encodeURIComponent(listing.state)}`}
                     className="mt-3 flex items-center justify-center gap-2 w-full py-2 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-lg hover:bg-gg-pink/20 transition-colors text-sm font-medium"
@@ -516,6 +517,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                     <BarChart3 size={16} />
                     Find Comparables
                   </Link>
+                  )}
                 </div>
               ))}
             </div>
