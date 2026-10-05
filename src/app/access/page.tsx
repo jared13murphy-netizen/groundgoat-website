@@ -32,7 +32,7 @@ const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: f
 const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
 
 // Owner 10/5: hide the Utilities nav item on production for now.
-const UTILITIES_NAV_ENABLED = process.env.NEXT_PUBLIC_UTILITIES_NAV === '1'
+const UTILITIES_NAV_ENABLED = process.env.NEXT_PUBLIC_UTILITIES_NAV === '1' || process.env.NEXT_PUBLIC_IS_SANDBOX === 'true'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
