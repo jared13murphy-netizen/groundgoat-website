@@ -183,7 +183,7 @@ export default function PortfolioMap({
           'icon-text-fit': 'both',
           'icon-text-fit-padding': [4, 10, 4, 10],
           'text-field': ['get', 'name'],
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-font': ['Open Sans Semibold'],
           'text-size': 13,
           'text-max-width': 14,
         },
@@ -198,7 +198,7 @@ export default function PortfolioMap({
           'icon-text-fit': 'both',
           'icon-text-fit-padding': [2, 7, 2, 7],
           'text-field': ['get', 'name'],
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-font': ['Open Sans Semibold'],
           'text-size': 12,
           'text-max-width': 12,
           // Two tracts drawn on the SAME ground put their badges on the

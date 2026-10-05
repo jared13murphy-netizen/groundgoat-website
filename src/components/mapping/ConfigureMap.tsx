@@ -1751,7 +1751,7 @@ export default function ConfigureMap() {
         layout: {
           'text-field': ['case', ['boolean', ['get', 'selected'], false], '−', '+'],
           'text-size': 15, 'text-allow-overlap': true,
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-font': ['Open Sans Semibold'],
         },
         paint: { 'text-color': '#ffffff' },
       })
@@ -1774,7 +1774,7 @@ export default function ConfigureMap() {
           'icon-text-fit': 'both',
           'icon-text-fit-padding': [2, 7, 2, 7],
           'text-field': ['get', 'name'],
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-font': ['Open Sans Semibold'],
           'text-size': 12,
           'text-max-width': 12,
           'symbol-z-order': 'source',
