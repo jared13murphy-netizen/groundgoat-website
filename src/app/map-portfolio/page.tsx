@@ -671,7 +671,7 @@ export default function MapPortfolioPage() {
                   </Link>
                   {/* Adding a tract writes into the project, which only
                       its owner may do. */}
-                  {!p.shared && (
+                  {(
                     <Link href={`/configure-map?project=${p.id}&new=1`} style={{ ...btn, whiteSpace: 'nowrap' }}>
                       <Plus size={13} /> Add tract
                     </Link>
@@ -879,8 +879,7 @@ export default function MapPortfolioPage() {
           }}>
             <h2 style={{ ...h1, fontSize: 17, marginBottom: 4 }}>Share this project</h2>
             <p style={{ ...muted, display: 'block', marginBottom: 12 }}>
-              People you pick can open this project, its tracts and its reports.
-              Only you can change or delete it.
+              People you pick can open and edit this project, its tracts and its reports — everyone works on the same copy. Only you can share, archive or delete it.
             </p>
 
             {(() => {
