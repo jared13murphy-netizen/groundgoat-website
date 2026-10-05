@@ -26,8 +26,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-p
 const APP_SCHEME = 'com.landresult.landresult'
 
 const APP_STORE_URL = 'https://apps.apple.com/us/app/ground-goat/id6753321116'
-// Not yet known to be live — see Footer.tsx ("Android isn't published yet").
-// Task-supplied fallback; swap for the real Play listing once it exists.
+// Live on Google Play since 2026-09-21 (2.1.4, US).
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.groundgoat.app'
 
 function buildAppSchemeUrl(params: URLSearchParams): string {
