@@ -922,6 +922,22 @@ export default function ConfigureMap() {
   // Project context. A single-parcel user never sees this: leaving it
   // blank makes the server create a project named after the parcel.
   const [projectId, setProjectId] = useState<string | null>(null)
+  // The address bar follows the project. A brand-new project only gets
+  // its id back from the first Save Tract; until this write the URL was
+  // still the bare /configure-map, so a refresh (or a bookmark, or
+  // "reopen closed tab") at that moment opened a BLANK editor although
+  // the tract was saved (owner 10/5). ?new=1 and ?ll_uuid= were only
+  // boot instructions, so they go; ?parcel= is left alone when present.
+  // replaceState: no navigation, no history entry, nothing re-boots.
+  useEffect(() => {
+    if (!projectId || typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('project') === projectId) return
+    url.searchParams.set('project', projectId)
+    url.searchParams.delete('new')
+    url.searchParams.delete('ll_uuid')
+    window.history.replaceState(window.history.state, '', url.toString())
+  }, [projectId])
   // ── Aerial imagery year (owner item 5, 2026-09-22) ──────────────────
   // Same Esri Wayback archive as Explore's year picker, but PERSISTED on
   // the project rather than reset on every visit (Explore stays
