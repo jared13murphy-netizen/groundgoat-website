@@ -316,13 +316,24 @@ const handleResendVerification = async () => {
                   : 'Get real-time auction alerts, browse listings, and never miss a sale. The full Ground Goat experience, right in your pocket.'}
               </p>
             </div>
-            <a
-              href="https://apps.apple.com/us/app/ground-goat/id6753321116"
-              target="_blank"
-              className="btn-primary text-sm py-3 px-6 whitespace-nowrap font-semibold"
-            >
-              Download on the App Store
-            </a>
+            <div className="flex flex-col gap-2 w-full sm:w-auto">
+              <a
+                href="https://apps.apple.com/us/app/ground-goat/id6753321116"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary text-sm py-3 px-6 whitespace-nowrap font-semibold text-center"
+              >
+                Download on the App Store
+              </a>
+              <a
+                href="https://play.google.com/store/apps/details?id=com.groundgoat.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary text-sm py-3 px-6 whitespace-nowrap font-semibold text-center"
+              >
+                Get it on Google Play
+              </a>
+            </div>
           </div>
         </div>
 
