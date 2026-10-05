@@ -49,6 +49,8 @@ interface User {
   // (unlimited — see @/lib/stateAccess). See isAllowedForExplore for
   // the gate that decides who reaches this page at all.
   allowed_states?: string[] | null
+  can_use_reports?: boolean
+  can_use_web_map?: boolean
 }
 
 interface Listing {

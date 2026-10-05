@@ -81,6 +81,8 @@ interface User {
   account_type: string
   // Premium_state gate (owner 2026-09-15, item 18) — see @/lib/stateAccess.
   allowed_states?: string[] | null
+  can_use_reports?: boolean
+  can_use_web_map?: boolean
 }
 
 const LAND_TYPE_COLORS: Record<string, string> = {
