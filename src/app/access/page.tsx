@@ -31,6 +31,9 @@ import { isAllowedForExplore, getAllowedStates, formatStateList } from '@/lib/st
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
 
+// Owner 10/5: hide the Utilities nav item on production for now.
+const UTILITIES_NAV_ENABLED = process.env.NEXT_PUBLIC_UTILITIES_NAV === '1'
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
@@ -1015,7 +1018,11 @@ function AccessPortalPageInner() {
             ? () => setGoatSearchOpenSignal(n => n + 1)
             : undefined
         }
-        onUtilitiesToggle={() => setUtilitiesToggleSignal(n => n + 1)}
+        // Owner 10/5: Utilities hidden on production until the panel's
+        // remaining pieces (firm sharing, etc.) are tested. Presence-gated:
+        // undefined removes the nav item. Flip UTILITIES_NAV_ENABLED to
+        // bring it back.
+        onUtilitiesToggle={UTILITIES_NAV_ENABLED ? () => setUtilitiesToggleSignal(n => n + 1) : undefined}
         utilitiesActive={utilitiesActive}
         user={user}
       />
