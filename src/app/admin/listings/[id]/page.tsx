@@ -25,7 +25,9 @@ const US_STATES: Record<string, string> = {
   "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming"
 }
 
-const STATUSES = ['listed', 'live', 'pending', 'sold', 'no_sale']
+// 'auction' is what the scraper writes for every published auction (main.py: status = "auction" if
+// listing_type == "auction"); leaving it out made the form flip a listing to 'listed' on Save (owner 10/6).
+const STATUSES = ['auction', 'listed', 'live', 'pending', 'sold', 'no_sale']
 const LAND_TYPES = ['Farm', 'Recreational', 'Pasture', 'Timber', 'Hunting', 'Vacant Land', 'CRP', 'Commercial', 'Residential', 'Development', 'Other']
 
 interface Listing {
@@ -338,7 +340,7 @@ export default function EditListingPage() {
       // Numeric fields
       if (formData.total_acres) updateData.total_acres = parseFloat(formData.total_acres)
       if (formData.price_per_acre) updateData.price_per_acre = parseFloat(formData.price_per_acre)
-      if (formData.sale_price) updateData.sale_price = parseFloat(formData.sale_price)
+      if (formData.sale_price && Number.isFinite(parseFloat(formData.sale_price)) && parseFloat(formData.sale_price) > 0) updateData.sale_price = parseFloat(formData.sale_price)
       if (formData.sold_acres) updateData.sold_acres = parseFloat(formData.sold_acres)
       if (formData.asking_price) updateData.asking_price = parseFloat(formData.asking_price)
       

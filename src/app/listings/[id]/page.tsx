@@ -200,6 +200,8 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
   const formatTime = (dateString: string | undefined) => {
     if (!dateString) return ''
     const date = new Date(dateString)
+    // Midnight exactly = no time set (same rule as the portal panels and the app).
+    if (date.getHours() === 0 && date.getMinutes() === 0) return ''
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
   }
 
