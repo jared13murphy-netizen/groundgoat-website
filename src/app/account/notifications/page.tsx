@@ -76,7 +76,6 @@ const CORE_CATEGORIES = [
   { category: 'weekly_recap', label: 'Weekly Recap' },
 ]
 
-const SAVE_CONCURRENCY = 6
 
 const prefKey = (p: { channel: string; category: string }) => `${p.channel}:${p.category}`
 
@@ -147,7 +146,7 @@ function PrefRow({
 // ─── County picker (modal) ────────────────────────────────────────────────────
 //
 // Checked = alerts ON = NOT muted. Nothing is written until Save; Save sends
-// one PUT /api/me/notification-geo per changed county (muted = !checked).
+// ONE PUT /api/me/notification-geo/state with the state's full muted list.
 
 function CountyPicker({
   state,
@@ -207,38 +206,27 @@ function CountyPicker({
   }, [counties, checked, mutedSet])
 
   const handleSave = useCallback(async () => {
-    if (changes.length === 0 || saving) return
+    if (!counties || changes.length === 0 || saving) return
     setSaving(true)
     setSaveError(null)
-    const nextMuted = new Set(mutedRef.current)
-    let failed = 0
-    let i = 0
-    const worker = async () => {
-      while (i < changes.length) {
-        const county = changes[i++]
-        const muted = !checked.has(county.name)
-        try {
-          const res = await fetchWithAuth(`${API_URL}/api/me/notification-geo`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state: state.abbrev, county: county.name, muted }),
-          })
-          if (!res.ok) throw new Error(`HTTP ${res.status}`)
-          if (muted) nextMuted.add(county.name); else nextMuted.delete(county.name)
-        } catch {
-          failed += 1
-        }
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(SAVE_CONCURRENCY, changes.length) }, worker))
-    onSaved(state.abbrev, nextMuted)
-    setSaving(false)
-    if (failed > 0) {
-      setSaveError(`${failed} ${failed === 1 ? 'county' : 'counties'} didn't save. Try again.`)
-    } else {
+    // One request carries the whole state: every county not checked is
+    // muted, everything checked is unmuted (was one PUT per changed county).
+    const nextMuted = new Set(counties.filter((c) => !checked.has(c.name)).map((c) => c.name))
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/me/notification-geo/state`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: state.abbrev, muted_counties: Array.from(nextMuted) }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      onSaved(state.abbrev, nextMuted)
+      setSaving(false)
       onClose()
+    } catch {
+      setSaving(false)
+      setSaveError("Your counties didn't save. Try again.")
     }
-  }, [state.abbrev, changes, checked, saving, onSaved, onClose])
+  }, [state.abbrev, counties, changes, checked, saving, onSaved, onClose])
 
   const total = counties ? counties.length : 0
   const onCount = counties ? counties.filter((c) => checked.has(c.name)).length : 0
@@ -520,6 +508,49 @@ export default function NotificationsPage() {
     setMutedByState((prev) => ({ ...prev, [abbrev]: nextMuted }))
   }, [])
 
+  // Select all / Unselect all across every state (owner 10/6: most people
+  // unselect everything, then open one state and pick the 3-5 counties
+  // they follow). One request; the muted list is re-read afterwards so the
+  // counts come from what was actually saved.
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const applyBulk = async (muted: boolean) => {
+    if (bulkBusy) return
+    setBulkBusy(true)
+    setGeoError(null)
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/me/notification-geo/bulk`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'all', muted }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const geoRes = await fetchWithAuth(`${API_URL}/api/me/notification-geo`)
+      if (!geoRes.ok) throw new Error(`HTTP ${geoRes.status}`)
+      const geo: GeoResponse = await geoRes.json()
+      const byState: Record<string, Set<string>> = {}
+      for (const m of geo.muted ?? []) {
+        if (!byState[m.state]) byState[m.state] = new Set()
+        byState[m.state].add(m.county)
+      }
+      setMutedByState(byState)
+    } catch {
+      setGeoError("Couldn't update your counties. Please try again.")
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+  const handleUnselectAll = () => {
+    if (window.confirm("Unselect all counties? You won't get any county alerts until you open a state and pick the counties you follow.")) {
+      void applyBulk(true)
+    }
+  }
+  const totalCounties = sortedGeoStates.reduce((n, st) => n + ((countiesByState[st.stateId] || []).length), 0)
+  const totalOn = sortedGeoStates.reduce((n, st) => {
+    const counties = countiesByState[st.stateId] || []
+    const muted = mutedByState[st.abbrev] || new Set<string>()
+    return n + counties.filter((c) => !muted.has(c.name)).length
+  }, 0)
+
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -586,6 +617,29 @@ export default function NotificationsPage() {
               <div className="mb-6">
                 <h2 className="text-xs font-semibold text-white uppercase tracking-wider mb-1">My counties</h2>
                 <p className="text-xs text-gg-gray-400 mb-3">You&apos;ll only get alerts for the counties you pick. Change this any time.</p>
+                <div className="flex items-center gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => void applyBulk(false)}
+                    disabled={bulkBusy}
+                    className="px-3 py-1.5 rounded-full border border-gg-pink text-gg-pink text-xs font-semibold hover:bg-gg-pink/10 disabled:opacity-50"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUnselectAll}
+                    disabled={bulkBusy}
+                    className="px-3 py-1.5 rounded-full border border-gg-pink text-gg-pink text-xs font-semibold hover:bg-gg-pink/10 disabled:opacity-50"
+                  >
+                    Unselect all
+                  </button>
+                  {bulkBusy ? (
+                    <Loader2 size={14} className="animate-spin text-gg-pink ml-auto" />
+                  ) : totalCounties > 0 ? (
+                    <span className="text-xs text-gg-gray-400 ml-auto">{totalOn} of {totalCounties} on</span>
+                  ) : null}
+                </div>
                 <div className={sectionCard}>
                   {sortedGeoStates.map((state, i) => (
                     <button
