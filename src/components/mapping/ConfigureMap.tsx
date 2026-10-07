@@ -1473,7 +1473,9 @@ export default function ConfigureMap() {
       },
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left')
+    // Top-left under "Back to Map" (owner 10/6): the bottom-left corner now
+    // belongs to the Layers / Aerial Year / Saved Maps buttons.
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left')
     // A fit that arrived while the canvas had no size (see `fitMap`)
     // lands here, the moment the canvas is really sized.
     map.on('resize', () => {
@@ -3802,6 +3804,7 @@ export default function ConfigureMap() {
       <style>{`
         .cm-surface button svg, .cm-surface a svg { color: #ffffff; }
         .cm-surface button:disabled { opacity: 0.45; cursor: default; }
+        .cm-surface .maplibregl-ctrl-top-left { top: 56px; }
       `}</style>
       <div style={{ flex: 1, position: 'relative' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
@@ -3826,15 +3829,18 @@ export default function ConfigureMap() {
             and Return to Portfolio as the same round buttons the edit
             toolbar uses (ToolButton), in a row. Each popup (the Layers
             panel, the 4-column aerial-year grid) opens UPWARD from the
-            row on desktop. The row sits just above the NavigationControl's
-            zoom buttons (`bottom: 16` the control's own margin + its
-            ~74px height + an 8px gap). In `compact` that corner is the
-            bottom SHEET's turf, so the row moves to the top-left under
-            "Back to Map" and its popups open DOWNWARD. `zIndex: 31`
+            row on desktop, on the edit toolbar's own baseline. In `compact`
+            that corner is the bottom SHEET's turf, so the row moves to the
+            top-left under "Back to Map" and the zoom control, and its
+            popups open DOWNWARD. `zIndex: 31`
             clears the toolbar (30) and its gradient band (20). */}
         <div style={compact
-          ? { position: 'absolute', top: 58, left: 14, zIndex: 31 }
-          : { position: 'absolute', bottom: 16 + 74 + 8, left: 10, zIndex: 31 }}>
+          ? { position: 'absolute', top: 56 + 74 + 8, left: 14, zIndex: 31 }
+          // Same `bottom`, `padding` and `gap` as `toolbarRow`, so the three
+          // sit on the edit toolbar's baseline with its spacing (owner 10/6:
+          // "poor spacing and not in-line with the edit map buttons"). The
+          // zoom control moved to the top-left to free this corner.
+          : { position: 'absolute', bottom: 16, left: 16, zIndex: 31, padding: '4px 2px' }}>
           {layersOpen && <CmLayersPanel ov={cmOverlays} openUp={!compact} />}
           {aerialPickerOpen && (
             <div style={{
@@ -3887,7 +3893,7 @@ export default function ConfigureMap() {
             />
             <ToolButton
               icon={FolderOpen}
-              label="Return to Portfolio"
+              label="Saved Maps"
               title="Back to your Saved Maps"
               onClick={() => leaveScreen('/map-portfolio')}
             />
