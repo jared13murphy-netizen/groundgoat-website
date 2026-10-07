@@ -78,6 +78,7 @@ import {
   Map as MapDrawIcon,
   Plus as PlusIcon,
   FolderOpen as MapPortfolioIcon,
+  FolderPlus as NewMapProjectIcon,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -11351,9 +11352,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     nav-dropdown links; they now live here instead. Gated
                     by canUseProjectMaps — see its declaration above for
                     exactly what it checks. */}
-                {/* Owner 9/16: only Map Portfolio here — a new project
-                    starts from the pink "New Project" button on that
-                    screen, not from a second tile. */}
+                {/* Owner 10/6 (reversing his 9/16 "only Map Portfolio
+                    here" ruling now that the menu is "My Maps"): a "New
+                    Map Project" tile opens Configurable Mapping — the
+                    same link as the pink "New Project" button on the
+                    Saved Maps screen. Same gate as Saved Maps. */}
+                {canUseProjectMaps && (
+                  <UtilityTile
+                    icon={<NewMapProjectIcon size={20} />}
+                    label="New Map Project"
+                    onClick={() => { window.location.href = '/configure-map' }}
+                  />
+                )}
                 {canUseProjectMaps && (
                   <UtilityTile
                     icon={<MapPortfolioIcon size={20} />}
@@ -11380,11 +11390,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
                   >
                     <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#2563eb', border: '1px solid rgba(255,255,255,0.2)' }} />
-                    <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Show My Project Maps</span>
+                    <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Show My Saved Maps</span>
                     <button
                       role="switch"
                       aria-checked={myTractsOn}
-                      aria-label="Show My Project Maps"
+                      aria-label="Show My Saved Maps"
                       onClick={e => { e.stopPropagation(); setMyTractsOn(v => !v) }}
                       style={{
                         width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
