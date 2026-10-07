@@ -148,6 +148,7 @@ function SignUpContent() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    phone: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -269,6 +270,8 @@ function SignUpContent() {
   const validateStep1 = () => {
     if (!formData.firstName.trim()) return 'First name is required'
     if (!formData.lastName.trim()) return 'Last name is required'
+    if (!formData.phone.trim()) return 'Phone number is required'
+    if (formData.phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '').length !== 10) return 'Please enter a 10-digit phone number'
     if (!formData.email.trim()) return 'Email is required'
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) return 'Invalid email address'
     if (formData.password.length < 8) return 'Password must be at least 8 characters'
@@ -411,6 +414,7 @@ function SignUpContent() {
           email: trimmedEmail,
           first_name: formData.firstName,
           last_name: formData.lastName,
+              phone: formData.phone.trim(),
           password: formData.password,
           referral_code: referralCode,
         }),
@@ -464,6 +468,7 @@ function SignUpContent() {
             body: JSON.stringify({
               first_name: formData.firstName,
               last_name: formData.lastName,
+              phone: formData.phone.trim(),
               email: formData.email,
               password: formData.password,
               home_state: getStateAbbreviation(formData.homeState),
@@ -676,6 +681,7 @@ function SignUpContent() {
           body: JSON.stringify({
             first_name: formData.firstName,
             last_name: formData.lastName,
+              phone: formData.phone.trim(),
             email: trimmedEmail,
             password: formData.password,
             home_state: getStateAbbreviation(formData.homeState),
@@ -861,6 +867,20 @@ function SignUpContent() {
                       placeholder="Doe"
                     />
                   </div>
+                </div>
+
+                {/* Required for every subscriber (owner 2026-10-07). */}
+                <div>
+                  <label className="block text-sm font-medium text-gg-gray-300 mb-2">Phone Number</label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    autoComplete="tel"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                    placeholder="(555) 123-4567"
+                  />
                 </div>
 
                 <div>

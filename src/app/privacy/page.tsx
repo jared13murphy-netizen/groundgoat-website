@@ -21,7 +21,7 @@ export default function PrivacyPage() {
             <ul className="list-disc list-inside mt-2 space-y-1">
               <li>Name (first and last)</li>
               <li>Email address</li>
-              <li>Phone number (optional)</li>
+              <li>Phone number</li>
               <li>Billing information for subscriptions</li>
             </ul>
 
