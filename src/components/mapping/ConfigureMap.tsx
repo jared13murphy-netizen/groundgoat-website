@@ -3877,6 +3877,13 @@ export default function ConfigureMap() {
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            {/* Owner 10/6: Saved Maps on the far left. */}
+            <ToolButton
+              icon={FolderOpen}
+              label="Saved Maps"
+              title="Back to your Saved Maps"
+              onClick={() => leaveScreen('/map-portfolio')}
+            />
             <ToolButton
               icon={Layers}
               label="Layers"
@@ -3890,12 +3897,6 @@ export default function ConfigureMap() {
               active={aerialPickerOpen}
               title={`Aerial imagery: ${aerialYear === null ? 'Latest' : aerialYear} — choose a year`}
               onClick={() => { setAerialPickerOpen((v) => !v); setLayersOpen(false) }}
-            />
-            <ToolButton
-              icon={FolderOpen}
-              label="Saved Maps"
-              title="Back to your Saved Maps"
-              onClick={() => leaveScreen('/map-portfolio')}
             />
           </div>
         </div>
