@@ -3889,7 +3889,7 @@ export default function ConfigureMap() {
           <button
             type="button"
             onClick={() => leaveScreen('/map-portfolio')}
-            title="Back to your Map Portfolio"
+            title="Back to your Saved Maps"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
               padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
@@ -4219,7 +4219,7 @@ export default function ConfigureMap() {
                 <div style={stepLabel}>Step 1 — Name this project.</div>
                 <div style={{ lineHeight: 1.5 }}>
                   Give this project a name before adding tracts — it&rsquo;s how
-                  you&rsquo;ll find it in Map Portfolio.
+                  you&rsquo;ll find it in Saved Maps.
                 </div>
                 <input
                   autoFocus
@@ -4301,7 +4301,7 @@ export default function ConfigureMap() {
                     fontSize: 12, color: '#f58cde', textDecoration: 'none', flex: 'none',
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
                   }}>
-                  Map Portfolio
+                  Saved Maps
                 </button>
               </div>
 
@@ -4852,7 +4852,7 @@ export default function ConfigureMap() {
                   + 'opens the tract you clicked. Cancel stays on this one.'
                 : confirmWhat === 'leave'
                 ? 'You have changes that are not saved. OK '
-                  + (leaveTo === '/map-portfolio' ? 'goes back to your Map Portfolio' : 'leaves for the Explore map')
+                  + (leaveTo === '/map-portfolio' ? 'goes back to your Saved Maps' : 'leaves for the Explore map')
                   + ' and throws them away. Cancel stays here.'
                 : confirmWhat === 'clearPolygons'
                 ? 'Every land-type polygon on this tract will be removed. This '

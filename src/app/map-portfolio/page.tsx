@@ -352,7 +352,7 @@ export default function MapPortfolioPage() {
   if (!allowed) {
     return (
       <Shell>
-        <h1 style={h1}>Map Portfolio</h1>
+        <h1 style={h1}>Saved Maps</h1>
         <p style={{ opacity: 0.7, maxWidth: 440, lineHeight: 1.6 }}>
           Configurable Mapping isn&apos;t enabled on your account.
         </p>
@@ -415,7 +415,7 @@ export default function MapPortfolioPage() {
 
       <aside style={panel}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <h1 style={h1}>Map Portfolio</h1>
+          <h1 style={h1}>Saved Maps</h1>
           <div style={{ flex: 1 }} />
           {/* Owner 9/16: pink filled — this is THE way to start a new
               project (the Utilities "Map Project" tile is gone). */}

@@ -11357,7 +11357,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 {canUseProjectMaps && (
                   <UtilityTile
                     icon={<MapPortfolioIcon size={20} />}
-                    label="Map Portfolio"
+                    label="Saved Maps"
                     onClick={() => { window.location.href = '/map-portfolio' }}
                   />
                 )}
