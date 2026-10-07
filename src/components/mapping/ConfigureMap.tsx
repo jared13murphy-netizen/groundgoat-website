@@ -237,13 +237,17 @@ function simplifyShapes(shapes: Shape[]): Shape[] {
 /** The tract name. Reads as text until you pick up the pencil; then an
  *  x to abandon the change and a tick to keep it. One component so the
  *  gesture is identical everywhere a tract can be renamed (owner). */
-function TractName({ value, onCommit, busy, placeholder }: {
+function TractName({ value, onCommit, busy, placeholder, onEditingChange }: {
   value: string
   onCommit: (next: string) => void
   busy?: boolean
   placeholder?: string
+  /** Lets the host row clear space for the input (owner 10/6: the box
+   *  was a few characters wide — "users need to see what they're typing"). */
+  onEditingChange?: (editing: boolean) => void
 }) {
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditingState] = useState(false)
+  const setEditing = (e: boolean) => { setEditingState(e); onEditingChange?.(e) }
   const [draft, setDraft] = useState(value)
   // Someone else may have changed it — a save, a reload, another tract
   // opened. While editing, the draft is the user's and is left alone.
@@ -287,7 +291,7 @@ function TractName({ value, onCommit, busy, placeholder }: {
     // never reaches the browser's native submit machinery at all. The
     // check button stays as the same submit action; Escape cancels.
     <form onSubmit={(e) => { e.preventDefault(); commit() }}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, width: '100%' }}>
       <input
         autoFocus value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -339,11 +343,15 @@ function TractRow({ t, selected, busy, soilRating, onSelect, onCommitName, onRem
   const tillable = t.classified
     ? t.shapes.filter((sh) => sh.cls === 'tillable').reduce((sum, sh) => sum + shapeAcres(sh), 0)
     : null
+  // While the name is being edited the acres / tillable / rating cells
+  // and the remove button step aside so the input gets the whole row
+  // (owner 10/6 screenshot: the box was a few characters wide).
+  const [renaming, setRenaming] = useState(false)
   return (
     <div onClick={onSelect}
          style={{
            display: 'grid',
-           gridTemplateColumns: 'auto 1fr auto auto auto auto',
+           gridTemplateColumns: renaming ? 'auto 1fr' : 'auto 1fr auto auto auto auto',
            gap: 8, alignItems: 'center', cursor: 'pointer',
            padding: '8px 6px', borderBottom: '1px solid rgba(255,255,255,0.06)',
            borderRadius: selected ? 7 : 0,
@@ -354,14 +362,15 @@ function TractRow({ t, selected, busy, soilRating, onSelect, onCommitName, onRem
               width: 8, height: 8, borderRadius: '50%', flex: 'none',
               background: t.source.kind === 'drawn' ? GG_PINK : '#93c5fd',
             }} />
-      <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+      <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, width: '100%' }}>
         <TractName value={t.name} busy={!!busy}
-                   onCommit={(n) => onCommitName(n)} />
-        {!t.name.trim() && (
+                   onCommit={(n) => onCommitName(n)} onEditingChange={setRenaming} />
+        {!renaming && !t.name.trim() && (
           <span title="Unnamed tract"
                 style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', flex: 'none' }} />
         )}
       </span>
+      {!renaming && (<>
       <span style={{ opacity: 0.7, fontSize: 12 }} title="Total acres">
         {(t.acres ?? boundaryAcresOf(t.boundary)).toFixed(1)} ac
       </span>
@@ -376,6 +385,7 @@ function TractRow({ t, selected, busy, soilRating, onSelect, onCommitName, onRem
               style={{ ...dangerBtn, flex: 'none', padding: '4px 7px' }}>
         <Trash2 size={13} />
       </button>
+      </>)}
     </div>
   )
 }
