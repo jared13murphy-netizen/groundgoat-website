@@ -152,7 +152,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
               <Bookmark size={14} />
               <span className="hidden md:inline">Watchlist</span>
               {watchlistCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gg-pink text-[9px] font-bold text-white flex items-center justify-center">
+                <span className="absolute -top-1.5 right-0.5 w-4 h-4 rounded-full bg-gg-pink text-[9px] font-bold text-white flex items-center justify-center">
                   {watchlistCount > 9 ? '9+' : watchlistCount}
                 </span>
               )}
