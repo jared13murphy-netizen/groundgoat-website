@@ -8,7 +8,9 @@ export default function FilterCountBadge({ count }: { count: number }) {
       style={{
         position: 'absolute',
         top: -6,
-        right: -6,
+        // Inside the button's right edge (owner 10/7: the badge was
+        // hanging 6px past it and touching the next button).
+        right: 2,
         minWidth: 18,
         height: 18,
         padding: '0 5px',
