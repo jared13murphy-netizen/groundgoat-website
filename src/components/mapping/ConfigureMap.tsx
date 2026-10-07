@@ -29,8 +29,9 @@ import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
   Eye, EyeOff,
   Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
-  ArrowRight, ArrowLeft, PenTool, Magnet, MousePointerClick, type LucideIcon,
+  ArrowRight, ArrowLeft, PenTool, Magnet, MousePointerClick, CalendarDays, FolderOpen, type LucideIcon,
 } from 'lucide-react'
+import { CmLayersPanel, useCmOverlays } from './CmLayers'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, classifyBoundary, fetchParcel, getSavedParcel, saveParcel, searchMap,
@@ -945,6 +946,11 @@ export default function ConfigureMap() {
   // file someone reopens). null = "Latest".
   const [aerialYear, setAerialYear] = useState<number | null>(null)
   const [aerialPickerOpen, setAerialPickerOpen] = useState(false)
+  // Layers (owner 10/6): one overlay on top of the editor's map, opened
+  // from the round Layers button in the bottom-left corner.
+  const [layersOpen, setLayersOpen] = useState(false)
+  const [overlayMapReady, setOverlayMapReady] = useState(false)
+  const cmOverlays = useCmOverlays(mapRef, overlayMapReady)
   // A year chosen before the project exists yet (Stage 1, or a
   // brand-new single-parcel canvas) has nowhere to PATCH — it is held
   // here and flushed onto the project the moment the first save mints
@@ -1459,7 +1465,7 @@ export default function ConfigureMap() {
       // Parcel tiles come from our backend behind auth; the token rides
       // as a header rather than in the URL (header_auth=1).
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/regrid/tile/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -1535,6 +1541,7 @@ export default function ConfigureMap() {
     sizeTimer = window.setTimeout(syncSize, 50)
 
     map.on('load', async () => {
+      setOverlayMapReady(true)
       for (const id of Object.values(SRC)) {
         map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
       }
@@ -3815,33 +3822,25 @@ export default function ConfigureMap() {
           }}>
           <ArrowLeft size={14} /> Back to Map
         </button>
-        {/* Aerial imagery year (owner item 5, 2026-09-22) — a pill that
-            opens the same 4-column year grid Explore's Utilities "Map
-            Year" view uses, styled the same way, but this choice
-            PERSISTS on the project instead of resetting on reload.
-            Layout-aware (reviewer defect 3): the desktop toolbar row is
-            centred and bottom-left is free, so the pill sits there,
-            above the NavigationControl's zoom buttons (`bottom: 16` the
-            control's own margin + its ~two-button ~74px height + an 8px
-            gap). In `compact` that corner is the bottom SHEET's turf
-            (and a wrapped toolbar can reach further up than the desktop
-            row ever does), so the pill moves to the top-left instead,
-            right under "Back to Map" — and its popup opens DOWNWARD
-            there instead of upward, so it never renders off the top of
-            the screen. `zIndex: 31` clears both the toolbar (30) and its
-            gradient band (20). */}
+        {/* Bottom-left corner controls (owner 10/6): Layers, Aerial Year
+            and Return to Portfolio as the same round buttons the edit
+            toolbar uses (ToolButton), in a row. Each popup (the Layers
+            panel, the 4-column aerial-year grid) opens UPWARD from the
+            row on desktop. The row sits just above the NavigationControl's
+            zoom buttons (`bottom: 16` the control's own margin + its
+            ~74px height + an 8px gap). In `compact` that corner is the
+            bottom SHEET's turf, so the row moves to the top-left under
+            "Back to Map" and its popups open DOWNWARD. `zIndex: 31`
+            clears the toolbar (30) and its gradient band (20). */}
         <div style={compact
-          ? { position: 'absolute', top: 58, left: 14, zIndex: 31,
-              display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }
-          : { position: 'absolute', bottom: 16 + 74 + 8, left: 10, zIndex: 31,
-              // Stacked: the aerial-year button with Return to Portfolio
-              // directly under it (owner 10/2).
-              display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+          ? { position: 'absolute', top: 58, left: 14, zIndex: 31 }
+          : { position: 'absolute', bottom: 16 + 74 + 8, left: 10, zIndex: 31 }}>
+          {layersOpen && <CmLayersPanel ov={cmOverlays} openUp={!compact} />}
           {aerialPickerOpen && (
             <div style={{
               position: 'absolute', left: 0,
               ...(compact ? { top: '100%', marginTop: 8 } : { bottom: '100%', marginBottom: 8 }),
-              width: 220, padding: 10, borderRadius: 10,
+              width: 220, padding: 10, borderRadius: 10, zIndex: 40,
               background: 'rgba(15,21,32,0.96)', border: '1px solid rgba(255,255,255,0.14)',
               boxShadow: '0 8px 24px rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
             }}>
@@ -3871,34 +3870,28 @@ export default function ConfigureMap() {
               </div>
             </div>
           )}
-          <button
-            onClick={() => setAerialPickerOpen((v) => !v)}
-            title="Choose the aerial imagery year"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
-              background: 'rgba(15,21,32,0.85)', border: '1px solid rgba(255,255,255,0.18)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
-            }}>
-            Aerial: {aerialYear === null ? 'Latest' : aerialYear}
-          </button>
-          {/* Owner 10/2: a way back to the Map Portfolio from the map
-              itself, under the aerial-year button. Same unsaved-work
-              confirmation as every other exit. */}
-          <button
-            type="button"
-            onClick={() => leaveScreen('/map-portfolio')}
-            title="Back to your Saved Maps"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
-              padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
-              background: 'rgba(15,21,32,0.85)', border: '1px solid rgba(255,255,255,0.18)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
-            }}>
-            <ArrowLeft size={14} /> Return to Portfolio
-          </button>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <ToolButton
+              icon={Layers}
+              label="Layers"
+              active={layersOpen || cmOverlays.overlay !== null}
+              title={cmOverlays.overlay ? `Layers — ${cmOverlays.options.find((o) => o.key === cmOverlays.overlay)?.label} is on` : 'Add a layer on top of your map'}
+              onClick={() => { setLayersOpen((v) => !v); setAerialPickerOpen(false) }}
+            />
+            <ToolButton
+              icon={CalendarDays}
+              label="Aerial Year"
+              active={aerialPickerOpen}
+              title={`Aerial imagery: ${aerialYear === null ? 'Latest' : aerialYear} — choose a year`}
+              onClick={() => { setAerialPickerOpen((v) => !v); setLayersOpen(false) }}
+            />
+            <ToolButton
+              icon={FolderOpen}
+              label="Return to Portfolio"
+              title="Back to your Saved Maps"
+              onClick={() => leaveScreen('/map-portfolio')}
+            />
+          </div>
         </div>
         {/* Bottom gradient (owner item 3, 2026-09-22): "these buttons
             aren't currently noticeable" — a non-interactive band pinned
