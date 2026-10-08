@@ -2701,6 +2701,28 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // further down modeled directly on the pin ones).
   const [drawMode, setDrawMode] = useState(false)
   const [drawPoints, setDrawPoints] = useState<{ lat: number; lng: number }[]>([])
+  // Quick Draw history (owner 2026-10-08: "it does not allow deleting dots,
+  // moving already-created dots, and Ctrl-Z / Cmd-Z doesn't work"). Every
+  // committed change — a dot added, moved or removed — pushes the previous
+  // ring here; undo (Cmd/Ctrl-Z, Backspace, the Undo button) pops it. A
+  // drag in progress updates drawPoints directly and commits once, on
+  // mouseup, so one undo reverses the whole move.
+  const drawHistoryRef = useRef<{ lat: number; lng: number }[][]>([])
+  const drawPointsRef = useRef<{ lat: number; lng: number }[]>([])
+  useEffect(() => { drawPointsRef.current = drawPoints }, [drawPoints])
+  const commitDrawPoints = useCallback((next: { lat: number; lng: number }[]) => {
+    drawHistoryRef.current.push(drawPointsRef.current)
+    if (drawHistoryRef.current.length > 200) drawHistoryRef.current.shift()
+    setDrawPoints(next)
+  }, [])
+  const undoDraw = useCallback(() => {
+    const prev = drawHistoryRef.current.pop()
+    if (prev) setDrawPoints(prev)
+  }, [])
+  const resetDraw = useCallback(() => { drawHistoryRef.current = []; setDrawPoints([]) }, [])
+  /** Set by the dot drag/delete handlers so the add-a-dot click that
+   *  follows the same mouseup is ignored. */
+  const suppressNextDrawClickRef = useRef(false)
   const [drawGeo, setDrawGeo] = useState<{
     state_name?: string | null
     county?: string | null
@@ -2803,13 +2825,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const prevCursor = canvas.style.cursor
     canvas.style.cursor = 'crosshair'
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setDrawPoints([])
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault()
+        undoDraw()
+      } else if (e.key === 'Escape') {
+        resetDraw()
         setDrawMode(false)
       } else if (e.key === 'Enter') {
         if (drawPoints.length >= 3) finishDrawAreaRef.current()
       } else if (e.key === 'Backspace') {
-        setDrawPoints(pts => pts.slice(0, -1))
+        e.preventDefault()
+        undoDraw()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -2817,7 +2845,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       document.removeEventListener('keydown', handleKeyDown)
       canvas.style.cursor = prevCursor
     }
-  }, [drawMode, drawPoints])
+  }, [drawMode, drawPoints, undoDraw, resetDraw])
 
   // The actual draw click — registered once, self-gated on
   // drawModeActiveRef, same ordering rationale as the pin's placement
@@ -2827,12 +2855,80 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     const handleDrawClick = (e: maplibregl.MapMouseEvent) => {
       if (!drawModeActiveRef.current) return
+      if (suppressNextDrawClickRef.current) { suppressNextDrawClickRef.current = false; return }
       const { lat, lng } = e.lngLat
-      setDrawPoints(pts => [...pts, { lat, lng }])
+      commitDrawPoints([...drawPointsRef.current, { lat, lng }])
     }
     map.on('click', handleDrawClick)
     return () => { map.off('click', handleDrawClick) }
-  }, [mapLoaded])
+  }, [mapLoaded, commitDrawPoints])
+
+  // Existing dots: drag one to move it, click one (no drag) to remove it,
+  // right-click removes too. Registered once on the points layer; only
+  // live while drawing. mousedown on a dot pauses map panning so the
+  // drag moves the dot, not the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    let dragging: { index: number; startX: number; startY: number; moved: boolean } | null = null
+    const onMouseDown = (e: maplibregl.MapLayerMouseEvent) => {
+      if (!drawModeActiveRef.current) return
+      const f = e.features && e.features[0]
+      if (!f) return
+      const index = Number((f.properties as any)?.index)
+      if (!Number.isFinite(index)) return
+      e.preventDefault()
+      map.dragPan.disable()
+      dragging = { index, startX: e.point.x, startY: e.point.y, moved: false }
+      map.getCanvas().style.cursor = 'grabbing'
+    }
+    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
+      if (!dragging) return
+      const dx = e.point.x - dragging.startX, dy = e.point.y - dragging.startY
+      if (!dragging.moved && Math.hypot(dx, dy) < 3) return
+      if (!dragging.moved) {
+        dragging.moved = true
+        drawHistoryRef.current.push(drawPointsRef.current) // one undo step for the whole drag
+      }
+      const idx = dragging.index
+      const { lat, lng } = e.lngLat
+      setDrawPoints(pts => pts.map((p, i) => (i === idx ? { lat, lng } : p)))
+    }
+    const onMouseUp = () => {
+      if (!dragging) return
+      const { index, moved } = dragging
+      dragging = null
+      map.dragPan.enable()
+      map.getCanvas().style.cursor = drawModeActiveRef.current ? 'crosshair' : ''
+      suppressNextDrawClickRef.current = true // the click that follows this mouseup must not add a dot
+      if (!moved) commitDrawPoints(drawPointsRef.current.filter((_, i) => i !== index)) // a plain click on a dot removes it
+    }
+    const onContextMenu = (e: maplibregl.MapLayerMouseEvent) => {
+      if (!drawModeActiveRef.current) return
+      const f = e.features && e.features[0]
+      const index = Number((f?.properties as any)?.index)
+      if (!Number.isFinite(index)) return
+      e.preventDefault()
+      commitDrawPoints(drawPointsRef.current.filter((_, i) => i !== index))
+    }
+    const onEnter = () => { if (drawModeActiveRef.current && !dragging) map.getCanvas().style.cursor = 'grab' }
+    const onLeave = () => { if (drawModeActiveRef.current && !dragging) map.getCanvas().style.cursor = 'crosshair' }
+    map.on('mousedown', DRAW_AREA_POINTS_LAYER, onMouseDown)
+    map.on('mousemove', onMouseMove)
+    map.on('mouseup', onMouseUp)
+    map.on('contextmenu', DRAW_AREA_POINTS_LAYER, onContextMenu)
+    map.on('mouseenter', DRAW_AREA_POINTS_LAYER, onEnter)
+    map.on('mouseleave', DRAW_AREA_POINTS_LAYER, onLeave)
+    return () => {
+      map.off('mousedown', DRAW_AREA_POINTS_LAYER, onMouseDown)
+      map.off('mousemove', onMouseMove)
+      map.off('mouseup', onMouseUp)
+      map.off('contextmenu', DRAW_AREA_POINTS_LAYER, onContextMenu)
+      map.off('mouseenter', DRAW_AREA_POINTS_LAYER, onEnter)
+      map.off('mouseleave', DRAW_AREA_POINTS_LAYER, onLeave)
+      try { map.dragPan.enable() } catch {}
+    }
+  }, [mapLoaded, commitDrawPoints])
 
   // Derived GeoJSON for the live overlay: points, an (open) line through
   // them in order, and — only once there are >= 3 — a closed polygon
@@ -11176,7 +11272,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             onClick={() => {
               // Owner 10/2: closing the panel mid-Quick Draw is the same as
               // Cancel — the drawing never lingers on the map.
-              if (utilitiesView === 'drawArea') { setDrawPoints([]); setDrawMode(false); setUtilitiesView('menu') }
+              if (utilitiesView === 'drawArea') { resetDraw(); setDrawMode(false); setUtilitiesView('menu') }
               setUtilitiesOpen(false)
             }}
             aria-label="Close"
@@ -11660,7 +11756,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 1.45 }}>
                   {drawPoints.length < 3
                     ? `Click the map to add dots. ${3 - drawPoints.length} more to make an area.`
-                    : 'Keep adding dots, or tap Finish.'}
+                    : 'Keep adding dots, or tap Finish. Drag a dot to move it; click a dot to remove it.'}
                 </div>
               )}
               <div>
@@ -11738,7 +11834,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                 {drawMode ? (
                   <>
-                    <button onClick={() => setDrawPoints(pts => pts.slice(0, -1))} disabled={drawPoints.length === 0} style={pinActionButtonStyle}>
+                    <button onClick={undoDraw} disabled={drawPoints.length === 0 && drawHistoryRef.current.length === 0} style={pinActionButtonStyle}>
                       Undo
                     </button>
                     {drawPoints.length >= 3 && (
@@ -11750,7 +11846,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       </button>
                     )}
                     <button
-                      onClick={() => { setDrawPoints([]); setDrawMode(false); setUtilitiesView('menu') }}
+                      onClick={() => { resetDraw(); setDrawMode(false); setUtilitiesView('menu') }}
                       style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}
                     >
                       Cancel
@@ -11829,7 +11925,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             pointerEvents: 'none',
           }}
         >
-          Click the map to add dots · Enter or Finish when done · Esc to cancel
+          Click the map to add dots · Drag a dot to move it · Click a dot to remove it · ⌘Z / Ctrl+Z undo · Enter to finish · Esc to cancel
         </div>
       )}
 
