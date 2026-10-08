@@ -3856,12 +3856,15 @@ export default function ConfigureMap() {
           // bottom button still sits on the toolbar's baseline; `toolbarRow`
           // itself starts to the right of this column (see its `left`).
           : { position: 'absolute', bottom: 16, left: 16, zIndex: 31, padding: '4px 2px' }}>
-          {layersOpen && <CmLayersPanel ov={cmOverlays} openUp={!compact} beside={!compact} />}
+          {/* Popups open ABOVE the column on desktop (beside it they sat
+              over the toolbar's first buttons). */}
+          {layersOpen && <CmLayersPanel ov={cmOverlays} openUp={!compact} />}
           {aerialPickerOpen && (
             <div style={{
               position: 'absolute',
               // Desktop: beside the column, bottom-aligned; compact: below it.
-              ...(compact ? { left: 0, top: '100%', marginTop: 8 } : { left: '100%', marginLeft: 10, bottom: 0 }),
+              left: 0,
+              ...(compact ? { top: '100%', marginTop: 8 } : { bottom: '100%', marginBottom: 8 }),
               width: 220, padding: 10, borderRadius: 10, zIndex: 40,
               background: 'rgba(15,21,32,0.96)', border: '1px solid rgba(255,255,255,0.14)',
               boxShadow: '0 8px 24px rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
