@@ -1817,7 +1817,11 @@ function UtilityTile({
         borderRadius: 12,
         // A visible fill so the tiles read as buttons, not outlines on the
         // dark panel (owner 2026-10-08). Active = pink tint.
-        background: active ? 'rgba(233,30,140,0.22)' : 'rgba(255,255,255,0.10)',
+        // Owner 10/8: a little gradient, not a flat colour — lighter at the
+        // top, darker at the bottom, pink-tinted when active.
+        background: active
+          ? 'linear-gradient(180deg, rgba(233,30,140,0.34) 0%, rgba(233,30,140,0.16) 100%)'
+          : 'linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.06) 100%)',
         border: `1px solid ${active ? '#E91E8C' : 'rgba(255,255,255,0.22)'}`,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.4)',
         color: active ? '#E91E8C' : '#fff',
