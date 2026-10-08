@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, useCallback, useMemo, type MutableRefObjec
 import Link from 'next/link'
 import maplibregl from 'maplibre-gl'
 import { Protocol as PMTilesProtocol } from 'pmtiles'
+import { addHighways } from './highways'
 import { CDL_PALETTE, CDL_LEGEND_ROWS, buildCropColorExpr } from './mapOverlays'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
@@ -4899,6 +4900,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'line-opacity': 0.6,
         },
       })
+
+      // Major highways as landmarks (owner 10/8) — under everything added
+      // after this point (town labels, pins, parcels, drawn areas).
+      addHighways(map)
 
       // ── Register stretchable dark-pill sprite (county labels) ──────
       // MapLibre has no native text-background, so a 9-slice pill image

@@ -17,6 +17,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
 import { addPlaceLabels } from '@/components/map/placeLabels'
+import { addHighways } from '@/components/map/highways'
 import {
   GLYPH_URL, MAP_CENTER, MAP_INITIAL_ZOOM, TILE_ATTRIBUTION, TILE_URL,
 } from '@/components/map/mapConstants'
@@ -104,10 +105,12 @@ export default function PortfolioMap({
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
 
     let removePlaceLabels: (() => void) | null = null
+    let removeHighways: (() => void) | null = null
     map.on('load', async () => {
       map.addSource(SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
       map.addSource(SRC_LABEL, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
 
+      removeHighways = addHighways(map)
       removePlaceLabels = addPlaceLabels(map)
       const cfg = await fetchRegridConfig()
       if (cfg) {
@@ -232,6 +235,7 @@ export default function PortfolioMap({
 
     return () => {
       try { removePlaceLabels?.() } catch { /* style already gone */ }
+      try { removeHighways?.() } catch { /* style already gone */ }
       try { map.remove() } catch { /* already torn down */ }
       mapRef.current = null
       readyRef.current = false

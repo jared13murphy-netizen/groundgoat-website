@@ -46,6 +46,7 @@ import {
   type LandClass, type ParcelDetail, type ParcelSummary, clearProjectReports } from '@/lib/configurableMapping'
 import { addRegridLayer, buildRegridStateFilter, fetchRegridConfig } from '@/components/map/regridLayer'
 import { addPlaceLabels } from '@/components/map/placeLabels'
+import { addHighways } from '@/components/map/highways'
 import {
   AERIAL_YEARS, GLYPH_URL, MAP_CENTER, MAP_INITIAL_ZOOM, TILE_ATTRIBUTION, TILE_URL,
   aerialTileUrl,
@@ -1514,6 +1515,7 @@ export default function ConfigureMap() {
     map.getCanvas().addEventListener('contextmenu', stopMenu)
 
     const removePlaceLabelsRef = { current: null as null | (() => void) }
+    const removeHighwaysRef = { current: null as null | (() => void) }
 
     const raf = requestAnimationFrame(() => map.resize())
     map.once('load', () => map.resize())
@@ -1560,6 +1562,7 @@ export default function ConfigureMap() {
 
       // Outlines and labels go on before the parcel layer, so parcels
       // and their labels sit above the place names.
+      removeHighwaysRef.current = addHighways(map)
       removePlaceLabelsRef.current = addPlaceLabels(map)
 
       const cfg = await fetchRegridConfig()
@@ -2299,6 +2302,7 @@ export default function ConfigureMap() {
       try { map.getCanvas().removeEventListener('contextmenu', stopMenu) } catch { /* gone */ }
       if (sizeTimer !== undefined) clearTimeout(sizeTimer)
       removePlaceLabelsRef.current?.()
+      removeHighwaysRef.current?.()
       ro.disconnect()
       map.remove()
       // Only clear the ref if it still points at THIS map, so a
