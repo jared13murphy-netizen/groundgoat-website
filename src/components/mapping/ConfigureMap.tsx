@@ -3850,16 +3850,18 @@ export default function ConfigureMap() {
             clears the toolbar (30) and its gradient band (20). */}
         <div style={compact
           ? { position: 'absolute', top: 56 + 74 + 8, left: 14, zIndex: 31 }
-          // Same `bottom`, `padding` and `gap` as `toolbarRow`, so the three
-          // sit on the edit toolbar's baseline with its spacing (owner 10/6:
-          // "poor spacing and not in-line with the edit map buttons"). The
-          // zoom control moved to the top-left to free this corner.
+          // Owner 10/8: a vertical column in the corner (the Land Types
+          // toolbar is wide enough on a laptop to run under a horizontal
+          // row). Same `bottom` and `padding` as `toolbarRow`, so the
+          // bottom button still sits on the toolbar's baseline; `toolbarRow`
+          // itself starts to the right of this column (see its `left`).
           : { position: 'absolute', bottom: 16, left: 16, zIndex: 31, padding: '4px 2px' }}>
-          {layersOpen && <CmLayersPanel ov={cmOverlays} openUp={!compact} />}
+          {layersOpen && <CmLayersPanel ov={cmOverlays} openUp={!compact} beside={!compact} />}
           {aerialPickerOpen && (
             <div style={{
-              position: 'absolute', left: 0,
-              ...(compact ? { top: '100%', marginTop: 8 } : { bottom: '100%', marginBottom: 8 }),
+              position: 'absolute',
+              // Desktop: beside the column, bottom-aligned; compact: below it.
+              ...(compact ? { left: 0, top: '100%', marginTop: 8 } : { left: '100%', marginLeft: 10, bottom: 0 }),
               width: 220, padding: 10, borderRadius: 10, zIndex: 40,
               background: 'rgba(15,21,32,0.96)', border: '1px solid rgba(255,255,255,0.14)',
               boxShadow: '0 8px 24px rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
@@ -3890,8 +3892,8 @@ export default function ConfigureMap() {
               </div>
             </div>
           )}
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            {/* Owner 10/6: Saved Maps on the far left. */}
+          <div style={{ display: 'flex', flexDirection: compact ? 'row' : 'column', alignItems: compact ? 'flex-start' : 'center', gap: 14 }}>
+            {/* Owner 10/6: Saved Maps first (top of the column on desktop). */}
             <ToolButton
               icon={FolderOpen}
               label="Saved Maps"
@@ -5017,9 +5019,12 @@ const sheetTabBtn: React.CSSProperties = {
 // Wrapping instead of scrolling matches the compact row's own fallback
 // for a row that outgrows its width.
 const toolbarRow: React.CSSProperties = {
-  position: 'absolute', bottom: 16, left: 0, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 30,
+  // `left: 120` keeps the row clear of the bottom-left button column
+  // (owner 10/8: the two overlapped on a laptop); it is centred in the
+  // space that remains.
+  position: 'absolute', bottom: 16, left: 120, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 30,
   display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center',
-  gap: 14, rowGap: 4, maxWidth: 'calc(100% - 32px)', overflow: 'visible', padding: '4px 2px',
+  gap: 14, rowGap: 4, maxWidth: 'calc(100% - 136px)', overflow: 'visible', padding: '4px 2px',
 }
 // The floating-bubble panel (owner redesign 2026-09-16, replacing the
 // fixed right `<aside>`). Right-anchored, clearing the bottom toolbar

@@ -217,11 +217,12 @@ const chip = (sel: boolean): React.CSSProperties => ({
 
 /** The popup the round Layers button opens. `openUp` anchors it above
  *  the button (desktop, bottom-left); otherwise it drops below. */
-export function CmLayersPanel({ ov, openUp }: { ov: ReturnType<typeof useCmOverlays>; openUp: boolean }) {
+export function CmLayersPanel({ ov, openUp, beside = false }: { ov: ReturnType<typeof useCmOverlays>; openUp: boolean; beside?: boolean }) {
   return (
     <div style={{
-      position: 'absolute', left: 0,
-      ...(openUp ? { bottom: '100%', marginBottom: 8 } : { top: '100%', marginTop: 8 }),
+      position: 'absolute',
+      // `beside`: to the right of the button column, bottom-aligned (desktop).
+      ...(beside ? { left: '100%', marginLeft: 10, bottom: 0 } : openUp ? { left: 0, bottom: '100%', marginBottom: 8 } : { left: 0, top: '100%', marginTop: 8 }),
       width: 236, padding: 10, borderRadius: 10, zIndex: 40,
       background: 'rgba(15,21,32,0.96)', border: '1px solid rgba(255,255,255,0.14)',
       boxShadow: '0 8px 24px rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
