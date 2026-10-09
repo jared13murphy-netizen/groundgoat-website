@@ -17,23 +17,46 @@ const POSTER_SRC = `${CDN}/gg-promo-poster.jpg`
 export function PromoVideoSection() {
   const [playing, setPlaying] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const sectionRef = useRef<HTMLElement>(null)
 
-  const start = () => {
+  // True when playback was started by the #watch deep link rather than a
+  // click. Browsers refuse an unmuted play() that no gesture asked for, so
+  // the automatic path mutes first — the native controls hand the sound back.
+  const autoStarted = useRef(false)
+
+  const start = (auto = false) => {
+    autoStarted.current = auto
     setPlaying(true)
-    // Wait for the video element to mount before asking it to play. Move
-    // focus onto it so keyboard users land on the native controls instead
-    // of losing their place when the play button unmounts; if play() is
-    // refused, fall back to the poster so there's still a way in.
-    requestAnimationFrame(() => {
-      const video = videoRef.current
-      if (!video) return
-      video.focus()
-      video.play().catch(() => setPlaying(false))
-    })
   }
 
+  // Play once the <video> is actually in the DOM. Doing this in an effect
+  // rather than a rAF callback is what makes the deep link reliable: on a
+  // cold load the ref is still empty a frame after setPlaying.
+  useEffect(() => {
+    if (!playing) return
+    const video = videoRef.current
+    if (!video) return
+    video.muted = autoStarted.current
+    // Don't steal focus on the automatic path — the visitor is still reading.
+    if (!autoStarted.current) video.focus()
+    video.play().catch(() => setPlaying(false))
+  }, [playing])
+
+  // Arriving on groundgoat.com/#watch (the link in our outreach email) scrolls
+  // the band into view and starts it muted.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.location.hash !== '#watch') return
+    sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    start(true)
+  }, [])
+
   return (
-    <section className="py-24 bg-gg-black relative overflow-hidden">
+    <section
+      ref={sectionRef}
+      id="watch"
+      className="py-24 bg-gg-black relative overflow-hidden scroll-mt-20"
+    >
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[350px] bg-gg-pink/10 rounded-full blur-[150px]" />
 
       <div className="relative z-10 max-w-5xl mx-auto px-6">
@@ -62,7 +85,7 @@ export function PromoVideoSection() {
             />
           ) : (
             <button
-              onClick={start}
+              onClick={() => start()}
               aria-label="Play the Ground Goat video"
               className="absolute inset-0 w-full h-full"
             >
