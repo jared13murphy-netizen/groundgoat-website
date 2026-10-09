@@ -201,7 +201,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
                   <Wrench size={7} strokeWidth={2.5} />
                 </span>
               </span>
-              <span className="hidden md:inline">Utilities</span>
+              <span className="hidden md:inline">My Maps</span>
             </button>
           )}
 

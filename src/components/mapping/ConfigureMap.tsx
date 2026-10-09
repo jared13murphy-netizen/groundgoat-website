@@ -29,8 +29,9 @@ import {
   Loader2, Plus, Trash2, RotateCcw, RotateCw, Save, Search, X, Layers,
   Eye, EyeOff,
   Scissors, FileText, Download, BarChart3, Eraser, PenLine, PaintBucket, Check,
-  ArrowRight, ArrowLeft, PenTool, Magnet, MousePointerClick, type LucideIcon,
+  ArrowRight, ArrowLeft, PenTool, Magnet, MousePointerClick, CalendarDays, FolderOpen, type LucideIcon,
 } from 'lucide-react'
+import { CmLayersPanel, useCmOverlays } from './CmLayers'
 import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, PARCEL_LINE, SEARCH_DOT, VERTEX_LINE,
   archiveParcel, classifyBoundary, fetchParcel, getSavedParcel, saveParcel, searchMap,
@@ -237,13 +238,17 @@ function simplifyShapes(shapes: Shape[]): Shape[] {
 /** The tract name. Reads as text until you pick up the pencil; then an
  *  x to abandon the change and a tick to keep it. One component so the
  *  gesture is identical everywhere a tract can be renamed (owner). */
-function TractName({ value, onCommit, busy, placeholder }: {
+function TractName({ value, onCommit, busy, placeholder, onEditingChange }: {
   value: string
   onCommit: (next: string) => void
   busy?: boolean
   placeholder?: string
+  /** Lets the host row clear space for the input (owner 10/6: the box
+   *  was a few characters wide — "users need to see what they're typing"). */
+  onEditingChange?: (editing: boolean) => void
 }) {
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditingState] = useState(false)
+  const setEditing = (e: boolean) => { setEditingState(e); onEditingChange?.(e) }
   const [draft, setDraft] = useState(value)
   // Someone else may have changed it — a save, a reload, another tract
   // opened. While editing, the draft is the user's and is left alone.
@@ -287,7 +292,7 @@ function TractName({ value, onCommit, busy, placeholder }: {
     // never reaches the browser's native submit machinery at all. The
     // check button stays as the same submit action; Escape cancels.
     <form onSubmit={(e) => { e.preventDefault(); commit() }}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, width: '100%' }}>
       <input
         autoFocus value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -339,11 +344,15 @@ function TractRow({ t, selected, busy, soilRating, onSelect, onCommitName, onRem
   const tillable = t.classified
     ? t.shapes.filter((sh) => sh.cls === 'tillable').reduce((sum, sh) => sum + shapeAcres(sh), 0)
     : null
+  // While the name is being edited the acres / tillable / rating cells
+  // and the remove button step aside so the input gets the whole row
+  // (owner 10/6 screenshot: the box was a few characters wide).
+  const [renaming, setRenaming] = useState(false)
   return (
     <div onClick={onSelect}
          style={{
            display: 'grid',
-           gridTemplateColumns: 'auto 1fr auto auto auto auto',
+           gridTemplateColumns: renaming ? 'auto 1fr' : 'auto 1fr auto auto auto auto',
            gap: 8, alignItems: 'center', cursor: 'pointer',
            padding: '8px 6px', borderBottom: '1px solid rgba(255,255,255,0.06)',
            borderRadius: selected ? 7 : 0,
@@ -354,14 +363,15 @@ function TractRow({ t, selected, busy, soilRating, onSelect, onCommitName, onRem
               width: 8, height: 8, borderRadius: '50%', flex: 'none',
               background: t.source.kind === 'drawn' ? GG_PINK : '#93c5fd',
             }} />
-      <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+      <span onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, width: '100%' }}>
         <TractName value={t.name} busy={!!busy}
-                   onCommit={(n) => onCommitName(n)} />
-        {!t.name.trim() && (
+                   onCommit={(n) => onCommitName(n)} onEditingChange={setRenaming} />
+        {!renaming && !t.name.trim() && (
           <span title="Unnamed tract"
                 style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', flex: 'none' }} />
         )}
       </span>
+      {!renaming && (<>
       <span style={{ opacity: 0.7, fontSize: 12 }} title="Total acres">
         {(t.acres ?? boundaryAcresOf(t.boundary)).toFixed(1)} ac
       </span>
@@ -376,6 +386,7 @@ function TractRow({ t, selected, busy, soilRating, onSelect, onCommitName, onRem
               style={{ ...dangerBtn, flex: 'none', padding: '4px 7px' }}>
         <Trash2 size={13} />
       </button>
+      </>)}
     </div>
   )
 }
@@ -946,6 +957,11 @@ export default function ConfigureMap() {
   // file someone reopens). null = "Latest".
   const [aerialYear, setAerialYear] = useState<number | null>(null)
   const [aerialPickerOpen, setAerialPickerOpen] = useState(false)
+  // Layers (owner 10/6): one overlay on top of the editor's map, opened
+  // from the round Layers button in the bottom-left corner.
+  const [layersOpen, setLayersOpen] = useState(false)
+  const [overlayMapReady, setOverlayMapReady] = useState(false)
+  const cmOverlays = useCmOverlays(mapRef, overlayMapReady)
   // A year chosen before the project exists yet (Stage 1, or a
   // brand-new single-parcel canvas) has nowhere to PATCH — it is held
   // here and flushed onto the project the moment the first save mints
@@ -1460,7 +1476,7 @@ export default function ConfigureMap() {
       // Parcel tiles come from our backend behind auth; the token rides
       // as a header rather than in the URL (header_auth=1).
       transformRequest: (url: string) => {
-        if (url.includes(`${API_URL}/api/regrid/tile/`)) {
+        if (url.includes(`${API_URL}/api/regrid/tile/`) || url.includes(`${API_URL}/api/tiles/csb-fields/`)) {
           const token = localStorage.getItem('auth_token')
           return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
         }
@@ -1468,7 +1484,9 @@ export default function ConfigureMap() {
       },
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left')
+    // Top-left under "Back to Map" (owner 10/6): the bottom-left corner now
+    // belongs to the Layers / Aerial Year / Saved Maps buttons.
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left')
     // A fit that arrived while the canvas had no size (see `fitMap`)
     // lands here, the moment the canvas is really sized.
     map.on('resize', () => {
@@ -1537,6 +1555,7 @@ export default function ConfigureMap() {
     sizeTimer = window.setTimeout(syncSize, 50)
 
     map.on('load', async () => {
+      setOverlayMapReady(true)
       for (const id of Object.values(SRC)) {
         map.addSource(id, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any })
       }
@@ -3799,6 +3818,7 @@ export default function ConfigureMap() {
       <style>{`
         .cm-surface button svg, .cm-surface a svg { color: #ffffff; }
         .cm-surface button:disabled { opacity: 0.45; cursor: default; }
+        .cm-surface .maplibregl-ctrl-top-left { top: 56px; }
       `}</style>
       <div style={{ flex: 1, position: 'relative' }}>
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
@@ -3819,33 +3839,33 @@ export default function ConfigureMap() {
           }}>
           <ArrowLeft size={14} /> Back to Map
         </button>
-        {/* Aerial imagery year (owner item 5, 2026-09-22) — a pill that
-            opens the same 4-column year grid Explore's Utilities "Map
-            Year" view uses, styled the same way, but this choice
-            PERSISTS on the project instead of resetting on reload.
-            Layout-aware (reviewer defect 3): the desktop toolbar row is
-            centred and bottom-left is free, so the pill sits there,
-            above the NavigationControl's zoom buttons (`bottom: 16` the
-            control's own margin + its ~two-button ~74px height + an 8px
-            gap). In `compact` that corner is the bottom SHEET's turf
-            (and a wrapped toolbar can reach further up than the desktop
-            row ever does), so the pill moves to the top-left instead,
-            right under "Back to Map" — and its popup opens DOWNWARD
-            there instead of upward, so it never renders off the top of
-            the screen. `zIndex: 31` clears both the toolbar (30) and its
-            gradient band (20). */}
+        {/* Bottom-left corner controls (owner 10/6): Layers, Aerial Year
+            and Return to Portfolio as the same round buttons the edit
+            toolbar uses (ToolButton), in a row. Each popup (the Layers
+            panel, the 4-column aerial-year grid) opens UPWARD from the
+            row on desktop, on the edit toolbar's own baseline. In `compact`
+            that corner is the bottom SHEET's turf, so the row moves to the
+            top-left under "Back to Map" and the zoom control, and its
+            popups open DOWNWARD. `zIndex: 31`
+            clears the toolbar (30) and its gradient band (20). */}
         <div style={compact
-          ? { position: 'absolute', top: 58, left: 14, zIndex: 31,
-              display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }
-          : { position: 'absolute', bottom: 16 + 74 + 8, left: 10, zIndex: 31,
-              // Stacked: the aerial-year button with Return to Portfolio
-              // directly under it (owner 10/2).
-              display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+          ? { position: 'absolute', top: 56 + 74 + 8, left: 14, zIndex: 31 }
+          // Owner 10/8: a vertical column in the corner (the Land Types
+          // toolbar is wide enough on a laptop to run under a horizontal
+          // row). Same `bottom` and `padding` as `toolbarRow`, so the
+          // bottom button still sits on the toolbar's baseline; `toolbarRow`
+          // itself starts to the right of this column (see its `left`).
+          : { position: 'absolute', bottom: 16, left: 16, zIndex: 31, padding: '4px 2px' }}>
+          {/* Popups open ABOVE the column on desktop (beside it they sat
+              over the toolbar's first buttons). */}
+          {layersOpen && <CmLayersPanel ov={cmOverlays} openUp={!compact} />}
           {aerialPickerOpen && (
             <div style={{
-              position: 'absolute', left: 0,
+              position: 'absolute',
+              // Desktop: beside the column, bottom-aligned; compact: below it.
+              left: 0,
               ...(compact ? { top: '100%', marginTop: 8 } : { bottom: '100%', marginBottom: 8 }),
-              width: 220, padding: 10, borderRadius: 10,
+              width: 220, padding: 10, borderRadius: 10, zIndex: 40,
               background: 'rgba(15,21,32,0.96)', border: '1px solid rgba(255,255,255,0.14)',
               boxShadow: '0 8px 24px rgba(0,0,0,0.55)', backdropFilter: 'blur(10px)',
             }}>
@@ -3875,34 +3895,29 @@ export default function ConfigureMap() {
               </div>
             </div>
           )}
-          <button
-            onClick={() => setAerialPickerOpen((v) => !v)}
-            title="Choose the aerial imagery year"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
-              background: 'rgba(15,21,32,0.85)', border: '1px solid rgba(255,255,255,0.18)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
-            }}>
-            Aerial: {aerialYear === null ? 'Latest' : aerialYear}
-          </button>
-          {/* Owner 10/2: a way back to the Map Portfolio from the map
-              itself, under the aerial-year button. Same unsaved-work
-              confirmation as every other exit. */}
-          <button
-            type="button"
-            onClick={() => leaveScreen('/map-portfolio')}
-            title="Back to your Map Portfolio"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8,
-              padding: '7px 12px', borderRadius: 999, cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)',
-              background: 'rgba(15,21,32,0.85)', border: '1px solid rgba(255,255,255,0.18)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)',
-            }}>
-            <ArrowLeft size={14} /> Return to Portfolio
-          </button>
+          <div style={{ display: 'flex', flexDirection: compact ? 'row' : 'column', alignItems: compact ? 'flex-start' : 'center', gap: 14 }}>
+            {/* Owner 10/6: Saved Maps first (top of the column on desktop). */}
+            <ToolButton
+              icon={FolderOpen}
+              label="Saved Maps"
+              title="Back to your Saved Maps"
+              onClick={() => leaveScreen('/map-portfolio')}
+            />
+            <ToolButton
+              icon={Layers}
+              label="Layers"
+              active={layersOpen || cmOverlays.overlay !== null}
+              title={cmOverlays.overlay ? `Layers — ${cmOverlays.options.find((o) => o.key === cmOverlays.overlay)?.label} is on` : 'Add a layer on top of your map'}
+              onClick={() => { setLayersOpen((v) => !v); setAerialPickerOpen(false) }}
+            />
+            <ToolButton
+              icon={CalendarDays}
+              label="Aerial Year"
+              active={aerialPickerOpen}
+              title={`Aerial imagery: ${aerialYear === null ? 'Latest' : aerialYear} — choose a year`}
+              onClick={() => { setAerialPickerOpen((v) => !v); setLayersOpen(false) }}
+            />
+          </div>
         </div>
         {/* Bottom gradient (owner item 3, 2026-09-22): "these buttons
             aren't currently noticeable" — a non-interactive band pinned
@@ -4223,7 +4238,7 @@ export default function ConfigureMap() {
                 <div style={stepLabel}>Step 1 — Name this project.</div>
                 <div style={{ lineHeight: 1.5 }}>
                   Give this project a name before adding tracts — it&rsquo;s how
-                  you&rsquo;ll find it in Map Portfolio.
+                  you&rsquo;ll find it in Saved Maps.
                 </div>
                 <input
                   autoFocus
@@ -4305,7 +4320,7 @@ export default function ConfigureMap() {
                     fontSize: 12, color: '#f58cde', textDecoration: 'none', flex: 'none',
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
                   }}>
-                  Map Portfolio
+                  Saved Maps
                 </button>
               </div>
 
@@ -4856,7 +4871,7 @@ export default function ConfigureMap() {
                   + 'opens the tract you clicked. Cancel stays on this one.'
                 : confirmWhat === 'leave'
                 ? 'You have changes that are not saved. OK '
-                  + (leaveTo === '/map-portfolio' ? 'goes back to your Map Portfolio' : 'leaves for the Explore map')
+                  + (leaveTo === '/map-portfolio' ? 'goes back to your Saved Maps' : 'leaves for the Explore map')
                   + ' and throws them away. Cancel stays here.'
                 : confirmWhat === 'clearPolygons'
                 ? 'Every land-type polygon on this tract will be removed. This '
@@ -5007,9 +5022,12 @@ const sheetTabBtn: React.CSSProperties = {
 // Wrapping instead of scrolling matches the compact row's own fallback
 // for a row that outgrows its width.
 const toolbarRow: React.CSSProperties = {
-  position: 'absolute', bottom: 16, left: 0, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 30,
+  // `left: 120` keeps the row clear of the bottom-left button column
+  // (owner 10/8: the two overlapped on a laptop); it is centred in the
+  // space that remains.
+  position: 'absolute', bottom: 16, left: 120, right: 0, margin: '0 auto', width: 'fit-content', zIndex: 30,
   display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'center',
-  gap: 14, rowGap: 4, maxWidth: 'calc(100% - 32px)', overflow: 'visible', padding: '4px 2px',
+  gap: 14, rowGap: 4, maxWidth: 'calc(100% - 136px)', overflow: 'visible', padding: '4px 2px',
 }
 // The floating-bubble panel (owner redesign 2026-09-16, replacing the
 // fixed right `<aside>`). Right-anchored, clearing the bottom toolbar
