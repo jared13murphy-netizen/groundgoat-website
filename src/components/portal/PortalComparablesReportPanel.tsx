@@ -50,6 +50,7 @@ interface SubjectInfo {
   subject_pct_tillable?: number
   subject_soil_rating?: number
   subject_soil_rating_type?: string | null
+  subject_ll_uuid?: string | null
   subject_township?: string
   subject_land_type?: string
   // IDs needed by the backend to fetch polygon/image/DEM for the PDF
@@ -116,6 +117,9 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
     tract_id: subjectInfo?.tract_id || null,
     subject_county: subjectInfo?.county || null,
     subject_state: subjectInfo?.state || null,
+    // The parcel behind a parcel subject — the server re-reads its tillable /
+    // soil rating from the one parcel source at enqueue time (owner 10/13).
+    subject_ll_uuid: subjectInfo?.subject_ll_uuid || null,
     subject_acres: subjectInfo?.subject_acres ? String(subjectInfo.subject_acres) : null,
     subject_tillable_pct: subjectInfo?.subject_pct_tillable
       ? String(Math.round(subjectInfo.subject_pct_tillable)) + '%' : null,
