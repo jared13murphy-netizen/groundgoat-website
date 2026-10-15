@@ -48,6 +48,20 @@ export function fmtAcres(n: any): string | null {
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
 }
 
+/** Taxable Acres (owner 10/15): the county's own acreage (Regrid `gisacre`)
+ *  shown exactly as the county gives it — NOT rounded, just comma-grouped
+ *  ("1,234.5678"). Built from the number's own shortest string so no
+ *  fraction digit is added or dropped. Null when absent or not positive, so
+ *  the row hides. */
+export function fmtTaxableAcres(n: any): string | null {
+  const v = typeof n === 'number' ? n : (n != null && String(n).trim() !== '' ? Number(n) : NaN)
+  if (!isFinite(v) || v <= 0) return null
+  const str = String(v)
+  if (/e/i.test(str)) return v.toLocaleString('en-US', { maximumFractionDigits: 20 })
+  const [int, frac] = str.split('.')
+  return int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (frac ? '.' + frac : '')
+}
+
 // Land Composition acres + Soil Rating value round to the owner-specified
 // precision (tenths) locally — the shared `formatAcres` (@/lib/format) goes
 // to 3dp and other screens depend on that, so it isn't touched here.
@@ -172,6 +186,7 @@ export interface ParcelDetailFields {
   usedesc: string
   zoning: string
   parval: number | null
+  taxableAcres: number | null
   taxamt: number | null
   taxyear: string | number | null
   landval: number | null
@@ -287,6 +302,10 @@ export function deriveParcelDetail(
   // it send 0/blank — fmtMoney treats 0 as unknown (same $0-isn't-data
   // rule as parval/saleprice), so the row hides rather than showing $0.
   const taxamt = record?.taxamt ?? null
+  // Taxable Acres (owner 10/15) = Regrid `gisacre`, the county's acreage.
+  // Note the local `gisacre` above prefers ll_gisacre (mapped acres); this
+  // one must be the county figure only, never the mapped fallback.
+  const taxableAcres = record?.gisacre ?? null
   const taxyear = record?.taxyear ?? null
   const landval = record?.landval ?? null
   const improvval = record?.improvval ?? null
@@ -302,7 +321,7 @@ export function deriveParcelDetail(
   const hasSoilRatingRow = soilRating != null && soilRatingType != null
   const hasLastSale = !!(fmtDate(saledate) || saleType || lastTransferDate || previousOwner)
   const hasProperty = !!(deeded || usedesc || zoning)
-  const hasAssessed = !!(fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval) || fmtMoney(taxamt))
+  const hasAssessed = !!(fmtTaxableAcres(taxableAcres) || fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval) || fmtMoney(taxamt))
   const hasBuildings = !!(buildings || bldgSqft || yearbuilt)
 
   const mailStreet = (record?.mailadd ?? '').toString().trim()
@@ -343,7 +362,7 @@ export function deriveParcelDetail(
     ratingLabel, soilRating, soilRatingType, tillableAcres, pctTillable,
     pastureAcres, timberAcres, pctTimber, dominantLandcover, backfillStatus,
     saledate, saleType, previousOwner, lastTransferDate, deeded, usedesc, zoning,
-    parval, landval, improvval, taxamt, taxyear, buildings, bldgSqft, yearbuilt,
+    parval, landval, improvval, taxableAcres, taxamt, taxyear, buildings, bldgSqft, yearbuilt,
     mailStreet, mailCityLine,
     hasLandComposition, hasSoilRatingRow, hasLastSale, hasProperty, hasAssessed, hasBuildings, hasMailing,
   }
@@ -549,6 +568,9 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
           {fmtMoney(d.parval) && <DetailRow label="Total" value={fmtMoney(d.parval)!} />}
           {fmtMoney(d.landval) && <DetailRow label="Land" value={fmtMoney(d.landval)!} />}
           {fmtMoney(d.improvval) && <DetailRow label="Improvements" value={fmtMoney(d.improvval)!} />}
+          {fmtTaxableAcres(d.taxableAcres) && (
+            <DetailRow label="Taxable Acres" value={fmtTaxableAcres(d.taxableAcres)!} />
+          )}
           {fmtMoneyCents(d.taxamt) && (
             <DetailRow
               label={d.taxyear ? `Property Tax (${d.taxyear})` : 'Property Tax'}
