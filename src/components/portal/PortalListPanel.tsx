@@ -155,9 +155,20 @@ export function getListingSoilRating(tracts?: { tillable_acres?: number; total_a
 
 function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatchlist, isAdmin }: { listing: Listing; activeTab: TabType; onClick: () => void; isWatchlisted?: boolean; onToggleWatchlist?: (id: string) => void; isAdmin?: boolean }) {
   const hasCompany = !!(listing.company?.name || listing.company_name)
-  const [imgError, setImgError] = useState(false)
-  const imgSrc = (!imgError && (wideMarketingImage(listing.marketing_image_url) || listing.primary_image_url)) || FALLBACK_IMAGE
-  const handleImgError = useCallback(() => setImgError(true), [])
+  // Each failed load steps to the next candidate: marketing image → tract
+  // image → stock photo. Previously one error jumped straight to the stock
+  // photo, and if that failed too (owner 10/16: fast scrolling on Auctions /
+  // Results while the image resizer was overloaded) the card was left showing
+  // a broken-image icon. Past the last candidate we render no <Image> at all,
+  // so the card's grey background shows instead.
+  const imgCandidates = [
+    wideMarketingImage(listing.marketing_image_url),
+    listing.primary_image_url,
+    FALLBACK_IMAGE,
+  ].filter((u, i, arr): u is string => !!u && arr.indexOf(u) === i)
+  const [imgIndex, setImgIndex] = useState(0)
+  const imgSrc = imgCandidates[imgIndex]
+  const handleImgError = useCallback(() => setImgIndex((i) => i + 1), [])
 
   return (
     <div
@@ -168,14 +179,17 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
     >
       {/* Image */}
       <div className="relative h-36 w-full bg-gg-gray-800">
-        <Image
-          src={imgSrc}
-          alt={`${listing.county}, ${listing.state}`}
-          fill
-          className="object-cover"
-          sizes="500px"
-          onError={handleImgError}
-        />
+        {imgSrc && (
+          <Image
+            key={imgSrc}
+            src={imgSrc}
+            alt={`${listing.county}, ${listing.state}`}
+            fill
+            className="object-cover"
+            sizes="500px"
+            onError={handleImgError}
+          />
+        )}
         {/* Bookmark button */}
         {onToggleWatchlist && (
           <button
