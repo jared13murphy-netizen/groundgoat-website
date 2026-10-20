@@ -3,6 +3,7 @@ import './globals.css'
 import ConditionalShell from '@/components/ConditionalShell'
 import ReportJobsIndicator from '@/components/ReportJobsIndicator'
 import SandboxBanner from '@/components/SandboxBanner'
+import SiteAnalytics from '@/components/SiteAnalytics'
 
 export const metadata: Metadata = {
   title: 'Ground Goat | Land Auction Intelligence',
@@ -41,6 +42,8 @@ export default function RootLayout({
             user navigates, so the thing telling them about it must not be
             unmounted by navigation. */}
         <ReportJobsIndicator />
+        {/* Our own page-view counter — no third party, no cookies. */}
+        <SiteAnalytics />
       </body>
     </html>
   )
