@@ -382,6 +382,68 @@ function Outside({ d, fixes }: { d: any; fixes?: any }) {
 
 /* ── The panels ───────────────────────────────────────────────────── */
 
+function Visitors({ d }: { d: any }) {
+  const m = d.month || {}, f = d.signup_funnel || {}
+  const daily: any[] = d.daily || []
+  const peak = Math.max(1, ...daily.map(x => x.visitors || 0))
+  if (!d.since) {
+    return <div className="drawer-empty">No visits recorded yet. The counter starts the day it goes live.</div>
+  }
+  const pct = (a: number, b: number) => (b ? ` · ${Math.round((a / b) * 100)}%` : '')
+  return (
+    <>
+      <div className="kpis" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+        <Kpi v={num(d.today?.visitors)} k={`visitors today · ${num(d.today?.views)} pages`} />
+        <Kpi v={num(d.week?.visitors)} k={`visitors, 7 days · ${num(d.week?.views)} pages`} />
+        <Kpi v={num(m.visitors)} k={`visitors, 30 days · ${num(m.views)} pages`} />
+        <Kpi v={num(m.anonymous)} k={`not signed in, 30 days · ${num(m.mobile)} on phones`} />
+      </div>
+      {/* Bars, like the People card: visitors on a day are a count, and a
+          line between two zeroes would invent a slope. */}
+      <div className="sparkbars" aria-hidden="true">
+        {daily.map(x => (
+          <span key={x.day} className={x.visitors ? 'on' : ''}
+            style={{ height: `${Math.max(4, (x.visitors / peak) * 100)}%` }}
+            title={`${x.day}: ${x.visitors} ${x.visitors === 1 ? 'visitor' : 'visitors'}, ${x.views} pages`} />
+        ))}
+      </div>
+      <div className="dailyfoot">
+        <span>{daily[0]?.day?.slice(5)}</span>
+        <span className="dim">visitors a day, 30 days</span>
+        <span>today</span>
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 16 }}>
+        <div className="rows">
+          <div className="more">Sign-up funnel, 30 days</div>
+          <Row label="Opened the sign-up page" value={num(f.signup_page_visitors)} />
+          <Row label="Asked for a code" value={`${num(f.asked_for_code)}${pct(f.asked_for_code, f.signup_page_visitors)}`} />
+          <Row label="Made an account" value={`${num(f.registered)}${pct(f.registered, f.signup_page_visitors)}`} />
+          <div className="more" style={{ marginTop: 8 }}>Campaigns</div>
+          {(d.campaigns || []).length === 0
+            ? <div className="more">No tagged links yet.</div>
+            : (d.campaigns || []).map((c: any) => (
+              <Row key={`${c.source}|${c.medium}|${c.campaign}`}
+                label={[c.source, c.medium, c.campaign].filter(Boolean).join(' · ')} value={num(c.visits)} />
+            ))}
+        </div>
+        <div className="rows">
+          <div className="more">Where they came from, 30 days</div>
+          {(d.referrers || []).map((r: any) => (
+            <Row key={r.host} label={r.host} value={`${num(r.visits)} visits`} />
+          ))}
+        </div>
+        <div className="rows">
+          <div className="more">Most-read pages, 30 days</div>
+          {(d.pages || []).map((p: any) => (
+            <Row key={p.path} label={p.path} value={`${num(p.visitors)} · ${num(p.views)} views`} />
+          ))}
+        </div>
+      </div>
+      <div className="more">Counting since {new Date(d.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+    </>
+  )
+}
+
 function RightNow({ d, series }: { d: any; series: any[] | null }) {
   // NOTHING MEASURED IS NOT ZERO. An hour with no requests used to print
   // "0 ms" and "0.0% failing", which read as instant and perfect. The panel
@@ -1656,6 +1718,21 @@ type CardInfo = {
 }
 
 const CARD_INFO: Record<string, CardInfo> = {
+  visitors: {
+    covers: 'Who comes to groundgoat.com, which pages they read, where they came from, and how many of them reach sign-up.',
+    source: 'site_visits — our own page-view counter on the website. No third party and no cookies; a random id per browser, no IP address.',
+    caveat: 'Counts only start the day the counter went live. Ad blockers and browsers with storage turned off can hide or double-count a few people. The app is not counted here — only the website.',
+    lines: [
+      { l: 'Visitors · page views',
+        d: 'Visitors are different browsers; page views are every page they opened. Days are Central time.' },
+      { l: 'Sign-up funnel',
+        d: 'Of the people who opened the sign-up page in 30 days, how many asked for a verification code and how many finished making an account on the website.' },
+      { l: 'Where they came from',
+        d: 'The site that sent each visit, counted once per visit. "Typed or bookmarked" means no site sent them. Clicks between our own pages are not counted.' },
+      { l: 'Campaigns',
+        d: 'Links tagged with utm_source (for example the bank email) show up here by name.' },
+    ],
+  },
   backups: {
     covers: 'Whether every database actually has a recent backup sitting in S3.',
     lines: [
@@ -3938,7 +4015,7 @@ function BillingTruth({ d }: { d: any }) {
    works on a laptop, which is where it actually gets opened. */
 
 type SectionId =
-  | 'overview' | 'map' | 'problems' | 'money' | 'people' | 'reach'
+  | 'overview' | 'map' | 'problems' | 'money' | 'people' | 'visitors' | 'reach'
   | 'performance' | 'errors' | 'jobs'
   | 'pipeline' | 'quality'
   | 'aws' | 'regrid' | 'storage' | 'outside'
@@ -3955,6 +4032,7 @@ const NAV: { group: string | null; items: { id: SectionId; label: string }[] }[]
     group: 'Business', items: [
       { id: 'money', label: 'Money' },
       { id: 'people', label: 'People' },
+      { id: 'visitors', label: 'Website visitors' },
       { id: 'reach', label: 'Notifications & email' },
     ],
   },
@@ -3987,6 +4065,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
   problems: 'Problems',
   money: 'Money',
   people: 'People',
+  visitors: 'Website visitors',
   reach: 'Notifications & email',
   performance: 'Performance',
   errors: 'Errors & crashes',
@@ -4287,6 +4366,7 @@ export default function CommandCenterPage() {
   const storageD = P('storage'), pipelineD = P('pipeline'), qualityD = P('data_quality')
   const notifD = P('notifications'), emailD = P('email')
   const outsideD = P('outside')
+  const visitorsD = P('visitors')
   const backupsD = P('backups')
   const agentsD = P('agents')
   const trendsD = P('trends') || {}
@@ -4438,6 +4518,16 @@ export default function CommandCenterPage() {
             <Panel span={12} title="People" infoId="people" panelState={st('people')}
               onChart={chart('people')}>
               {peopleD ? <People d={peopleD} /> : <Unavailable why={whyMissing('people')} />}
+            </Panel>
+          </div>
+        )
+
+      case 'visitors':
+        return (
+          <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
+            <Panel span={12} title="Website visitors" tag="our own counter" infoId="visitors"
+              panelState={st('visitors')}>
+              {visitorsD ? <Visitors d={visitorsD} /> : <Unavailable why={whyMissing('visitors')} />}
             </Panel>
           </div>
         )
