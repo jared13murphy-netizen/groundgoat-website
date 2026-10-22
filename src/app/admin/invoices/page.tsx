@@ -16,6 +16,15 @@ import { ArrowLeft, FileText, Plus, Trash2, Send, Ban, ExternalLink, Loader2, Cr
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface Firm { id: string; name: string; email: string | null; has_stripe_customer: boolean }
+interface OwedInvoice {
+  stripe_invoice_id: string; number: string | null; amount: number; created_at: string | null; due_date: string | null
+  collection_method: string; billing_reason: string | null; attempt_count: number; next_payment_attempt: string | null
+  payment_methods: string[]; hosted_invoice_url: string | null; invoice_pdf: string | null; lines: string[]
+  last_failure: { message: string | null; code: string | null; at: string | null } | null
+}
+interface Owed { firm: { id: string; name: string; email: string | null; subscription_status: string | null }; invoices: OwedInvoice[]; total_owed: number }
+const METHOD_LABEL: Record<string, string> = { card: 'card', us_bank_account: 'ACH bank debit' }
+const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '')
 interface Item { description: string; quantity: number; unit_amount: string }
 interface Invoice {
   id: string
@@ -65,6 +74,50 @@ export default function AdminInvoicesPage() {
   const [allowAch, setAllowAch] = useState(true)
   const [sending, setSending] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  // What the picked firm owes in Stripe right now (owner 10/22: "when I
+  // pull a bank's name in the dropdown, it should know exactly what they
+  // owe and send the invoice correctly. I shouldn't have to fill in anything.")
+  const [owed, setOwed] = useState<Owed | null>(null)
+  const [owedLoading, setOwedLoading] = useState(false)
+  const [openBusy, setOpenBusy] = useState<string | null>(null)
+  const [openCard, setOpenCard] = useState(true)
+  const [openAch, setOpenAch] = useState(true)
+  const [showOneOff, setShowOneOff] = useState(false)
+
+  const loadOwed = useCallback(async (id: string) => {
+    setOwed(null)
+    if (!id) return
+    setOwedLoading(true)
+    try {
+      const r = await fetchWithAuth(`${API_URL}/api/admin/invoices/owed?firm_id=${encodeURIComponent(id)}`)
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) { setError(body.detail || `Could not read Stripe (${r.status})`); return }
+      setOwed(body)
+    } catch (e: any) {
+      setError(e?.message || 'Could not read Stripe')
+    } finally {
+      setOwedLoading(false)
+    }
+  }, [])
+
+  const sendOpen = async (inv: OwedInvoice) => {
+    if (!owed) return
+    setError(null); setNotice(null); setOpenBusy(inv.stripe_invoice_id)
+    try {
+      const r = await fetchWithAuth(`${API_URL}/api/admin/invoices/open/${inv.stripe_invoice_id}/send`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firm_id: owed.firm.id, payment_methods: [...(openCard ? ['card'] : []), ...(openAch ? ['us_bank_account'] : [])] }),
+      })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) { setError(body.detail || `Request failed (${r.status})`); return }
+      setNotice(`Invoice ${inv.number || inv.stripe_invoice_id} for ${money(inv.amount)} emailed to ${body.invoice.sent_to} with a Stripe payment link (${[...(openCard ? ['card'] : []), ...(openAch ? ['ACH'] : [])].join(' or ')}). Paying it clears the subscription.`)
+      await Promise.all([loadOwed(owed.firm.id), loadAll()])
+    } catch (e: any) {
+      setError(e?.message || 'Request failed')
+    } finally {
+      setOpenBusy(null)
+    }
+  }
 
   const loadAll = useCallback(async () => {
     const [f, i] = await Promise.all([
@@ -96,6 +149,8 @@ export default function AdminInvoicesPage() {
   // Picking a firm fills name + email from the firm record; both stay editable.
   const onPickFirm = (id: string) => {
     setFirmId(id)
+    setError(null)
+    loadOwed(id)
     const f = firms.find(x => x.id === id)
     if (f) {
       setCustomerName(f.name || '')
@@ -203,16 +258,76 @@ export default function AdminInvoicesPage() {
 
         {/* New invoice */}
         <div className="card mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2"><FileText size={20} className="text-gg-pink" /> New invoice</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <label className="block">
-              <span className="text-sm text-gg-gray-400">Firm (optional)</span>
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2"><FileText size={20} className="text-gg-pink" /> Send an invoice</h2>
+          <div className="mb-4"><label className="block md:w-1/2">
+              <span className="text-sm text-gg-gray-400">Firm</span>
               <select value={firmId} onChange={e => onPickFirm(e.target.value)}
                 className="mt-1 w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white">
                 <option value="">— not a firm / new customer —</option>
                 {firms.map(f => <option key={f.id} value={f.id}>{f.name}{f.has_stripe_customer ? '' : ' (no Stripe customer yet)'}</option>)}
               </select>
             </label>
+            <p className="text-sm text-gg-gray-500 mt-1">Pick the firm. We read what they owe straight from Stripe.</p>
+          </div>
+
+          {firmId && (
+            <div className="mb-6">
+              {owedLoading && <div className="text-gg-gray-400 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Checking Stripe…</div>}
+              {owed && owed.invoices.length === 0 && (
+                <div className="rounded-lg border border-green-700 bg-green-900/20 px-4 py-3 text-green-200">{owed.firm.name} owes nothing — there are no open invoices in Stripe.</div>
+              )}
+              {owed && owed.invoices.length > 0 && (
+                <div className="rounded-xl border border-gg-pink/40 bg-gg-pink/5 p-5">
+                  <div className="text-white text-xl font-semibold">{owed.firm.name} owes {money(owed.total_owed)}</div>
+                  <div className="text-sm text-gg-gray-400 mb-4">
+                    Subscription in our system: {owed.firm.subscription_status || 'unknown'}. The invoice email goes to {owed.firm.email || '(no email on the firm)'}.
+                  </div>
+                  {owed.invoices.map(inv => (
+                    <div key={inv.stripe_invoice_id} className="rounded-lg bg-gg-gray-900 border border-gg-gray-700 p-4 mb-3">
+                      <div className="flex flex-wrap justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="text-white font-semibold text-lg">{money(inv.amount)} <span className="text-gg-gray-400 font-normal text-sm">· Invoice {inv.number || inv.stripe_invoice_id}</span></div>
+                          {inv.lines.length > 0 && <div className="text-sm text-gg-gray-300">{inv.lines.join(' · ')}</div>}
+                          <div className="text-sm text-gg-gray-400 mt-1">
+                            Created {fmtDate(inv.created_at)}{inv.billing_reason === 'subscription_cycle' ? ' · subscription renewal' : inv.billing_reason === 'subscription_create' ? ' · new subscription' : ''}
+                            {inv.due_date ? ` · due ${fmtDate(inv.due_date)}` : ''}
+                          </div>
+                          {inv.last_failure && (
+                            <div className="text-sm text-yellow-400 mt-1">
+                              Card declined {inv.attempt_count > 1 ? `${inv.attempt_count} times` : 'once'}{inv.last_failure.message ? `: ${inv.last_failure.message}` : ''}
+                              {inv.next_payment_attempt ? ` Stripe retries the card on ${fmtDate(inv.next_payment_attempt)}.` : ''}
+                            </div>
+                          )}
+                          <div className="text-sm text-gg-gray-500 mt-1">Payment page currently accepts: {inv.payment_methods.map(m => METHOD_LABEL[m] || m).join(', ')}</div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <div className="flex gap-4 text-sm text-white">
+                            <label className="flex items-center gap-1"><input type="checkbox" checked={openCard} onChange={e => setOpenCard(e.target.checked)} /> <CreditCard size={14} /> Card</label>
+                            <label className="flex items-center gap-1"><input type="checkbox" checked={openAch} onChange={e => setOpenAch(e.target.checked)} /> <Landmark size={14} /> ACH</label>
+                          </div>
+                          <button type="button" disabled={openBusy === inv.stripe_invoice_id || (!openCard && !openAch) || !owed.firm.email} onClick={() => sendOpen(inv)}
+                            className="px-5 py-2 rounded-lg bg-gg-pink text-white font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap">
+                            {openBusy === inv.stripe_invoice_id ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Send invoice
+                          </button>
+                          <div className="flex gap-3 text-sm">
+                            <a href={`https://dashboard.stripe.com/invoices/${inv.stripe_invoice_id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gg-gray-300 hover:text-white"><ExternalLink size={12} /> Stripe</a>
+                            {inv.hosted_invoice_url && <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gg-pink hover:text-white"><ExternalLink size={12} /> Payment page</a>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button type="button" onClick={() => setShowOneOff(v => !v)} className="text-sm text-gg-gray-400 hover:text-white mb-4 inline-flex items-center gap-1">
+            <Plus size={14} /> {showOneOff ? 'Hide the one-off invoice form' : 'Create a one-off invoice instead (custom amount)'}
+          </button>
+
+          {showOneOff && (<>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <label className="block">
               <span className="text-sm text-gg-gray-400">Customer name</span>
               <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="First National Bank"
@@ -279,6 +394,7 @@ export default function AdminInvoicesPage() {
               </button>
             </div>
           </div>
+          </>)}
         </div>
 
         {/* Sent invoices */}
