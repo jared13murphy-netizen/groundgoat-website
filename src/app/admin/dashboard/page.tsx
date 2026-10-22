@@ -376,6 +376,12 @@ export default function AdminDashboard() {
                 icon={<DollarSign />}
               />
               <QuickActionCard
+                title="Invoices"
+                description="Send a Stripe invoice payable by card or ACH; track what's paid"
+                href="/admin/invoices"
+                icon={<FileText />}
+              />
+              <QuickActionCard
                 title="Referrals"
                 description="Referral payouts: who referred whom, what's owed, per-person rates"
                 href="/admin/referrals"
