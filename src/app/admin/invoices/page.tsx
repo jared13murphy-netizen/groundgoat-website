@@ -104,6 +104,22 @@ export default function AdminInvoicesPage() {
   }
 
   const total = items.reduce((s, it) => s + (parseFloat(it.unit_amount) || 0) * (it.quantity || 0), 0)
+  // Owner 10/22 typed a description, saw the "2500.00" placeholder in the
+  // amount box, read Total $0.00 and concluded the form was fake. Nothing had
+  // been sent because nothing could be: say exactly what is missing and keep
+  // the buttons off until the invoice is real.
+  const missing = (() => {
+    if (!customerName.trim()) return 'Enter the customer name.'
+    if (!customerEmail.includes('@')) return 'Enter the customer email.'
+    const live = items.filter(it => it.description.trim() || it.unit_amount)
+    if (live.length === 0) return 'Add a line item with a description and an amount.'
+    for (const it of live) {
+      if (!it.description.trim()) return 'Every line item needs a description.'
+      if (!(parseFloat(it.unit_amount) > 0)) return `Enter the dollar amount for "${it.description.trim()}".`
+    }
+    if (!allowCard && !allowAch) return 'Allow at least one payment method.'
+    return null
+  })()
 
   const updateItem = (idx: number, patch: Partial<Item>) =>
     setItems(prev => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
@@ -136,7 +152,9 @@ export default function AdminInvoicesPage() {
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) { setError(body.detail || `Request failed (${res.status})`); return }
-      setNotice(send ? `Invoice for ${money(body.invoice.amount)} sent to ${customerEmail.trim()}.` : `Draft created for ${money(body.invoice.amount)}.`)
+      setNotice(send
+        ? `Invoice ${body.invoice.stripe_invoice_id} for ${money(body.invoice.amount)} created in Stripe and emailed to ${customerEmail.trim()}. It is listed below with View and Stripe links.`
+        : `Draft ${body.invoice.stripe_invoice_id} for ${money(body.invoice.amount)} created in Stripe (not emailed). It is listed below.`)
       setItems([{ description: '', quantity: 1, unit_amount: '' }])
       setDescription('')
       await loadAll()
@@ -212,13 +230,13 @@ export default function AdminInvoicesPage() {
             {items.map((it, idx) => (
               <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                 <input value={it.description} onChange={e => updateItem(idx, { description: e.target.value })}
-                  placeholder="Premium firm subscription — 1 year" className="col-span-12 md:col-span-7 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white" />
+                  placeholder="Description" className="col-span-12 md:col-span-7 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-2 text-white placeholder:text-gg-gray-600" />
                 <input value={it.quantity} min={1} type="number" onChange={e => updateItem(idx, { quantity: Math.max(1, parseInt(e.target.value || '1', 10)) })}
                   className="col-span-4 md:col-span-1 bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-3 py-2 text-white" aria-label="Quantity" />
                 <div className="col-span-6 md:col-span-3 relative">
                   <span className="absolute left-3 top-2 text-gg-gray-500">$</span>
                   <input value={it.unit_amount} inputMode="decimal" onChange={e => updateItem(idx, { unit_amount: e.target.value.replace(/[^0-9.]/g, '') })}
-                    placeholder="2500.00" className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg pl-7 pr-3 py-2 text-white" aria-label="Unit amount" />
+                    placeholder="0.00" className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg pl-7 pr-3 py-2 text-white placeholder:text-gg-gray-600" aria-label="Unit amount" />
                 </div>
                 <button type="button" onClick={() => setItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
                   className="col-span-2 md:col-span-1 text-gg-gray-500 hover:text-red-400 flex justify-center" aria-label="Remove line"><Trash2 size={18} /></button>
@@ -248,11 +266,14 @@ export default function AdminInvoicesPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="text-white text-lg">Total <span className="font-bold">{money(total)}</span></div>
+            <div>
+              <div className="text-white text-lg">Total <span className="font-bold">{money(total)}</span></div>
+              {missing && <div className="text-sm text-yellow-400 mt-1">{missing}</div>}
+            </div>
             <div className="flex gap-3">
-              <button type="button" disabled={sending} onClick={() => submit(false)}
+              <button type="button" disabled={sending || !!missing} onClick={() => submit(false)}
                 className="px-5 py-2 rounded-lg bg-gg-gray-800 text-gg-gray-200 hover:text-white disabled:opacity-50">Save as draft</button>
-              <button type="button" disabled={sending} onClick={() => submit(true)}
+              <button type="button" disabled={sending || !!missing} onClick={() => submit(true)}
                 className="px-6 py-2 rounded-lg bg-gg-pink text-white font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-2">
                 {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />} Send invoice
               </button>
@@ -298,6 +319,7 @@ export default function AdminInvoicesPage() {
                         {inv.paid_at ? `${new Date(inv.paid_at).toLocaleDateString()}${inv.paid_via ? ` · ${inv.paid_via === 'us_bank_account' ? 'ACH' : inv.paid_via}` : ''}` : '—'}
                       </td>
                       <td className="py-3 text-right whitespace-nowrap">
+                        <a href={`https://dashboard.stripe.com/invoices/${inv.stripe_invoice_id}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gg-gray-300 hover:text-white mr-3"><ExternalLink size={14} /> Stripe</a>
                         {inv.hosted_invoice_url && (
                           <a href={inv.hosted_invoice_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gg-pink hover:text-white mr-3"><ExternalLink size={14} /> View</a>
                         )}
