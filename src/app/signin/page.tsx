@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
+import { isAllowedForExplore } from '@/lib/stateAccess'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -75,6 +76,12 @@ function SignInContent() {
           router.push('/access')
         } else if (userData.account_type === 'firm_admin' || userData.account_type === 'firm_user') {
           // Firm users - go to access portal
+          router.push('/access')
+        } else if (isAllowedForExplore(userData)) {
+          // Premium State subscribers (owner 2026-09-15, item 18) get the
+          // website map for their state(s). Sending them to /account used to
+          // tell them their plan "lives in the app" with no way to the map —
+          // Trevor Frain, 2026-10-22: "takes him to our paywall".
           router.push('/access')
         } else {
           // Individual users - check if they have an active subscription
