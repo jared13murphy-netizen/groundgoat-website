@@ -7,6 +7,8 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift } from 'lucide-react'
 
+import { isRestrictedIndividual, getAllowedStates, formatStateList } from '@/lib/stateAccess'
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 function AccountContent() {
@@ -25,6 +27,11 @@ function AccountContent() {
         && (a.status === 'active' || a.status === 'trialing'),
     ),
   )
+  // Premium State subscribers also get the website map for their state(s)
+  // (owner 2026-09-15, item 18). The app CTA below must not tell them their
+  // plan lives only in the app.
+  const hasWebMap = isRestrictedIndividual(user)
+  const webMapStates = hasWebMap ? formatStateList(getAllowedStates(user) || []) : ''
   const [sendingVerification, setSendingVerification] = useState(false)
   const [verificationSent, setVerificationSent] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -308,15 +315,28 @@ const handleResendVerification = async () => {
                   and keep the download one tap away, without making it read
                   like the website is broken. */}
               <h3 className="font-display text-xl font-bold text-white mb-1">
-                {isStatePlan ? 'Your subscription lives in the app' : 'Download the Ground Goat App'}
+                {hasWebMap
+                  ? `Your plan covers ${webMapStates} — here and in the app`
+                  : isStatePlan ? 'Your subscription lives in the app' : 'Download the Ground Goat App'}
               </h3>
               <p className="text-gg-gray-300 text-sm">
-                {isStatePlan
+                {hasWebMap
+                  ? `Open the map to see every auction, sale result and parcel in ${webMapStates}. The Ground Goat app adds real-time auction alerts on your phone.`
+                  : isStatePlan
                   ? 'Your State plan is built for the Ground Goat app — that\u2019s where you\u2019ll find the interactive map, real-time auction alerts and sale results. Manage your plan and billing here on the website any time.'
                   : 'Get real-time auction alerts, browse listings, and never miss a sale. The full Ground Goat experience, right in your pocket.'}
               </p>
             </div>
             <div className="flex flex-col gap-2 w-full sm:w-auto">
+              {hasWebMap && (
+                <Link
+                  href="/access"
+                  className="btn-primary text-sm py-3 px-6 whitespace-nowrap font-semibold text-center inline-flex items-center justify-center gap-2"
+                >
+                  <MapPin size={16} />
+                  Open the Map
+                </Link>
+              )}
               <a
                 href="https://apps.apple.com/us/app/ground-goat/id6753321116"
                 target="_blank"

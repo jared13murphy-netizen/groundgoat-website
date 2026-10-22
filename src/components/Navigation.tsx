@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react'
 import { Menu, X, LogOut, User, List } from 'lucide-react'
 import GoToSandboxButton, { isGroundGoatStaff } from '@/components/GoToSandboxButton'
 import { useRouter, usePathname } from 'next/navigation'
+import { isAllowedForExplore } from '@/lib/stateAccess'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -105,10 +106,11 @@ export default function Navigation() {
   }, [user?.account_type])
 
   const isAdmin = user?.account_type === 'groundgoat_admin' || user?.account_type === 'groundgoat_sales'
-  const canViewListings = user?.account_type === 'groundgoat_admin' ||
-    user?.account_type === 'groundgoat_sales' ||
-    user?.account_type === 'firm_admin' ||
-    user?.account_type === 'firm_user'
+  // Same gate /access, /listings and /go use: the four staff/firm roles, or
+  // an individual with a Premium State subscription (allowed_states from
+  // /api/auth/me). Before 2026-10-22 this listed the roles only, so a
+  // Premium State user never saw a Map link anywhere on the site.
+  const canViewListings = isAllowedForExplore(user)
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
