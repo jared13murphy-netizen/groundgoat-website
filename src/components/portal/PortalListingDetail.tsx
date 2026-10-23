@@ -1,5 +1,6 @@
 'use client'
 
+import AddToCalendarButton from '@/components/AddToCalendarButton'
 import { useState, useEffect, useCallback } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -272,6 +273,10 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             >
               <Bookmark size={14} className={isWatchlisted ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
             </button>
+          )}
+          {/* Add to Calendar (owner 10/23): beside every watchlist button */}
+          {listing?.listing_type !== 'sold' && listing?.status !== 'sold' && (
+            <AddToCalendarButton listingId={listingId} stopPropagation={false} />
           )}
         </div>
       </div>
