@@ -1,5 +1,6 @@
 'use client'
 
+import AddToCalendarButton from '@/components/AddToCalendarButton'
 import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
@@ -1188,6 +1189,14 @@ function AccessPortalPageInner() {
                         >
                           <Bookmark size={14} className={watchlistIds.has(selectedTract.listingId) ? 'text-gg-pink fill-gg-pink' : 'text-white'} />
                         </button>
+                      )}
+                      {/* Add to Calendar (owner 10/23): beside every watchlist button */}
+                      {user && selectedTract.listingId && (
+                        <AddToCalendarButton
+                          listingId={selectedTract.listingId}
+                          tractId={selectedTract.tractId || selectedTract.id}
+                          className={`ml-2 w-8 h-8 rounded-lg flex items-center justify-center transition shrink-0 pointer-events-auto ${overlay ? 'bg-black/45 hover:bg-black/65' : 'bg-white/5 hover:bg-white/10'}`}
+                        />
                       )}
                     </div>
                     <p className={`text-sm text-white mt-0.5 ml-11 ${overlay ? 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]' : ''}`}>

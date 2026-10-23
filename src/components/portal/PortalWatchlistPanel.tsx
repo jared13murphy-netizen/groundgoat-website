@@ -1,5 +1,6 @@
 'use client'
 
+import AddToCalendarButton from '@/components/AddToCalendarButton'
 import { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
@@ -91,6 +92,10 @@ function WatchlistCard({ listing, onRemove, onSelect }: {
         >
           <Bookmark size={14} className="text-gg-pink fill-gg-pink" />
         </button>
+        {/* Add to Calendar (owner 10/23): beside every watchlist button */}
+        <div className="absolute top-2 right-12 z-10">
+          <AddToCalendarButton listingId={listing.id} />
+        </div>
       </div>
 
       {/* Card body — subtle dark gradient (#1a1a1a → #3a3a3a) matching
