@@ -35,6 +35,15 @@ export default function TeamPage() {
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [memberPendingRemoval, setMemberPendingRemoval] = useState<TeamMember | null>(null)
   const [maxSeats, setMaxSeats] = useState(3)
+  // Seat pricing comes from the API (annual firms pay $119.88/yr per extra
+  // user, grandfathered monthly firms $9.99/mo). The page used to hard-code
+  // "$9.99/mo" and only offered one seat at a time — David Looman
+  // (MidAmerica, in trial) was told "User limit reached" and gave up.
+  const [seatPriceLabel, setSeatPriceLabel] = useState('$119.88/yr')
+  const [maxTotalUsers, setMaxTotalUsers] = useState(10)
+  const [trialEnd, setTrialEnd] = useState<string | null>(null)
+  const [showSeatsModal, setShowSeatsModal] = useState(false)
+  const [seatsToAdd, setSeatsToAdd] = useState(1)
   const [upgradingSeats, setUpgradingSeats] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -77,6 +86,9 @@ export default function TeamPage() {
         const data = await response.json()
         setTeamMembers(data.members || data || [])
         if (data.max_seats) setMaxSeats(data.max_seats)
+      if (data.seat_price_label) setSeatPriceLabel(data.seat_price_label)
+      if (data.max_total_users) setMaxTotalUsers(data.max_total_users)
+      setTrialEnd(data.trial_end || null)
       } else if (response.status === 404) {
         // Endpoint doesn't exist yet - show empty state
         setTeamMembers([])
@@ -276,7 +288,10 @@ export default function TeamPage() {
       const data = await response.json()
       setSuccess(data.message || `Added ${seats} seat(s)!`)
       setMaxSeats(data.max_users || maxSeats + seats)
+      setShowSeatsModal(false)
       fetchTeamMembers(token)
+      // They came here to invite someone — go straight to the invite form.
+      setShowInviteModal(true)
     } catch (err: any) {
       setError(err.message || 'Failed to upgrade seats')
     } finally {
@@ -325,7 +340,10 @@ export default function TeamPage() {
             </div>
           </div>
           <button
-            onClick={() => setShowInviteModal(true)}
+            onClick={() => {
+              setError('')
+              if (teamMembers.length + 1 >= maxSeats) { setSeatsToAdd(1); setShowSeatsModal(true) } else { setShowInviteModal(true) }
+            }}
             className="btn-primary flex shrink-0 items-center gap-2 whitespace-nowrap"
           >
             <UserPlus size={18} />
@@ -362,26 +380,24 @@ export default function TeamPage() {
                 </p>
               </div>
             </div>
-            {maxSeats >= 10 ? (
+            {maxSeats >= maxTotalUsers ? (
               <a
                 href={`mailto:${SALES_CONTACT_EMAIL}`}
                 className="text-xs bg-gg-pink/20 text-gg-pink px-3 py-1.5 rounded-full hover:bg-gg-pink/30 transition font-medium"
               >
-                Need more than 10 users? Contact us
+                Need more than {maxTotalUsers} users? Contact us
               </a>
-            ) : teamMembers.length + 1 >= maxSeats ? (
-              <button
-                onClick={() => handleUpgradeSeats(1)}
-                disabled={upgradingSeats}
-                className="text-xs bg-gg-pink/20 text-gg-pink px-3 py-1.5 rounded-full hover:bg-gg-pink/30 transition font-medium disabled:opacity-50"
-              >
-                {upgradingSeats ? 'Adding...' : '+ Add User ($9.99/mo)'}
-              </button>
-            ) : teamMembers.length >= 2 ? (
-              <span className="text-xs bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full">
-                Additional users: $9.99/mo each
-              </span>
-            ) : null}
+            ) : (
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  onClick={() => { setError(''); setSeatsToAdd(1); setShowSeatsModal(true) }}
+                  className="text-xs bg-gg-pink/20 text-gg-pink px-3 py-1.5 rounded-full hover:bg-gg-pink/30 transition font-medium"
+                >
+                  + Add users ({seatPriceLabel} each)
+                </button>
+                <span className="text-[11px] text-gg-gray-500">Up to {maxTotalUsers} users total</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -627,6 +643,39 @@ export default function TeamPage() {
             </div>
           </div>
         )}
+
+        {/* Add seats modal (at the cap, or from the plan card) */}
+        {showSeatsModal && (() => {
+          const remaining = Math.max(0, maxTotalUsers - maxSeats)
+          const n = Math.min(seatsToAdd, remaining)
+          const trialDate = trialEnd ? new Date(trialEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null
+          return (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+              <div className="bg-gg-gray-900 rounded-xl border border-gg-gray-700 max-w-md w-full p-6">
+                <h2 className="font-display text-xl font-semibold text-white mb-2">Add users to your plan</h2>
+                <p className="text-gg-gray-400 text-sm mb-4">
+                  You are using {teamMembers.length + 1} of {maxSeats} users. Each additional user is {seatPriceLabel}, up to {maxTotalUsers} users total.
+                  {trialDate ? ` Nothing is charged until your trial ends on ${trialDate}; new users are then billed with your plan.` : ' New users are prorated for the rest of your current billing period.'}
+                </p>
+                <label className="block text-sm font-medium text-gg-gray-300 mb-2">How many users to add?</label>
+                <div className="flex items-center gap-3 mb-6">
+                  <button type="button" onClick={() => setSeatsToAdd(v => Math.max(1, v - 1))} className="w-10 h-10 rounded-lg bg-gg-gray-800 text-white text-lg">−</button>
+                  <span className="text-white text-xl font-semibold w-8 text-center">{n}</span>
+                  <button type="button" onClick={() => setSeatsToAdd(v => Math.min(remaining, v + 1))} className="w-10 h-10 rounded-lg bg-gg-gray-800 text-white text-lg">+</button>
+                  <span className="text-gg-gray-400 text-sm">→ {maxSeats + n} users total</span>
+                </div>
+                {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+                <div className="flex gap-4">
+                  <button type="button" onClick={() => { setShowSeatsModal(false); setError('') }} className="btn-secondary flex-1">Cancel</button>
+                  <button type="button" disabled={upgradingSeats || n < 1} onClick={() => handleUpgradeSeats(n)} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                    {upgradingSeats ? <Loader2 size={18} className="animate-spin" /> : null}
+                    {upgradingSeats ? 'Adding…' : `Add ${n} user${n === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Invite Modal */}
         {showInviteModal && (
