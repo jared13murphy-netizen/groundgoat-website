@@ -4875,14 +4875,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         type: 'geojson',
         data: '/data/us-counties.json',
       })
+      // County outlines (owner 10/26): the old 35% grey hairline was invisible
+      // on imagery. Now a solid white line over a dark casing — unmistakably
+      // different from the dashed sky-blue township outlines added the same day.
+      map.addLayer({
+        id: 'county-borders-casing',
+        type: 'line',
+        source: 'counties',
+        minzoom: 5,
+        layout: { 'line-join': 'round' },
+        paint: {
+          'line-color': 'rgba(0,0,0,0.55)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.6, 7, 2.6, 10, 4.2, 13, 5.5],
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.4, 7, 0.8],
+        },
+      })
       map.addLayer({
         id: 'county-borders',
         type: 'line',
         source: 'counties',
+        minzoom: 5,
+        layout: { 'line-join': 'round' },
         paint: {
-          'line-color': '#888888',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.1, 5, 0.3, 7, 0.6, 10, 1.0],
-          'line-opacity': 0.35,
+          'line-color': '#ffffff',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 7, 1.2, 10, 2.0, 13, 2.8],
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.5, 7, 0.9],
         },
       })
 
