@@ -19,6 +19,10 @@ export interface TractSaleData {
   id: string
   listingId?: string | null
   tractId?: string | null
+  /** Regrid ll_uuid of a PARCEL row when the panel resolved one (the row's
+      `id` may be a tile path or click point instead) — used for the saved
+      card thumbnail and nothing else. */
+  llUuid?: string | null
   auctionDate?: string | null
   totalAcres?: number | null
   tillableAcres?: number | null
