@@ -5,12 +5,11 @@ import { motion } from 'framer-motion'
 import { X, Mail, Trash2, Check, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
-import { formatAcres, toNum } from '@/lib/format'
-import { computeCompAverages } from '@/lib/compAverages'
-import { formatTillable } from '@/lib/tillable'
+import { formatAcres } from '@/lib/format'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from './SubjectStrip'
+import CompSummaryGrid from '@/components/CompSummaryGrid'
 import type { TractSaleData } from './PortalTractDetail'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -107,29 +106,6 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
     })),
   })
 
-  // Calculate averages. NOTE: avgTillable averages tillable acreage across all
-  // tracts that report it — it must NOT be gated on price data, or comps
-  // missing a sale price drop out of an unrelated metric. The three
-  // price-per-X averages are acre-weighted (SUM(sale_price)/SUM(denominator))
-  // per the owner rule — see compAverages.ts.
-  const stats = useMemo(() => {
-    const withSoil = tracts.filter(t => t.soilRating && t.pricePerAcre)
-    const withTillable = tracts.filter(t => t.tillableAcres)
-    const withAcres = tracts.filter(t => t.totalAcres)
-    const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(tracts)
-
-    return {
-      avgPricePerAcre,
-      avgAcres: withAcres.length
-        ? withAcres.reduce((s, t) => s + (toNum(t.totalAcres) ?? 0), 0) / withAcres.length : null,
-      avgTillable: withTillable.length
-        ? withTillable.reduce((s, t) => s + (toNum(t.tillableAcres) ?? 0), 0) / withTillable.length : null,
-      avgSoilRating: withSoil.length
-        ? withSoil.reduce((s, t) => s + (toNum(t.soilRating) ?? 0), 0) / withSoil.length : null,
-      avgPricePerTillable,
-      avgPricePerSoil,
-    }
-  }, [tracts])
 
   // Fire-and-forget (owner, 2026-09-01: never trap the user on a
   // "Building..." button). This only enqueues the job — the floating
@@ -245,47 +221,27 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
               </div>
             )}
 
-            {/* Summary KPIs */}
-            <div>
-              <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-3">Summary Averages</h3>
-              <div className="grid grid-cols-3 gap-2">
-                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold text-gg-pink">{fmt(stats.avgPricePerAcre)}</div>
-                  <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg $/Acre</div>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold text-gg-pink">{fmt(stats.avgPricePerTillable)}</div>
-                  <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg $/Till Ac</div>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold text-gg-pink">{fmt(stats.avgPricePerSoil)}</div>
-                  <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg $/Soil</div>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold">{stats.avgAcres ? formatAcres(stats.avgAcres) : '—'}</div>
-                  <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Acres</div>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold">{formatTillable(stats.avgAcres, stats.avgTillable, null).inlineText}</div>
-                  <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Tillable</div>
-                </div>
-                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                  <div className="text-lg font-bold">{stats.avgSoilRating ? fmtNum(stats.avgSoilRating) : '—'}</div>
-                  <div className="text-[10px] text-gg-gray-400 mt-0.5">{avgSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, tracts)}</div>
-                </div>
-              </div>
-            </div>
+                        {/* Totals + averages — one shared block for every report surface (owner 2026-10-27) */}
+            <CompSummaryGrid
+              comps={tracts}
+              title="Summary"
+              soilLabel={avgSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, tracts)}
+              perSoilLabel={'Avg ' + perSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, tracts)}
+            />
 
             {/* Tract List */}
             <div>
               <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-3">Selected Sales</h3>
-              <div className="space-y-3">
-                {tracts.map(t => (
-                  <div key={t.id} className="bg-white/[0.03] rounded-xl border border-white/5 overflow-hidden">
+              <div className="space-y-4">
+                {tracts.map((t, i) => (
+                  <div key={t.id} className="bg-[#161616] rounded-xl border border-white/15 shadow-[0_2px_10px_rgba(0,0,0,0.5)] overflow-hidden">
                     {/* Header row */}
                     <div className="flex items-start justify-between px-4 pt-3 pb-2">
                       <div>
-                        <div className="text-sm font-semibold">{t.county}, {t.state}</div>
+                        <div className="text-sm font-semibold flex items-center gap-2">
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gg-pink/20 text-gg-pink text-[10px] font-bold shrink-0">{i + 1}</span>
+                        {t.county}, {t.state}
+                      </div>
                         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gg-gray-400">
                           {t.auctionDate && <span className="text-gg-pink font-medium">{fmtDate(t.auctionDate)}</span>}
                           {/* Tract rows show the listing company; parcel rows
