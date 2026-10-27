@@ -453,6 +453,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     if (!onToggleReport || !reportId) return
     onToggleReport({
       id: reportId,
+      llUuid: llUuid ?? null,
       listingId: null,
       tractId: null,
       auctionDate: typeof derived.saledate === 'string' ? derived.saledate.slice(0, 10) : null,

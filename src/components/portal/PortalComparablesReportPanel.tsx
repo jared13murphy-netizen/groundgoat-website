@@ -269,7 +269,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                   </div>
                   <div className="flex items-center gap-3 px-4 pb-2">
                     {/* Saved thumbnail: boundary + tillable ground (owner 2026-10-27) */}
-                    <CardThumb kind={t.tractId ? 'tract' : 'parcel'} id={t.tractId || asRealUuid(t.id)} size={72} />
+                    <CardThumb kind={t.tractId ? 'tract' : 'parcel'} id={t.tractId || t.llUuid || asRealUuid(t.id)} size={72} />
                   <div className="grid grid-cols-4 gap-2 flex-1">
                     <div>
                       <div className="text-[10px] text-gg-gray-500">Acres</div>
