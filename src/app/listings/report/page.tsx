@@ -6,7 +6,7 @@ import { ArrowLeft, Mail, Check } from 'lucide-react'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
-import { computeCompAverages } from '@/lib/compAverages'
+import CompSummaryGrid from '@/components/CompSummaryGrid'
 import { formatTillable } from '@/lib/tillable'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 
@@ -61,17 +61,6 @@ export default function ExploreReportPage() {
     }
   }, [])
 
-  // Calculate averages. The three price-per-X averages are acre-weighted
-  // (SUM(sale_price)/SUM(denominator)) per the owner rule — see compAverages.ts.
-  const withSoil = comparables.filter(c => c.soil_rating && c.price_per_acre)
-  const withTillable = comparables.filter(c => c.tillable_acres && c.total_acres && c.price_per_acre)
-  const withAcres = comparables.filter(c => c.total_acres)
-
-  const avgAcres = withAcres.length ? withAcres.reduce((s, c) => s + (toNum(c.total_acres) ?? 0), 0) / withAcres.length : null
-  const avgTillable = withTillable.length ? withTillable.reduce((s, c) => s + (toNum(c.tillable_acres) ?? 0), 0) / withTillable.length : null
-  const avgSoilRating = withSoil.length ? withSoil.reduce((s, c) => s + (toNum(c.soil_rating) ?? 0), 0) / withSoil.length : null
-
-  const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(comparables)
 
   // Fire-and-forget (owner, 2026-09-01: never trap the user on a
   // "Sending..." button). This only enqueues the job — the floating
@@ -128,32 +117,12 @@ export default function ExploreReportPage() {
           <h3 className="text-lg font-semibold mb-3">
             Summary <span className="text-sm font-normal text-gg-pink ml-2">{comparables.length} sales</span>
           </h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gg-gray-900 rounded-lg p-3">
-              <p className="text-xs text-gray-400 uppercase">Avg $/Acre</p>
-              <p className="text-xl font-bold text-gg-pink">{fmt(avgPricePerAcre)}</p>
-            </div>
-            <div className="bg-gg-gray-900 rounded-lg p-3">
-              <p className="text-xs text-gray-400 uppercase">Avg $/Tillable Acre</p>
-              <p className="text-xl font-bold text-gg-pink">{fmt(avgPricePerTillable)}</p>
-            </div>
-            <div className="bg-gg-gray-900 rounded-lg p-3">
-              <p className="text-xs text-gray-400 uppercase">Avg {perSoilRatingLabel(null, comparables)}</p>
-              <p className="text-xl font-bold text-gg-pink">{fmt(avgPricePerSoil)}</p>
-            </div>
-            <div className="bg-gg-gray-900 rounded-lg p-3">
-              <p className="text-xs text-gray-400 uppercase">Avg Acres</p>
-              <p className="text-xl font-bold">{formatAcres(avgAcres)}</p>
-            </div>
-            <div className="bg-gg-gray-900 rounded-lg p-3">
-              <p className="text-xs text-gray-400 uppercase">Avg Tillable Acres</p>
-              <p className="text-xl font-bold">{formatTillable(avgAcres, avgTillable, null).inlineText}</p>
-            </div>
-            <div className="bg-gg-gray-900 rounded-lg p-3">
-              <p className="text-xs text-gray-400 uppercase">{avgSoilRatingLabel(null, comparables)}</p>
-              <p className="text-xl font-bold">{fmtNum(avgSoilRating)}</p>
-            </div>
-          </div>
+          <CompSummaryGrid
+            comps={comparables}
+            tone="page"
+            soilLabel={avgSoilRatingLabel(null, comparables)}
+            perSoilLabel={'Avg ' + perSoilRatingLabel(null, comparables)}
+          />
         </div>
 
         {/* Comparable Sales */}
