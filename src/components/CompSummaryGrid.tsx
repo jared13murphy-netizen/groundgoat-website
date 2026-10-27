@@ -10,11 +10,16 @@
 import { useMemo } from 'react'
 import { summarizeComps, type CompAverageInput } from '@/lib/compAverages'
 import { formatAcres } from '@/lib/format'
-import { formatTillable } from '@/lib/tillable'
 
 export function fmtDollars(val?: number | null): string {
   if (!val) return '—'
   return '$' + Math.round(val).toLocaleString()
+}
+
+/** " · 63%" — tillable share of the total acres, on the tile's label line so
+ *  the value stays a single number and never wraps. */
+function pct(v?: number | null): string {
+  return v ? ` \u00B7 ${Math.round(v)}%` : ''
 }
 
 function fmtRating(val?: number | null): string {
@@ -58,8 +63,8 @@ export default function CompSummaryGrid({ comps, soilLabel, perSoilLabel, tone =
           <div className={label}>Total Acres</div>
         </div>
         <div className={tile}>
-          <div className={value}>{formatTillable(s.totalAcres, s.totalTillable, null).inlineText}</div>
-          <div className={label}>Total Tillable</div>
+          <div className={value}>{s.totalTillable ? formatAcres(s.totalTillable) : '—'}</div>
+          <div className={label}>Total Tillable{pct(s.pctTillable)}</div>
         </div>
         <div className={tile}>
           <div className={`${value} text-gg-pink`}>{fmtDollars(s.totalSale)}</div>
@@ -85,8 +90,8 @@ export default function CompSummaryGrid({ comps, soilLabel, perSoilLabel, tone =
           <div className={label}>Avg Acres</div>
         </div>
         <div className={tile}>
-          <div className={value}>{formatTillable(s.avgAcres, s.avgTillable, null).inlineText}</div>
-          <div className={label}>Avg Tillable</div>
+          <div className={value}>{s.avgTillable ? formatAcres(s.avgTillable) : '—'}</div>
+          <div className={label}>Avg Tillable{pct(s.pctTillable)}</div>
         </div>
         <div className={tile}>
           <div className={value}>{fmtRating(s.soilRating)}</div>
