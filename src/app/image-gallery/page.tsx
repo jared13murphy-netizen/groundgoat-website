@@ -1,10 +1,9 @@
 import type { Metadata } from 'next'
 import Image from 'next/image'
 
-// Screenshot gallery linked from our Expo App Awards 2026 submission
-// (the entry form only takes text, so screenshots live here).
+// Public screenshot gallery of the app (used for award entries, press and demos).
 export const metadata: Metadata = {
-  title: 'Ground Goat | Expo App Awards 2026',
+  title: 'Ground Goat | Image Gallery',
   description: 'Screenshots of the Ground Goat app: tillable, timber and water engine, soil ratings, Goat Search, owner search, live auctions and reports.',
 }
 
@@ -28,10 +27,9 @@ export default function ImageGalleryPage() {
     <div className="min-h-screen bg-gg-black pt-24 pb-16">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <div className="mb-10 text-center">
-          <p className="text-gg-pink font-semibold tracking-widest uppercase text-sm mb-3">Expo App Awards 2026</p>
           <h1 className="font-display text-4xl md:text-5xl font-bold text-white mb-4">Ground Goat</h1>
           <p className="text-gg-gray-300 text-lg max-w-2xl mx-auto">
-            Farmland intelligence for everyone who buys, sells, lends on or appraises land. Built with Expo for iOS and Android.
+            Farmland intelligence for everyone who buys, sells, lends on or appraises land. Available on iOS and Android.
           </p>
           <div className="flex flex-wrap justify-center gap-3 mt-6">
             <a href={APP_STORE_URL} className="px-5 py-2.5 rounded-full bg-gg-pink text-black font-semibold">App Store</a>
