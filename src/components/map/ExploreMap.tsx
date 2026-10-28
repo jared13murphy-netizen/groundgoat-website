@@ -31,6 +31,8 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
+import useDragToReport from '@/components/map/useDragToReport'
+import { buildParcelReportRow } from '@/lib/parcelReportRow'
 import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
 import { countActiveFilters } from '@/lib/filterBadgeCount'
@@ -1609,6 +1611,13 @@ interface ExploreMapProps {
       still own that) — purely the veil's read model. */
   externalTractSelection?: SaleDetail | null
   onToggleReport?: (tract: SaleDetail) => void
+  /** Drag-to-report (owner 2026-10-27): the user pressed and held a parcel or
+      tract and dropped it on the report panel. The row is built exactly as
+      the + Report button builds it. */
+  onDragToReport?: (row: SaleDetail) => void
+  /** fired the moment a drag is captured, so the page can open the report
+      panel (the drop target) if it is closed */
+  onDragToReportStart?: () => void
   onView3DTerrain?: (tractId: string, tractName: string) => void
   isInReport?: (tractId: string) => boolean
   reportIds?: Set<string>
@@ -1885,7 +1894,7 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -9613,6 +9622,59 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [mapLoaded, ownerSearchActive])
 
   // ── Tract-pin interactions (click → detail/comp popup; hover cursor).
+  // The report row for a tract — ONE builder shared by the tract click
+  // handler (+ Report in the slide-out) and drag-to-report, so a dragged
+  // tract is byte-identical to a clicked one.
+  const buildTractSaleDetail = (tract: ApiMapTract): SaleDetail => {
+  // Same display-price-per-acre + basis rule as the old DOM loop.
+  const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
+  const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
+  const markerPpa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
+    ? tract.asking_price / tract.total_acres
+    : tract.price_per_acre
+  const markerBasis: 'sold' | 'asking' | null =
+    ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
+      ? 'asking'
+      : (tract.price_per_acre ? 'sold' : null)
+
+  return {
+    id: tract.id,
+    listingId: tract.listing_id,
+    tractId: tract.id,
+    auctionDate: tract.auction_date,
+    totalAcres: tract.total_acres,
+    tillableAcres: tract.tillable_acres,
+    companyName: tract.company_name,
+    salePrice: tract.sale_price,
+    pricePerAcre: markerPpa,
+    priceBasis: markerBasis,
+    county: tract.county,
+    state: tract.state,
+    township: tract.township,
+    soilRating: tract.soil_rating,
+    // Rate metrics for the popup. soilRatingType names the rating so the
+    // row can read "Price/PI" in IL and "Price/CSR2" in IA — sent by the
+    // API rather than mapped client-side, so the app and the website
+    // cannot disagree about what a state's rating is called.
+    soilRatingType: tract.soil_rating_type,
+    polygonCoordinates: tract.polygon_coordinates,
+    saleStatus: tract.sale_status,
+    listingType: tract.listing_type,
+    askingPrice: tract.asking_price,
+    landType: tract.land_type,
+    landTypes: tract.land_types,
+    pctTillable: tract.pct_tillable,
+    pricePerTillableAcre: tract.price_per_tillable_acre,
+    pricePerSoilRating: tract.price_per_soil_rating,
+    sourceUrl: tract.source_url,
+    // Coincident recorded deed(s) — see recomputeCoincidentDeeds. Read
+    // from the ref (not the `tractDeeds` state directly) because this
+    // handler is registered in an effect that doesn't re-run on every
+    // deed resolution.
+    deeds: tractDeedsRef.current.get(tract.id),
+  }
+  }
+
   // Wired ONCE per mapLoaded. Reads the full SaleDetail from
   // tractMapRef.current (keyed by tractId) so the GeoJSON feature stays
   // lean. Mirrors the old DOM onClick downstream logic exactly:
@@ -9633,53 +9695,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const tract = tractMapRef.current.get(tractId)
       if (!tract) return
 
-      // Same display-price-per-acre + basis rule as the old DOM loop.
-      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
-      const markerPpa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
-        ? tract.asking_price / tract.total_acres
-        : tract.price_per_acre
-      const markerBasis: 'sold' | 'asking' | null =
-        ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
-          ? 'asking'
-          : (tract.price_per_acre ? 'sold' : null)
-
-      const saleData: SaleDetail = {
-        id: tract.id,
-        listingId: tract.listing_id,
-        tractId: tract.id,
-        auctionDate: tract.auction_date,
-        totalAcres: tract.total_acres,
-        tillableAcres: tract.tillable_acres,
-        companyName: tract.company_name,
-        salePrice: tract.sale_price,
-        pricePerAcre: markerPpa,
-        priceBasis: markerBasis,
-        county: tract.county,
-        state: tract.state,
-        township: tract.township,
-        soilRating: tract.soil_rating,
-        // Rate metrics for the popup. soilRatingType names the rating so the
-        // row can read "Price/PI" in IL and "Price/CSR2" in IA — sent by the
-        // API rather than mapped client-side, so the app and the website
-        // cannot disagree about what a state's rating is called.
-        soilRatingType: tract.soil_rating_type,
-        polygonCoordinates: tract.polygon_coordinates,
-        saleStatus: tract.sale_status,
-        listingType: tract.listing_type,
-        askingPrice: tract.asking_price,
-        landType: tract.land_type,
-        landTypes: tract.land_types,
-        pctTillable: tract.pct_tillable,
-        pricePerTillableAcre: tract.price_per_tillable_acre,
-        pricePerSoilRating: tract.price_per_soil_rating,
-        sourceUrl: tract.source_url,
-        // Coincident recorded deed(s) — see recomputeCoincidentDeeds. Read
-        // from the ref (not the `tractDeeds` state directly) because this
-        // handler is registered in an effect that doesn't re-run on every
-        // deed resolution.
-        deeds: tractDeedsRef.current.get(tract.id),
-      }
+      const saleData: SaleDetail = buildTractSaleDetail(tract)
 
       // Task #26 (one click, one panel): tract is top priority — it wins
       // over any sale-dot or parcel/overlay panel already open from a
@@ -10708,9 +10724,82 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }
 
+  // ── Drag-to-report (owner 2026-10-27) ────────────────────────────────
+  // Hold half a second on a tract, sale dot, sale pin or parcel, drag the
+  // chip onto the report panel, release. Candidates come from the same
+  // layers the click handlers use, in the same priority (tract first).
+  const dragChip = useDragToReport({
+    map: mapLoaded ? mapRef.current : null,
+    container: containerRef.current,
+    enabled: !!onDragToReport,
+    candidateAt: (point) => {
+      const map = mapRef.current
+      if (!map || mapInteractionSuspendedRef.current) return null
+      const q = (layers: string[]) => {
+        const live = layers.filter(l => { try { return !!map.getLayer(l) } catch { return false } })
+        return live.length ? map.queryRenderedFeatures([point.x, point.y] as any, { layers: live }) : []
+      }
+      const lngLat = map.unproject([point.x, point.y] as any)
+      const acresText = (a: unknown) => (typeof a === 'number' && a > 0 ? ` · ${formatAcres(a)} ac` : '')
+      // 1. our tracts
+      const tf = q(['tract-pin-circles', 'tract-polygon-fill'])[0]
+      const tract = tf ? tractMapRef.current.get((tf.properties?.tractId as string) || '') : null
+      if (tract) {
+        return {
+          id: tract.id,
+          label: `${tract.county || 'Tract'}, ${tract.state || ''}${acresText(tract.total_acres)}`,
+          resolve: async () => buildTractSaleDetail(tract),
+        }
+      }
+      // 2. parcel sale dots / pins (carry the Regrid ll_uuid)
+      const df = q(['parcel-sale-dots-durable-circle', 'parcel-sale-pin-plus'])[0]
+      const dp: any = df?.properties || {}
+      const dotUuid: string | null = (dp.id as string) || (dp.ll_uuid as string) || null
+      // 3. any Regrid parcel fill
+      const pf = dotUuid ? null : q(['regrid-parcels-fill'])[0]
+      const pp: any = pf?.properties || {}
+      if (!dotUuid && (!pf || !isRegridPropsInAllowedState(pp))) return null
+      const uuid = dotUuid || (pp.ll_uuid as string) || null
+      const reportId = uuid || (pp.path as string) || `parcel:${lngLat.lng.toFixed(6)},${lngLat.lat.toFixed(6)}`
+      const county = (dp.county || pp.county || '') as string
+      const st = (dp.state || pp.state2 || pp.state || '') as string
+      const acres = (dp.acres ?? pp.ll_gisacre ?? pp.gisacre) as unknown
+      return {
+        id: reportId,
+        label: `${county || 'Parcel'}${st ? `, ${st}` : ''}${acresText(typeof acres === 'string' ? parseFloat(acres) : acres)}`,
+        resolve: () => buildParcelReportRow({
+          ll_uuid: uuid, lat: lngLat.lat, lng: lngLat.lng, tileProps: pf ? pp : null, reportId,
+        }),
+      }
+    },
+    onStart: onDragToReportStart,
+    onDrop: async (cand) => {
+      if (cand.id && reportIds?.has(cand.id)) return  // already on the report
+      const row = await cand.resolve()
+      if (row) onDragToReport?.(row as SaleDetail)
+    },
+  })
+
   return (
     <div className="comparables-map-container" style={{ height }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {/* Drag-to-report chip — follows the pointer; pink when over the panel */}
+      {dragChip && (
+        <div
+          style={{
+            position: 'fixed', zIndex: 1000, pointerEvents: 'none',
+            left: dragChip.x + 14, top: dragChip.y - 18,
+            padding: '8px 12px', borderRadius: 999,
+            background: dragChip.over ? '#E91E8C' : 'rgba(10,10,12,0.92)',
+            border: `1.5px solid ${dragChip.over ? '#C2186F' : 'rgba(255,255,255,0.25)'}`,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)', color: '#fff',
+            fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
+            transform: dragChip.over ? 'scale(1.06)' : 'scale(1)', transition: 'background 120ms, transform 120ms',
+          }}
+        >
+          {dragChip.busy ? 'Adding…' : dragChip.over ? '+ Add to report' : dragChip.label}
+        </div>
+      )}
 
       {/* Owner 9/22: two-choice popup for a click on one of the user's own
           project tracts. */}
