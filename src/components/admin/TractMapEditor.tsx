@@ -3030,7 +3030,7 @@ export default function TractMapEditor({
                   type="button"
                   onClick={goToLocation}
                   disabled={locBusy || !locQuery.trim()}
-                  className="px-2.5 py-1 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded disabled:opacity-50 flex items-center gap-1"
+                  className="px-2.5 py-1 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-gg-black rounded disabled:opacity-50 flex items-center gap-1"
                 >
                   {locBusy ? <Loader2 size={14} className="animate-spin" /> : 'Go'}
                 </button>
@@ -3107,7 +3107,7 @@ export default function TractMapEditor({
               <button
                 onClick={handleAlign}
                 title={`${dir === 'shrink' ? 'Shrink' : 'Expand'} polygon to match scraped acres exactly (${formatAcres(target)} ac). Currently drawn: ${formatAcres(cur)} ac (${diffAc} ac ${dir === 'shrink' ? 'too big' : 'too small'}).`}
-                className="absolute top-12 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
+                className="absolute top-12 left-2 z-10 px-2.5 py-1.5 text-xs font-semibold bg-gg-pink hover:bg-gg-pink-light text-gg-black rounded shadow-lg flex items-center gap-1.5 backdrop-blur-sm"
               >
                 <Crosshair size={14} />
                 Align to {formatAcres(target)} ac
@@ -3167,7 +3167,7 @@ export default function TractMapEditor({
                 <button
                   onClick={handleUrlExtract}
                   disabled={extractingUrl || !urlInput.trim()}
-                  className="px-2.5 py-1.5 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white text-xs font-semibold rounded flex items-center gap-1 flex-shrink-0"
+                  className="px-2.5 py-1.5 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-gg-black text-xs font-semibold rounded flex items-center gap-1 flex-shrink-0"
                 >
                   {extractingUrl
                     ? <Loader2 size={12} className="animate-spin" />
@@ -3355,7 +3355,7 @@ export default function TractMapEditor({
                       href={listingUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded-lg flex items-center gap-1"
+                      className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-gg-black rounded-lg flex items-center gap-1"
                       title="Open the auction / PT listing page — the source of truth for this boundary"
                     >
                       <ExternalLink size={14} /> Open Listing Page
@@ -3375,7 +3375,7 @@ export default function TractMapEditor({
                   <Camera size={28} />
                   <button
                     onClick={handleCaptureSourceImage}
-                    className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-white rounded-lg flex items-center gap-1"
+                    className="px-3 py-1.5 text-sm font-semibold bg-gg-pink hover:bg-gg-pink-light text-gg-black rounded-lg flex items-center gap-1"
                     title="Take a Playwright screenshot of the listing page and store it here"
                   >
                     <Camera size={14} /> Capture Screenshot
@@ -3506,7 +3506,7 @@ export default function TractMapEditor({
           )}
           <button
             onClick={() => setFullscreen(prev => !prev)}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white transition-colors bg-gg-pink hover:bg-gg-pink-light"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-gg-black transition-colors bg-gg-pink hover:bg-gg-pink-light"
             title={fullscreen ? 'Exit full screen (Esc)' : 'Open full-screen editor'}
           >
             {fullscreen

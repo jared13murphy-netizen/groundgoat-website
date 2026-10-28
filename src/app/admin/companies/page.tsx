@@ -276,7 +276,7 @@ export default function AdminCompaniesPage() {
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
+            className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80"
           >
             <Plus size={18} />
             Add Company
@@ -417,7 +417,7 @@ export default function AdminCompaniesPage() {
                 <button
                   onClick={handleAddCompany}
                   disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
                   {saving ? 'Creating...' : 'Create Company'}

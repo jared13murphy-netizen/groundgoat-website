@@ -458,7 +458,7 @@ export default function TractDataCompare({
     const scrapedActive = !hasManual && picked === 'scraped'
     const computedActive = !hasManual && picked === 'computed'
     const cardCls = (active: boolean) => active
-      ? 'bg-gg-pink border border-gg-pink text-white'
+      ? 'bg-gg-pink border border-gg-pink text-gg-black'
       : 'border border-gg-gray-700 hover:bg-gg-gray-800/40 text-gg-gray-300'
     const prefixCls = (active: boolean) => active ? 'text-white/80' : 'text-gg-gray-500'
     const valueCls = (active: boolean) => active ? 'text-white font-mono font-semibold' : 'font-mono'
@@ -565,7 +565,7 @@ export default function TractDataCompare({
                 <button
                   onClick={handleSaveNumber}
                   disabled={numSaving || wouldCollide}
-                  className="px-2 py-0.5 text-[10px] bg-gg-pink hover:bg-gg-pink-light text-white rounded disabled:opacity-40"
+                  className="px-2 py-0.5 text-[10px] bg-gg-pink hover:bg-gg-pink-light text-gg-black rounded disabled:opacity-40"
                   title={wouldCollide ? 'Duplicate — pick a unique number' : 'Save tract number'}
                 >
                   {numSaving ? 'Saving…' : 'Save #'}

@@ -163,7 +163,7 @@ export default function LandIdBatchFixPage() {
                  onChange={e => setLimit(Math.max(1, Math.min(200, Number(e.target.value) || 20)))}
                  className="bg-gg-gray-950 border border-gg-gray-700 rounded px-2 py-1 text-sm w-20" />
           <button onClick={runBatch} disabled={running}
-                  className="ml-2 px-3 py-1.5 rounded bg-gg-pink hover:bg-gg-pink/80 text-white text-sm flex items-center gap-1.5 disabled:opacity-50">
+                  className="ml-2 px-3 py-1.5 rounded bg-gg-pink hover:bg-gg-pink/80 text-gg-black text-sm flex items-center gap-1.5 disabled:opacity-50">
             {running ? <Loader2 className="animate-spin" size={14} /> : <Play size={14} />}
             {running ? 'Running…' : `Run batch (${limit})`}
           </button>

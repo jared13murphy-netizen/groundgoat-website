@@ -782,7 +782,7 @@ export default function MyDecImportPage() {
             onClick={() => { setActiveState('IL'); setCounty('LaSalle'); setImportStats(null); setPage(0) }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeState === 'IL'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
             }`}
           >
@@ -792,7 +792,7 @@ export default function MyDecImportPage() {
             onClick={() => { setActiveState('IA'); setCounty('Washington'); setImportStats(null); setPage(0) }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeState === 'IA'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
             }`}
           >
@@ -802,7 +802,7 @@ export default function MyDecImportPage() {
             onClick={() => { setActiveState('IN'); setCounty('Huntington'); setImportStats(null); setPage(0) }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeState === 'IN'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
             }`}
           >
@@ -812,7 +812,7 @@ export default function MyDecImportPage() {
             onClick={() => { setActiveState('NE'); setCounty('saunders'); setImportStats(null); setPage(0) }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeState === 'NE'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white hover:bg-gg-gray-700'
             }`}
           >
@@ -864,7 +864,7 @@ export default function MyDecImportPage() {
             </div>
             <button
               onClick={runImport}
-              className="bg-gg-pink hover:bg-gg-pink/80 text-white px-5 py-2 rounded text-sm font-medium flex items-center gap-2"
+              className="bg-gg-pink hover:bg-gg-pink/80 text-gg-black px-5 py-2 rounded text-sm font-medium flex items-center gap-2"
             >
               <Play size={16} />
               Run Import

@@ -337,7 +337,7 @@ function AdminListingsPageContent() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80"
+              className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80"
             >
               <Plus size={16} />
               Add Listing
@@ -346,7 +346,7 @@ function AdminListingsPageContent() {
               onClick={() => setShowFilters(!showFilters)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 showFilters || filterCompany || filterState || filterCounty || filterListingType || filterStatus || filterVerified || filterConfidence || filterAuctionDate
-                  ? 'bg-gg-pink text-white' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
+                  ? 'bg-gg-pink text-gg-black' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
               }`}
             >
               <Filter size={16} />
@@ -519,7 +519,7 @@ function AdminListingsPageContent() {
                 <button
                   onClick={handleAddListing}
                   disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
                   {saving ? 'Creating...' : 'Create Listing'}

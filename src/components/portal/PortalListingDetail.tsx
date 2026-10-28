@@ -405,7 +405,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
           href={listing.bidding_url || listing.source_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 w-full py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-sm mb-4"
+          className="flex items-center justify-center gap-2 w-full py-3 bg-gg-pink text-gg-black font-semibold rounded-xl hover:bg-gg-pink/80 transition text-sm mb-4"
         >
           <ExternalLink size={16} />
           {isAuction || listing.bidding_url ? 'View Auction' : 'View Listing'}

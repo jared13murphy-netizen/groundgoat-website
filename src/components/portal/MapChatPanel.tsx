@@ -759,7 +759,7 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
           className={`relative rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0 ${
             loading
               ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-              : 'bg-[#F58CDE] hover:bg-[#C563AD] disabled:opacity-40 disabled:hover:bg-[#F58CDE] text-white'
+              : 'bg-[#F58CDE] hover:bg-[#C563AD] disabled:opacity-40 disabled:hover:bg-[#F58CDE] text-gg-black'
           }`}
         >
           {/* While a search is in flight this becomes a STOP button (owner

@@ -342,7 +342,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
                 ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                 : sending
                   ? 'bg-gg-pink/50 text-white/70 cursor-wait'
-                  : 'bg-gg-pink text-white hover:bg-gg-pink/80'
+                  : 'bg-gg-pink text-gg-black hover:bg-gg-pink/80'
             }`}
           >
             {sent ? (

@@ -1470,7 +1470,7 @@ export default function TillableCluWorkshop({
             onClick={() => setWorkshopMode(drawingTillable ? 'toggle' : 'draw-tillable')}
             disabled={!loaded}
             className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 font-semibold disabled:opacity-40 ${
-              drawingTillable ? 'bg-yellow-500 text-black' : 'bg-gg-pink hover:bg-gg-pink-light text-white'
+              drawingTillable ? 'bg-yellow-500 text-black' : 'bg-gg-pink hover:bg-gg-pink-light text-gg-black'
             }`}
             title="Draw tillable polygons by hand (use when the 2008 FSA CLU is wrong for this tract)"
           >
@@ -1654,7 +1654,7 @@ export default function TillableCluWorkshop({
           <button
             onClick={handleComputeSoil}
             disabled={computing || saving}
-            className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 text-white font-semibold rounded-lg flex items-center gap-1"
+            className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light disabled:opacity-40 text-gg-black font-semibold rounded-lg flex items-center gap-1"
             title="Area-weight the state soil rating (PI / CSR2 / WAPI / NCCPI) over the tillable selection"
           >
             {computing ? <Loader2 size={14} className="animate-spin" /> : <Calculator size={14} />}
@@ -1664,7 +1664,7 @@ export default function TillableCluWorkshop({
             onClick={handleSave}
             disabled={saving || computing}
             title="Save tillable selection + computed soil rating"
-            className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 rounded-lg flex items-center gap-1"
+            className="px-3 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-gg-black font-semibold disabled:opacity-40 rounded-lg flex items-center gap-1"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {saving ? 'Saving…' : 'Save'}

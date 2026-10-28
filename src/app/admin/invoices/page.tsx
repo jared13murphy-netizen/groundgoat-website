@@ -306,7 +306,7 @@ export default function AdminInvoicesPage() {
                             <label className="flex items-center gap-1"><input type="checkbox" checked={openAch} onChange={e => setOpenAch(e.target.checked)} /> <Landmark size={14} /> ACH</label>
                           </div>
                           <button type="button" disabled={openBusy === inv.stripe_invoice_id || (!openCard && !openAch) || !owed.firm.email} onClick={() => sendOpen(inv)}
-                            className="px-5 py-2 rounded-lg bg-gg-pink text-white font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap">
+                            className="px-5 py-2 rounded-lg bg-gg-pink text-gg-black font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap">
                             {openBusy === inv.stripe_invoice_id ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Send invoice
                           </button>
                           <div className="flex gap-3 text-sm">
@@ -389,7 +389,7 @@ export default function AdminInvoicesPage() {
               <button type="button" disabled={sending || !!missing} onClick={() => submit(false)}
                 className="px-5 py-2 rounded-lg bg-gg-gray-800 text-gg-gray-200 hover:text-white disabled:opacity-50">Save as draft</button>
               <button type="button" disabled={sending || !!missing} onClick={() => submit(true)}
-                className="px-6 py-2 rounded-lg bg-gg-pink text-white font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-2">
+                className="px-6 py-2 rounded-lg bg-gg-pink text-gg-black font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-2">
                 {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />} Send invoice
               </button>
             </div>

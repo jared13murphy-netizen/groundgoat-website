@@ -1048,7 +1048,7 @@ export default function ControlCenterPage() {
                 onClick={() => setSelectedDay('today')}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   selectedDay === 'today'
-                    ? 'bg-gg-pink text-white'
+                    ? 'bg-gg-pink text-gg-black'
                     : 'text-gg-gray-400 hover:text-white'
                 }`}
               >
@@ -1058,7 +1058,7 @@ export default function ControlCenterPage() {
                 onClick={() => setSelectedDay('tomorrow')}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   selectedDay === 'tomorrow'
-                    ? 'bg-gg-pink text-white'
+                    ? 'bg-gg-pink text-gg-black'
                     : 'text-gg-gray-400 hover:text-white'
                 }`}
               >
@@ -1353,7 +1353,7 @@ export default function ControlCenterPage() {
                                   needsPolygonAttention || needsImageAttention
                                     ? 'bg-amber-900/30 text-amber-400 border-amber-700 hover:bg-amber-900/50'
                                     : isTractExpanded
-                                    ? 'bg-gg-pink text-white border-gg-pink hover:bg-gg-pink/90'
+                                    ? 'bg-gg-pink text-gg-black border-gg-pink hover:bg-gg-pink/90'
                                     : 'bg-gg-pink/10 text-gg-pink border-gg-pink hover:bg-gg-pink/20'
                                 }`}
                               >
@@ -1478,7 +1478,7 @@ export default function ControlCenterPage() {
                                     disabled={isLocked}
                                     className={`px-2 py-1 text-xs rounded-lg ${
                                       state.bidIncrement === inc
-                                        ? 'bg-gg-pink text-white'
+                                        ? 'bg-gg-pink text-gg-black'
                                         : isLocked
                                         ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
                                         : 'bg-gg-gray-700 text-gg-gray-300 hover:bg-gg-gray-600'

@@ -437,7 +437,7 @@ export default function BoundaryDrawPage() {
             {aligning ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
             {aligning ? 'Aligning…' : 'Align Tract Acres'}
           </button>
-          <button onClick={save} disabled={saving || aligning || points.length < 3} className="px-4 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-white font-semibold disabled:opacity-40 disabled:hover:bg-gg-pink rounded flex items-center gap-1.5 whitespace-nowrap">
+          <button onClick={save} disabled={saving || aligning || points.length < 3} className="px-4 py-1.5 text-sm bg-gg-pink hover:bg-gg-pink-light text-gg-black font-semibold disabled:opacity-40 disabled:hover:bg-gg-pink rounded flex items-center gap-1.5 whitespace-nowrap">
             {saving ? <Loader2 className="animate-spin" size={14} /> : <Save size={14} />}
             {saving ? 'Saving…' : 'Save'}
           </button>
