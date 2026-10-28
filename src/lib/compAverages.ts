@@ -1,125 +1,143 @@
-import { toNum } from './format'
-// Shared comp-report averaging helper.
+// ONE comp-report summary for every surface on the site (owner 2026-10-27):
+// the Comparable Sales slide-out on /access (both portal report panels), the
+// two /listings report pages, and — through the same formulas — the PDF and
+// spreadsheet the backend builds (ground-goat-backend/comps_summary.py) and
+// the app (ground-goat-mobile/src/utils/compAverages.js). All three pin the
+// same fixture in their tests so they cannot drift.
 //
-// OWNER RULE: the three PRICE averages (avg $/acre, avg $/tillable-acre,
-// avg $/soil-rating) must be ACRE-WEIGHTED — SUM(sale_price) / SUM(denominator)
-// — not a naive mean-of-ratios. A 2-acre comp must not count equally with a
-// 500-acre comp. This mirrors the backend's weighting rule.
+// OWNER RULES
+// - The three PRICE averages are ACRE-WEIGHTED — SUM(sale) / SUM(denominator)
+//   — never a mean of each comp's own ratio (a 2-acre comp must not count the
+//   same as a 500-acre comp).
+// - The SOIL RATING is weighted by each comp's TILLABLE ACRES — "calculated
+//   based on the tillable polygons of each parcel or tract" — never a plain
+//   mean. A comp with no tillable acres or no rating does not rate; the
+//   surface says how many did ("7 of 9 rated").
+// - TOTALS sit beside the averages: total acres, total tillable acres (+ %),
+//   total sale dollars.
 //
-// The plain-quantity averages (avg acres, avg tillable acres, avg soil
-// rating) stay SIMPLE MEANS (sum/len) — do not weight those.
-//
-// Call sites across the site use different field-name shapes (snake_case
-// from API payloads, camelCase from TractSaleData), so every accessor here
-// reads both.
+// Field names: call sites send snake_case (API payloads) or camelCase
+// (TractSaleData), so every accessor reads both. Every accessor coerces
+// through toNum — DECIMAL columns arrive as JSON strings and `+=` on a
+// string concatenates.
 
 export interface CompAverageInput {
-  price_per_acre?: number | null
-  pricePerAcre?: number | null
-  total_acres?: number | null
-  totalAcres?: number | null
-  tillable_acres?: number | null
-  tillableAcres?: number | null
-  soil_rating?: number | null
-  soilRating?: number | null
+  sale_price?: number | string | null
+  salePrice?: number | string | null
+  price_per_acre?: number | string | null
+  pricePerAcre?: number | string | null
+  total_acres?: number | string | null
+  totalAcres?: number | string | null
+  tillable_acres?: number | string | null
+  tillableAcres?: number | string | null
+  soil_rating?: number | string | null
+  soilRating?: number | string | null
 }
 
+export interface CompSummary {
+  count: number
+  totalAcres: number | null
+  totalTillable: number | null
+  /** totalTillable / totalAcres × 100 */
+  pctTillable: number | null
+  totalSale: number | null
+  /** comps that contributed to soilRating (rating AND tillable acres > 0) */
+  ratedCount: number
+  avgPricePerAcre: number | null
+  avgPricePerTillable: number | null
+  avgPricePerSoil: number | null
+  avgAcres: number | null
+  avgTillable: number | null
+  /** tillable-acre-weighted soil rating */
+  soilRating: number | null
+}
+
+/** Kept for existing call sites; identical numbers to summarizeComps. */
 export interface CompAverages {
   avgPricePerAcre: number | null
   avgPricePerTillable: number | null
   avgPricePerSoil: number | null
   avgAcres: number | null
   avgTillable: number | null
+  /** tillable-weighted (owner 2026-10-27) — was a plain mean before */
   avgSoilRating: number | null
 }
 
-// Every accessor coerces through toNum. The API serialises DECIMAL columns as
-// JSON strings (see lib/format.ts), and the weighted sums below accumulate
-// with `+=` — so a string denominator would CONCATENATE rather than add:
-// 0 += "99.00" -> "099.00" -> "099.0041.28" -> NaN after the divide. Every
-// average in every comp report would read NaN or, worse, a plausible-looking
-// wrong number.
-//
-// Today's comparables endpoints happen to cast with float() before returning,
-// so this has never fired in production. That is luck, not design — it holds
-// only until someone adds a comp field that skips the cast. Coercing here
-// makes the helper correct regardless of what the endpoint sends.
-
-function pricePerAcreOf(c: CompAverageInput): number | null | undefined {
-  return toNum(c.price_per_acre ?? c.pricePerAcre)
+// Local copy of lib/format's toNum so this module has no imports and the
+// node-runnable test (compAverages.test.ts) can load it directly.
+function toNum(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  return Number.isFinite(n) ? n : null
 }
 
-function totalAcresOf(c: CompAverageInput): number | null | undefined {
-  return toNum(c.total_acres ?? c.totalAcres)
+function pos(v: number | string | null | undefined): number | null {
+  const n = toNum(v)
+  return n !== null && n !== undefined && Number.isFinite(n) && n > 0 ? n : null
 }
 
-function tillableAcresOf(c: CompAverageInput): number | null | undefined {
-  return toNum(c.tillable_acres ?? c.tillableAcres)
+function saleOf(c: CompAverageInput): number | null {
+  const sale = pos(c.sale_price ?? c.salePrice)
+  if (sale) return sale
+  const ppa = pos(c.price_per_acre ?? c.pricePerAcre)
+  const acres = pos(c.total_acres ?? c.totalAcres)
+  return ppa && acres ? ppa * acres : null
 }
 
-function soilRatingOf(c: CompAverageInput): number | null | undefined {
-  return toNum(c.soil_rating ?? c.soilRating)
+function ratio(num: number, den: number): number | null {
+  return den > 0 ? num / den : null
 }
 
-/**
- * Acre-weighted averages for comp-report price metrics, plus the simple-mean
- * quantity averages, from a single pass over the comps. Every divide is
- * guarded — a metric is null unless its weighted denominator sums to > 0.
- *
- * avg $/acre          = SUM(price_per_acre_i * total_acres_i) / SUM(total_acres_i)
- * avg $/tillable-acre  = SUM(price_per_acre_i * total_acres_i) / SUM(tillable_acres_i)
- * avg $/soil-rating    = SUM(price_per_acre_i * total_acres_i) / SUM(soil_rating_i * total_acres_i)
- *
- * A comp contributes to a given metric only when its numerator (price_per_acre
- * and total_acres) and that metric's denominator field are both present and
- * truthy (0/null/undefined all mean "not reported," matching the existing
- * call sites' filtering).
- */
-export function computeCompAverages(comps: CompAverageInput[]): CompAverages {
-  let acreNumerator = 0
-  let acreDenominator = 0
-  let tillableNumerator = 0
-  let tillableDenominator = 0
-  let soilNumerator = 0
-  let soilDenominator = 0
+export function summarizeComps(comps: CompAverageInput[]): CompSummary {
+  let count = 0
+  let totAcres = 0, totTill = 0, saleSum = 0
+  let anySale = false, anyAcres = false, anyTill = false
+  let ppaNum = 0, ppaDen = 0, pptaNum = 0, pptaDen = 0, ppsrNum = 0, ppsrDen = 0
+  let acresCount = 0, tillCount = 0
+  let soilNum = 0, soilDen = 0, rated = 0
 
-  for (const c of comps) {
-    const price = pricePerAcreOf(c)
-    const acres = totalAcresOf(c)
-    const tillable = tillableAcresOf(c)
-    const soil = soilRatingOf(c)
-    const saleAmount = price && acres ? price * acres : null
-
-    if (saleAmount && acres) {
-      acreNumerator += saleAmount
-      acreDenominator += acres
+  for (const c of comps || []) {
+    count++
+    const acres = pos(c.total_acres ?? c.totalAcres)
+    const till = pos(c.tillable_acres ?? c.tillableAcres)
+    const soil = pos(c.soil_rating ?? c.soilRating)
+    const sale = saleOf(c)
+    if (acres) { totAcres += acres; acresCount++; anyAcres = true }
+    if (till) { totTill += till; tillCount++; anyTill = true }
+    if (sale) {
+      anySale = true
+      saleSum += sale
+      if (acres) { ppaNum += sale; ppaDen += acres }
+      if (till) { pptaNum += sale; pptaDen += till }
+      if (soil && acres) { ppsrNum += sale; ppsrDen += soil * acres }
     }
-    if (saleAmount && tillable) {
-      tillableNumerator += saleAmount
-      tillableDenominator += tillable
-    }
-    if (saleAmount && soil && acres) {
-      soilNumerator += saleAmount
-      soilDenominator += soil * acres
-    }
+    if (soil && till) { soilNum += soil * till; soilDen += till; rated++ }
   }
 
-  const withAcres = comps.filter(c => totalAcresOf(c))
-  const withTillable = comps.filter(c => tillableAcresOf(c))
-  const withSoil = comps.filter(c => soilRatingOf(c) && pricePerAcreOf(c))
-
   return {
-    avgPricePerAcre: acreDenominator > 0 ? acreNumerator / acreDenominator : null,
-    avgPricePerTillable: tillableDenominator > 0 ? tillableNumerator / tillableDenominator : null,
-    avgPricePerSoil: soilDenominator > 0 ? soilNumerator / soilDenominator : null,
-    avgAcres: withAcres.length
-      ? withAcres.reduce((s, c) => s + (totalAcresOf(c) || 0), 0) / withAcres.length
-      : null,
-    avgTillable: withTillable.length
-      ? withTillable.reduce((s, c) => s + (tillableAcresOf(c) || 0), 0) / withTillable.length
-      : null,
-    avgSoilRating: withSoil.length
-      ? withSoil.reduce((s, c) => s + (soilRatingOf(c) || 0), 0) / withSoil.length
-      : null,
+    count,
+    totalAcres: anyAcres ? totAcres : null,
+    totalTillable: anyTill ? totTill : null,
+    pctTillable: totAcres > 0 ? (totTill / totAcres) * 100 : null,
+    totalSale: anySale ? saleSum : null,
+    ratedCount: rated,
+    avgPricePerAcre: ratio(ppaNum, ppaDen),
+    avgPricePerTillable: ratio(pptaNum, pptaDen),
+    avgPricePerSoil: ratio(ppsrNum, ppsrDen),
+    avgAcres: acresCount ? totAcres / acresCount : null,
+    avgTillable: tillCount ? totTill / tillCount : null,
+    soilRating: ratio(soilNum, soilDen),
+  }
+}
+
+export function computeCompAverages(comps: CompAverageInput[]): CompAverages {
+  const s = summarizeComps(comps)
+  return {
+    avgPricePerAcre: s.avgPricePerAcre,
+    avgPricePerTillable: s.avgPricePerTillable,
+    avgPricePerSoil: s.avgPricePerSoil,
+    avgAcres: s.avgAcres,
+    avgTillable: s.avgTillable,
+    avgSoilRating: s.soilRating,
   }
 }

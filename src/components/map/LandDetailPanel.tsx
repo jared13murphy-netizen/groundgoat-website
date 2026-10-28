@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Mail, Download, Check, Loader2, Layers, BarChart3 } from 'lucide-react'
+import { Mail, Download, Check, Loader2, Layers, BarChart3, Plus } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
@@ -240,6 +240,29 @@ interface LandDetailPanelProps {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// Parcel panel action buttons (owner 2026-10-27, option A): one row, all
+// identical — pink fill, white icon over a one-word label, slightly darker
+// pink border. Column layout keeps five across at the panel's 400px.
+const ACTION_BTN: React.CSSProperties = {
+  flex: '1 1 0',
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 4,
+  padding: '9px 2px',
+  borderRadius: 12,
+  fontSize: 11,
+  fontWeight: 700,
+  lineHeight: 1.1,
+  whiteSpace: 'nowrap',
+  border: '1.5px solid #C2186F',
+  background: '#E91E8C',
+  color: '#fff',
+  cursor: 'pointer',
+}
+
 export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround, onFindComparables }: LandDetailPanelProps) {
   // Show Owned Ground fetch is async and can take a moment on a large
   // owner; without a spinner the button looks dead and gets double-clicked
@@ -453,6 +476,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     if (!onToggleReport || !reportId) return
     onToggleReport({
       id: reportId,
+      llUuid: llUuid ?? null,
       listingId: null,
       tractId: null,
       auctionDate: typeof derived.saledate === 'string' ? derived.saledate.slice(0, 10) : null,
@@ -1083,187 +1107,75 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
             — clickData.source === 'overlay'), which never set a click
             point in the first place. */}
         {(llUuid || reportPoint) && (
-          <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '16px', background: '#fff' }}>
-            {/* Configure Map — opens this parcel straight into Configurable
-                Mapping's tract editor as Stage 2's first tract. Sits ABOVE
-                the +Report/Download/Email row (design spec §6): a different
-                feature (drawing your own tracts, not a PDF of the one
-                Regrid parcel) and it makes sense for anyone signed in, not
-                only the report-entitled. /configure-map gates entitlement
-                itself (page.tsx's fetchMappingAccessState) so a
-                not-entitled click lands on an explanation, not a broken
-                map — no need to duplicate that check here. Secondary,
-                outlined pink so it never competes with Email Parcel's
-                filled pink. */}
-            {llUuid && !compMode && (
-              <a
-                href={`/configure-map?ll_uuid=${encodeURIComponent(llUuid)}&stage=tracts`}
-                style={{
-                  marginBottom: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  padding: '11px 10px',
-                  borderRadius: 12,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  border: '1.5px solid #E91E8C',
-                  background: '#fff',
-                  color: '#E91E8C',
-                  textDecoration: 'none',
-                }}
-              >
-                <Layers size={14} /> Configure Map
-              </a>
-            )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              {/* + Report — to the LEFT of Download/Email (owner
-                  2026-08-17). Same toggle look as TractDetailActionBar's
-                  "+ Report"/"− Report" (PortalTractDetail.tsx): pink
-                  outline when already added, reimplemented in this
-                  panel's inline-style idiom since it doesn't use
-                  Tailwind. Hidden entirely when the parent didn't wire
-                  onToggleReport (e.g. the public listings-page map). */}
-              {/* `|| compMode`: CompInlinePopup's "Add to Report" was never
-                  behind canUseReports, and this replaces it. Gating it
-                  here would silently take the add-a-comparable action
-                  away from anyone who can reach comp mode without that
-                  flag — a regression, not a fix. Comp mode is itself
-                  entered from report-gated UI, so this is belt-and-braces
-                  rather than a hole. */}
+          <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px', background: '#fff' }}>
+            {/* One row of actions (owner 2026-10-27, option A): every button
+                the same — pink fill, white icon over a one-word label, a
+                slightly darker pink border — so nothing competes and
+                nothing wraps. The full action name is the tooltip. Gating
+                is unchanged: Configure Map and Find Comps need a resolved
+                ll_uuid; Download / Email / Find Comps need report access;
+                in comp mode only the Report toggle shows. */}
+            <div style={{ display: 'flex', gap: 6 }}>
+              {llUuid && !compMode && (
+                <a
+                  href={`/configure-map?ll_uuid=${encodeURIComponent(llUuid)}&stage=tracts`}
+                  title="Configure Map"
+                  style={{ ...ACTION_BTN, textDecoration: 'none' }}
+                >
+                  <Layers size={16} /> Map
+                </a>
+              )}
               {onToggleReport && (canUseReports || compMode) && (
                 <button
                   onClick={handleToggleReport}
                   disabled={!reportId}
                   title={isInReport ? 'Remove from report' : 'Add to report'}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    padding: '11px 10px',
-                    borderRadius: 12,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    // In comp mode this is the panel's only button and its
-                    // whole purpose, so it reads as the primary action
-                    // (filled pink) rather than a neutral outline — the
-                    // same weight CompInlinePopup's "Add to Report" had.
-                    border: isInReport
-                      ? '1px solid rgba(233,30,140,0.3)'
-                      : compMode ? 'none' : '1px solid rgba(0,0,0,0.12)',
-                    background: isInReport
-                      ? 'rgba(233,30,140,0.08)'
-                      : compMode ? '#E91E8C' : '#fff',
-                    color: isInReport ? '#E91E8C' : compMode ? '#fff' : '#1a1a1a',
-                    cursor: reportId ? 'pointer' : 'default',
-                    opacity: reportId ? 1 : 0.5,
-                  }}
+                  style={{ ...ACTION_BTN, cursor: reportId ? 'pointer' : 'default', opacity: reportId ? 1 : 0.5 }}
                 >
-                  {compMode
-                    ? (isInReport ? '✓ Added' : '+ Add to Report')
-                    : (isInReport ? '− Report' : '+ Report')}
+                  {isInReport ? <Check size={16} /> : <Plus size={16} />}
+                  {isInReport ? 'Added' : 'Report'}
                 </button>
               )}
-              {/* Download/Email Parcel — gated on canUseReports (see prop
-                  doc above). "+ Report" above is NOT part of this gate.
-                  Both are hidden entirely in comp mode: while building a
-                  comparables report the only meaningful action on a
-                  parcel is adding it (owner ruling 2026-08-17). */}
               {canUseReports && !compMode && (
                 <>
                   <button
                     onClick={handleDownloadReport}
                     disabled={downloading}
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 6,
-                      padding: '11px 10px',
-                      borderRadius: 12,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      border: '1px solid rgba(0,0,0,0.12)',
-                      background: downloading ? 'rgba(0,0,0,0.03)' : '#fff',
-                      color: downloading ? 'rgba(0,0,0,0.4)' : '#1a1a1a',
-                      cursor: downloading ? 'wait' : 'pointer',
-                    }}
+                    title="Download Parcel"
+                    style={{ ...ACTION_BTN, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.8 : 1 }}
                   >
-                    {downloading ? (
-                      <><Check size={14} /> Queued ✓</>
-                    ) : (
-                      <><Download size={14} /> Download Parcel</>
-                    )}
+                    {downloading ? <Check size={16} /> : <Download size={16} />}
+                    {downloading ? 'Queued' : 'Download'}
                   </button>
                   <button
                     onClick={handleEmailReport}
                     disabled={emailStatus === 'sending' || emailStatus === 'sent'}
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 6,
-                      padding: '11px 10px',
-                      borderRadius: 12,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      border: 'none',
-                      background: emailStatus === 'sent' ? 'rgba(52,199,89,0.15)' : '#E91E8C',
-                      color: emailStatus === 'sent' ? '#1a9146' : '#fff',
-                      cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer',
-                      opacity: emailStatus === 'sending' ? 0.7 : 1,
-                    }}
+                    title="Email Parcel"
+                    style={{ ...ACTION_BTN, cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer', opacity: emailStatus === 'sending' ? 0.8 : 1 }}
                   >
-                    {emailStatus === 'sent' ? (
-                      <><Check size={14} /> Queued ✓</>
-                    ) : emailStatus === 'sending' ? (
-                      <><Loader2 size={14} className="animate-spin" /> Sending...</>
-                    ) : (
-                      <><Mail size={14} /> Email Parcel</>
-                    )}
+                    {emailStatus === 'sent' ? <Check size={16} />
+                      : emailStatus === 'sending' ? <Loader2 size={16} className="animate-spin" />
+                      : <Mail size={16} />}
+                    {emailStatus === 'sent' ? 'Queued' : emailStatus === 'sending' ? 'Sending' : 'Email'}
                   </button>
                 </>
               )}
+              {onFindComparables && canUseReports && !compMode && llUuid && (
+                <button
+                  onClick={() => onFindComparables({
+                    ll_uuid: llUuid,
+                    county: county && county !== 'Unknown' ? county : '',
+                    state: state && state !== 'Unknown' ? state : '',
+                    lat: ownedGroundLat,
+                    lng: ownedGroundLng,
+                  })}
+                  title="Find Comps"
+                  style={ACTION_BTN}
+                >
+                  <BarChart3 size={16} /> Comps
+                </button>
+              )}
             </div>
-            {/* Find Comps (owner 10/2) — same look as the tract slide-out's
-                button (pink tint + BarChart3), own row under the report
-                buttons. Needs a resolved ll_uuid (the comps endpoint is
-                keyed on it) and the same report access as the backend. */}
-            {onFindComparables && canUseReports && !compMode && llUuid && (
-              <button
-                onClick={() => onFindComparables({
-                  ll_uuid: llUuid,
-                  county: county && county !== 'Unknown' ? county : '',
-                  state: state && state !== 'Unknown' ? state : '',
-                  lat: ownedGroundLat,
-                  lng: ownedGroundLng,
-                })}
-                style={{
-                  width: '100%',
-                  marginTop: 8,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  padding: '11px 10px',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  border: '1px solid rgba(233,30,140,0.3)',
-                  background: 'rgba(233,30,140,0.08)',
-                  color: '#E91E8C',
-                  cursor: 'pointer',
-                }}
-              >
-                <BarChart3 size={14} />
-                Find Comps
-              </button>
-            )}
             {/* Success is no longer reported here: the job is only queued
                 at this point, so the floating ReportJobsIndicator (root
                 layout) shows the real "sent" confirmation once it's

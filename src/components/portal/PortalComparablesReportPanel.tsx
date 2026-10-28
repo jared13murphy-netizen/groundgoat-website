@@ -5,12 +5,12 @@ import { motion } from 'framer-motion'
 import { X, Mail, Trash2, Check, Mountain, ExternalLink, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
-import { formatAcres, toNum } from '@/lib/format'
-import { computeCompAverages } from '@/lib/compAverages'
-import { formatTillable } from '@/lib/tillable'
+import { formatAcres } from '@/lib/format'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from './SubjectStrip'
+import CompSummaryGrid from '@/components/CompSummaryGrid'
+import CardThumb from '@/components/CardThumb'
 import type { TractSaleData } from './PortalTractDetail'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -76,28 +76,6 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
   const [sent, setSent] = useState(false)
   const [downloading, setDownloading] = useState(false)
 
-  // avgTillable averages tillable acreage across every comp that reports it,
-  // independent of price — gating it on price would silently drop comps from
-  // an unrelated metric. The three price-per-X averages are acre-weighted
-  // (SUM(sale_price)/SUM(denominator)) per the owner rule — see compAverages.ts.
-  const stats = useMemo(() => {
-    const withSoil = reportTracts.filter(t => t.soilRating && t.pricePerAcre)
-    const withTillable = reportTracts.filter(t => t.tillableAcres)
-    const withAcres = reportTracts.filter(t => t.totalAcres)
-    const { avgPricePerAcre, avgPricePerTillable, avgPricePerSoil } = computeCompAverages(reportTracts)
-
-    return {
-      avgPricePerAcre,
-      avgAcres: withAcres.length
-        ? withAcres.reduce((s, t) => s + (toNum(t.totalAcres) ?? 0), 0) / withAcres.length : null,
-      avgTillable: withTillable.length
-        ? withTillable.reduce((s, t) => s + (toNum(t.tillableAcres) ?? 0), 0) / withTillable.length : null,
-      avgSoilRating: withSoil.length
-        ? withSoil.reduce((s, t) => s + (toNum(t.soilRating) ?? 0), 0) / withSoil.length : null,
-      avgPricePerTillable,
-      avgPricePerSoil,
-    }
-  }, [reportTracts])
 
   const getPricePerTillable = (t: TractSaleData): number | null => {
     if (!t.tillableAcres || !t.totalAcres || !t.pricePerAcre || t.tillableAcres <= 0) return null
@@ -252,49 +230,27 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
           </div>
         )}
 
-        {/* Live Analytics Cards — always visible */}
-        <div>
-          <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-3">
-            Report Summary {reportTracts.length > 0 ? `(${reportTracts.length} sale${reportTracts.length !== 1 ? 's' : ''})` : ''}
-          </h3>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-              <div className="text-lg font-bold text-gg-pink">{fmt(stats.avgPricePerAcre)}</div>
-              <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg $/Acre</div>
-            </div>
-            <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-              <div className="text-lg font-bold text-gg-pink">{fmt(stats.avgPricePerTillable)}</div>
-              <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg $/Till Ac</div>
-            </div>
-            <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-              <div className="text-lg font-bold text-gg-pink">{fmt(stats.avgPricePerSoil)}</div>
-              <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg $/Soil</div>
-            </div>
-            <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-              <div className="text-lg font-bold">{stats.avgAcres ? formatAcres(stats.avgAcres) : '—'}</div>
-              <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Acres</div>
-            </div>
-            <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-              <div className="text-lg font-bold">{formatTillable(stats.avgAcres, stats.avgTillable, null).inlineText}</div>
-              <div className="text-[10px] text-gg-gray-400 mt-0.5">Avg Tillable</div>
-            </div>
-            <div className="bg-white/[0.03] rounded-xl p-3 border border-white/5">
-              <div className="text-lg font-bold">{stats.avgSoilRating ? fmtNum(stats.avgSoilRating) : '—'}</div>
-              <div className="text-[10px] text-gg-gray-400 mt-0.5">{avgSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, reportTracts)}</div>
-            </div>
-          </div>
-        </div>
+                {/* Totals + averages — one shared block for every report surface (owner 2026-10-27) */}
+        <CompSummaryGrid
+          comps={reportTracts}
+          title="Report Summary"
+          soilLabel={avgSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, reportTracts)}
+          perSoilLabel={'Avg ' + perSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, reportTracts)}
+        />
 
         {/* Selected Tracts */}
         {reportTracts.length > 0 ? (
           <div>
             <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-3">Selected Sales</h3>
-            <div className="space-y-3">
-              {reportTracts.map(t => (
-                <div key={t.id} className="bg-white/[0.03] rounded-xl border border-white/5 overflow-hidden">
+            <div className="space-y-4">
+              {reportTracts.map((t, i) => (
+                <div key={t.id} className="bg-[#161616] rounded-xl border border-white/15 shadow-[0_2px_10px_rgba(0,0,0,0.5)] overflow-hidden">
                   <div className="flex items-start justify-between px-4 pt-3 pb-2">
                     <div>
-                      <div className="text-sm font-semibold">{t.county}, {t.state}</div>
+                      <div className="text-sm font-semibold flex items-center gap-2">
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gg-pink/20 text-gg-pink text-[10px] font-bold shrink-0">{i + 1}</span>
+                        {t.county}, {t.state}
+                      </div>
                       <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gg-gray-400">
                         {t.auctionDate && <span className="text-gg-pink font-medium">{fmtDate(t.auctionDate)}</span>}
                         {/* Tract rows show the listing company; parcel rows (no
@@ -311,7 +267,10 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                       <Trash2 size={12} />
                     </button>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 px-4 pb-2">
+                  <div className="flex items-center gap-3 px-4 pb-2">
+                    {/* Saved thumbnail: boundary + tillable ground (owner 2026-10-27) */}
+                    <CardThumb kind={t.tractId ? 'tract' : 'parcel'} id={t.tractId || t.llUuid || asRealUuid(t.id)} size={72} />
+                  <div className="grid grid-cols-4 gap-2 flex-1">
                     <div>
                       <div className="text-[10px] text-gg-gray-500">Acres</div>
                       <div className="text-sm font-medium">{t.totalAcres ? formatAcres(t.totalAcres) : '—'}</div>
@@ -330,6 +289,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                       <div className="text-[10px] text-gg-gray-500">{soilRatingLabel(t)}</div>
                       <div className="text-sm font-medium">{t.soilRating ? fmtNum(t.soilRating) : '—'}</div>
                     </div>
+                  </div>
                   </div>
                   {(t.salePrice || getPricePerTillable(t) || getPricePerSoil(t)) && (
                     <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 pt-1 border-t border-white/5 mt-1">
