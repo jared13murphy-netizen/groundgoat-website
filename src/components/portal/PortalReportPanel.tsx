@@ -10,7 +10,6 @@ import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from './SubjectStrip'
 import CompSummaryGrid from '@/components/CompSummaryGrid'
-import CardThumb from '@/components/CardThumb'
 import type { TractSaleData } from './PortalTractDetail'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -259,10 +258,11 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
                     </div>
 
                     {/* Stats grid */}
-                    <div className="flex items-center gap-3 px-4 pb-2">
-                    {/* Saved thumbnail: boundary + tillable ground (owner 2026-10-27) */}
-                    <CardThumb kind={t.tractId ? 'tract' : 'parcel'} id={t.tractId || t.llUuid || asRealUuid(t.id)} size={72} />
-                  <div className="grid grid-cols-4 gap-2 flex-1">
+                    {/* Thumbnails removed (owner 2026-10-27 late): "all or none —
+                      if an image can't show up in under 2 seconds every time,
+                      we can never include it." CardThumb stays for when the
+                      pre-render covers every addable sale. */}
+                  <div className="grid grid-cols-4 gap-2 px-4 pb-2">
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Acres</div>
                         <div className="text-sm font-medium">{t.totalAcres ? formatAcres(t.totalAcres) : '—'}</div>
@@ -284,8 +284,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
                     </div>
 
                     {/* Derived pricing */}
-                    </div>
-                  {(t.salePrice || getPricePerTillable(t) || getPricePerSoil(t)) && (
+                    {(t.salePrice || getPricePerTillable(t) || getPricePerSoil(t)) && (
                       <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 pt-1 border-t border-white/5 mt-1">
                         {t.salePrice && (
                           <div className="text-[10px]">
