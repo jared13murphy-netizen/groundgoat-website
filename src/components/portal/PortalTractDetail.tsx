@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2 } from 'lucide-react'
+import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2, Plus } from 'lucide-react'
+import { ACTION_BTN } from '@/components/map/LandDetailPanel'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
@@ -828,38 +829,14 @@ export function TractDetailActionBar({
     // fades out behind the buttons instead of getting hard-clipped.
     <div className="shrink-0 relative bg-black">
       <div className="absolute -top-10 left-0 right-0 h-10 pointer-events-none bg-gradient-to-b from-transparent to-black" />
-      <div className="flex gap-2 px-5 py-4">
-        {/* 3D Map (only if tract has boundaries) */}
-        {hasBoundaries && tract.tractId && onView3DTerrain && (
-          <button
-            onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink text-gg-black font-semibold rounded-xl hover:bg-gg-pink/80 transition text-xs"
-          >
-            <Mountain size={14} />
-            3D Map
-          </button>
-        )}
-
-        {/* Add to Report */}
-        {onToggleReport && (
-          <button
-            onClick={() => onToggleReport(tract)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
-              isInReport
-                ? 'bg-gg-pink/10 text-gg-pink border-gg-pink/30'
-                : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
-            }`}
-          >
-            {compMode
-              ? (isInReport ? '✓ Added' : '+ Add to Report')
-              : (isInReport ? '− Report' : '+ Report')}
-          </button>
-        )}
-
-        {/* View Listing. Normally requires a listing company; in comp
-            mode it matches the popup this replaced, which opened on
-            listingId OR sourceUrl — so a tract that showed a Details
-            button before still shows one now. */}
+      {/* Same buttons as the parcel panel (owner 2026-10-28: "make these
+          look the same"): pink fill, darker pink border, icon over a
+          one-word label, one row — with one difference: View Auction /
+          View Listing stays a wide button of its own above the row.
+          Gating is unchanged from before: 3D Map needs boundaries, the
+          listing button needs a listing (looser in comp mode), and
+          Download / Email / Comps are hidden in comp mode. */}
+      <div className="px-5 pt-4 pb-4 flex flex-col gap-2">
         {onViewListing && (
           compMode
             ? Boolean(tract.listingId || tract.sourceUrl)
@@ -870,72 +847,71 @@ export function TractDetailActionBar({
               if (tract.listingId) onViewListing(tract.listingId)
               else if (tract.sourceUrl) window.open(tract.sourceUrl, '_blank', 'noopener,noreferrer')
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white/5 border border-white/10 text-white font-medium rounded-xl hover:bg-white/10 transition text-xs"
+            style={{ ...ACTION_BTN, flexDirection: 'row', gap: 8, padding: '12px 10px', fontSize: 13, width: '100%' }}
           >
             {(tract.listingType || '').toLowerCase() === 'private_treaty' ? 'View Listing' : 'View Auction'}
           </button>
         )}
 
-        {/* Find Comparables — same callback the listing detail panel
-            uses; here it lets the user pick THIS tract as the subject
-            for a comparables search. Hidden in comp mode: the user is
-            already inside a comparables search, and the popular this
-            replaced had no equivalent. */}
-        {onFindComparables && !compMode && (
-          <button
-            onClick={() => onFindComparables(tract.id, tract.county, tract.state)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink/10 text-gg-pink border border-gg-pink/30 rounded-xl hover:bg-gg-pink/20 transition text-xs font-medium"
-          >
-            <BarChart3 size={14} />
-            Find Comps
-          </button>
-        )}
-      </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {hasBoundaries && tract.tractId && onView3DTerrain && (
+            <button
+              onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}
+              title="3D Map"
+              style={ACTION_BTN}
+            >
+              <Mountain size={16} /> 3D Map
+            </button>
+          )}
 
-      {/* Single-tract PDF report — separate row from the buttons above
-          (which can already run to 4-wide at 480px; a 2nd row keeps
-          these legible instead of cramming 6 into one).
-          Hidden entirely in comp mode: the popup this replaced offered
-          no single-tract PDF, and while assembling a comparables report
-          a per-tract download/email is a different job. */}
-      {!compMode && (
-      <div className="flex gap-2 px-5 pb-4">
-        <button
-          onClick={handleDownloadReport}
-          disabled={downloading}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-medium transition text-xs border ${
-            downloading
-              ? 'bg-white/5 border-white/10 text-white/60 cursor-wait'
-              : 'bg-white/5 border-white/10 text-white hover:bg-white/10'
-          }`}
-        >
-          {downloading ? (
-            <><Check size={14} /> Queued ✓</>
-          ) : (
-            <><Download size={14} /> Download report</>
+          {onToggleReport && (
+            <button
+              onClick={() => onToggleReport(tract)}
+              title={isInReport ? 'Remove from report' : 'Add to report'}
+              style={ACTION_BTN}
+            >
+              {isInReport ? <Check size={16} /> : <Plus size={16} />}
+              {isInReport ? 'Added' : 'Report'}
+            </button>
           )}
-        </button>
-        <button
-          onClick={handleEmailReport}
-          disabled={emailStatus === 'sending' || emailStatus === 'sent'}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-semibold transition text-xs ${
-            emailStatus === 'sent'
-              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-              : emailStatus === 'sending'
-                ? 'bg-gg-pink/50 text-white/70 cursor-wait'
-                : 'bg-gg-pink text-gg-black hover:bg-gg-pink/80'
-          }`}
-        >
-          {emailStatus === 'sent' ? (
-            <><Check size={14} /> Queued ✓</>
-          ) : emailStatus === 'sending' ? (
-            <><Loader2 size={14} className="animate-spin" /> Sending...</>
-          ) : (
-            <><Mail size={14} /> Email me this report</>
+
+          {!compMode && (
+            <button
+              onClick={handleDownloadReport}
+              disabled={downloading}
+              title="Download report"
+              style={{ ...ACTION_BTN, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.8 : 1 }}
+            >
+              {downloading ? <Check size={16} /> : <Download size={16} />}
+              {downloading ? 'Queued' : 'Download'}
+            </button>
           )}
-        </button>
+
+          {!compMode && (
+            <button
+              onClick={handleEmailReport}
+              disabled={emailStatus === 'sending' || emailStatus === 'sent'}
+              title="Email me this report"
+              style={{ ...ACTION_BTN, cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer', opacity: emailStatus === 'sending' ? 0.8 : 1 }}
+            >
+              {emailStatus === 'sent' ? <Check size={16} />
+                : emailStatus === 'sending' ? <Loader2 size={16} className="animate-spin" />
+                : <Mail size={16} />}
+              {emailStatus === 'sent' ? 'Queued' : emailStatus === 'sending' ? 'Sending' : 'Email'}
+            </button>
+          )}
+
+          {onFindComparables && !compMode && (
+            <button
+              onClick={() => onFindComparables(tract.id, tract.county, tract.state)}
+              title="Find Comps"
+              style={ACTION_BTN}
+            >
+              <BarChart3 size={16} /> Comps
+            </button>
+          )}
+        </div>
       </div>
-      )}
 
       {/* Inline status — failures show the parsed error (403/400/other).
           Success is no longer reported here: the job is only queued at
