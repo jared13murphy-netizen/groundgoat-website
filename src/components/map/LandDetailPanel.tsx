@@ -243,7 +243,7 @@ interface LandDetailPanelProps {
 // Parcel panel action buttons (owner 2026-10-27, option A): one row, all
 // identical — pink fill, white icon over a one-word label, slightly darker
 // pink border. Column layout keeps five across at the panel's 400px.
-const ACTION_BTN: React.CSSProperties = {
+export const ACTION_BTN: React.CSSProperties = {
   flex: '1 1 0',
   minWidth: 0,
   display: 'flex',
