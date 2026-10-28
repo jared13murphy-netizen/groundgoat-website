@@ -13,14 +13,14 @@ const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.ground
 
 const SHOTS = [
   { file: '2-quick-draw-tillable-timber-water-acres', caption: 'Quick Draw: outline any area and instantly get tillable, timber and water acres plus the soil rating.' },
-  { file: '3-tract-sheet-tillable-and-PI', caption: 'Tap a tract: acres, tillable acres and PI, with 3D, comps, auction and report one tap away.' },
-  { file: '4-soil-ratings-map', caption: "Soil ratings across the landscape, with every parcel's owner labeled." },
+  { file: '3-tract-sheet-tillable-and-PI', caption: 'Tap a tract: acres, tillable acres and PI, plus a link straight to the live auction so you can go bid on the land.' },
+  { file: '4-soil-ratings-map', caption: "Soil types across the landscape, with every parcel's owner labeled." },
   { file: '5-goat-search-iowa-csr2', caption: 'Goat Search: "Show all farmland in Iowa with CSR2 greater than 80," answered on the map.' },
-  { file: '10-show-owned-ground', caption: 'Show Owned Ground: everything one owner holds, lit up across the county in a tap.' },
-  { file: '9-comparable-sales-report', caption: 'Comparable sales report: price per acre, per tillable acre and per soil point, ready to email.' },
-  { file: '6-3d-soil-view', caption: 'Any tract in 3D, with soil types draped over the terrain.' },
+  { file: '10-show-owned-ground', caption: 'Show Owned Ground: everything one owner holds, lit up on the map in a tap.' },
+  { file: '9-comparable-sales-report', caption: 'Comparable sales report: price per acre, per tillable acre and per soil point. Email it as a PDF with multiple image views and soil data for each parcel.' },
+  { file: '6-3d-soil-view', caption: 'Drag the 3D view to see the land from any direction, and exaggerate the elevation to spot wet areas that may need tiling or replanting.' },
   { file: '7-home-live-auctions', caption: "Home: today's live auctions and the latest sale results." },
-  { file: '8-ground-truth-county-data', caption: 'Ground Truth: county yields, cash rents and land values for every tract.' },
+  { file: '8-ground-truth-county-data', caption: 'Ground Truth: county averages for yields, cash rents and land values.' },
 ]
 
 export default function ImageGalleryPage() {
