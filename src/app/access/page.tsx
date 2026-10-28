@@ -973,6 +973,13 @@ function AccessPortalPageInner() {
           externalTractSelection={selectedTract}
           onLandDetailOpen={() => setSelectedTract(null)}
           onToggleReport={(tract) => handleToggleReport(tract as unknown as TractSaleData)}
+          // Drag-to-report (owner 2026-10-27): same add path as + Report; a
+          // drag never removes. The panel opens the moment a drag is captured
+          // so there is always a drop target.
+          onDragToReport={canUseReportsFor(user) || showComparablesReportPanel
+            ? (row) => { const t = row as unknown as TractSaleData; if (!reportIds.has(t.id)) handleToggleReport(t) }
+            : undefined}
+          onDragToReportStart={() => { if (!showComparablesReportPanel) setShowMainReportPanel(true) }}
           onView3DTerrain={handleView3DTerrain}
           isInReport={(id) => reportIds.has(id)}
           reportIds={reportIds}

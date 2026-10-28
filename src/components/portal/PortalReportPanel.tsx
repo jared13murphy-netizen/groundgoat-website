@@ -164,6 +164,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
       animate={{ x: 0 }}
       exit={{ x: 500 }}
       transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+      data-report-dropzone
       className="fixed top-0 right-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
