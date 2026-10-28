@@ -744,7 +744,7 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
         </div>
 
         {/* Send button. Owner ruling 2026-09-08 (box turned white): idle
-            state stays the brand pink (#E91E8C, exact hex — the gg-pink
+            state stays the brand pink (#F58CDE, exact hex — the gg-pink
             Tailwind token is a lighter shade used elsewhere and isn't
             what was asked for here) with a white arrow; the STOP state
             (search in flight) switches to dark-grey-on-white instead of
@@ -759,7 +759,7 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
           className={`relative rounded-full w-9 h-9 flex items-center justify-center transition-colors flex-shrink-0 ${
             loading
               ? 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-              : 'bg-[#E91E8C] hover:bg-[#d41a7d] disabled:opacity-40 disabled:hover:bg-[#E91E8C] text-white'
+              : 'bg-[#F58CDE] hover:bg-[#C563AD] disabled:opacity-40 disabled:hover:bg-[#F58CDE] text-white'
           }`}
         >
           {/* While a search is in flight this becomes a STOP button (owner

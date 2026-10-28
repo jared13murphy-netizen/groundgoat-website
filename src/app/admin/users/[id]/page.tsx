@@ -552,7 +552,7 @@ function Sparkline({ data }: { data: { date: string; requests: number }[] }) {
               <div key={d.date} className="group relative flex-1 h-full flex items-end justify-center">
                 {d.requests > 0 && (
                   <div
-                    className="w-full max-w-[24px] rounded-t bg-[#e91e8c]"
+                    className="w-full max-w-[24px] rounded-t bg-[#F58CDE]"
                     style={{ height: `${Math.max((d.requests / top) * 100, 1.5)}%` }}
                   />
                 )}

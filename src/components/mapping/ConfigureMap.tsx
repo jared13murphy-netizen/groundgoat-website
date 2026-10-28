@@ -3884,7 +3884,7 @@ export default function ConfigureMap() {
                         aria-pressed={selected}
                         style={{
                           height: 30, borderRadius: 6, border: 'none', cursor: 'pointer',
-                          backgroundColor: selected ? '#E91E8C' : 'rgba(255,255,255,0.08)',
+                          backgroundColor: selected ? '#F58CDE' : 'rgba(255,255,255,0.08)',
                           color: selected ? '#fff' : 'rgba(255,255,255,0.85)',
                           fontSize: 11, fontWeight: 600,
                         }}>

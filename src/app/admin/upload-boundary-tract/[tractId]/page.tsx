@@ -288,11 +288,11 @@ export default function UploadBoundaryTractPage() {
       map.addSource('vision-poly', { type: 'geojson', data: buildPolyGeo([]) })
       map.addLayer({
         id: 'vision-fill', type: 'fill', source: 'vision-poly',
-        paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
+        paint: { 'fill-color': '#F58CDE', 'fill-opacity': 0.18 },
       })
       map.addLayer({
         id: 'vision-line', type: 'line', source: 'vision-poly',
-        paint: { 'line-color': '#E91E8C', 'line-width': 2.5 },
+        paint: { 'line-color': '#F58CDE', 'line-width': 2.5 },
       })
       // Draggable vertex handles
       map.addSource('vision-vertices', { type: 'geojson', data: buildVertexGeo([]) })
@@ -301,7 +301,7 @@ export default function UploadBoundaryTractPage() {
         paint: {
           'circle-radius': 6,
           'circle-color': '#ffffff',
-          'circle-stroke-color': '#E91E8C',
+          'circle-stroke-color': '#F58CDE',
           'circle-stroke-width': 2,
         },
       })

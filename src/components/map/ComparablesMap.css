@@ -65,12 +65,12 @@
 }
 
 .comp-marker-label.selected {
-  border-color: #E91E8C;
+  border-color: #F58CDE;
   background: rgba(233, 30, 140, 0.2);
 }
 
 .comp-marker-pin.selected {
-  background: #E91E8C;
+  background: #F58CDE;
 }
 
 /* Comparables-mode "+" button — replaces the labeled tract pin when
@@ -81,7 +81,7 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #E91E8C;
+  background: #F58CDE;
   border: 1px solid #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
   position: relative;

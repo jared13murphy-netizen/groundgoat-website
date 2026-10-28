@@ -377,7 +377,7 @@ export function SectionHeader({ title }: { title: string }) {
       fontWeight: 700,
       letterSpacing: '0.8px',
       textTransform: 'uppercase',
-      color: '#E91E8C',
+      color: '#F58CDE',
       marginBottom: 6,
       marginTop: 2,
     }}>
