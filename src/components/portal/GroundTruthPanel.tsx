@@ -339,7 +339,7 @@ export default function GroundTruthPanel({ tractId, theme = 'dark' }: GroundTrut
             {landCropland.length > 0 && (
               <div>
                 <div className={t.rowLabel}>Cropland</div>
-                <MiniLineChart data={landCropland} color="#E91E8C" unitLabel="/ac" format={dollar} themeStyles={t} />
+                <MiniLineChart data={landCropland} color="#F58CDE" unitLabel="/ac" format={dollar} themeStyles={t} />
               </div>
             )}
             {landPasture.length > 0 && (

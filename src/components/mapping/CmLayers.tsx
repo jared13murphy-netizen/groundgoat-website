@@ -192,7 +192,7 @@ function OverlayRow({ active, label, swatchGradient, swatchColor, onClick }: {
 }) {
   const [hovered, setHovered] = useState(false)
   const base = active
-    ? { background: 'linear-gradient(135deg,#E91E8C 0%,#c4186f 100%)', border: '1px solid #E91E8C', color: '#fff', boxShadow: '0 2px 10px rgba(233,30,140,0.40)' }
+    ? { background: 'linear-gradient(135deg,#F58CDE 0%,#C563AD 100%)', border: '1px solid #F58CDE', color: '#fff', boxShadow: '0 2px 10px rgba(233,30,140,0.40)' }
     : hovered
     ? { background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.22)', color: 'rgba(255,255,255,0.80)' }
     : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.55)' }
@@ -212,7 +212,7 @@ function OverlayRow({ active, label, swatchGradient, swatchColor, onClick }: {
 const chip = (sel: boolean): React.CSSProperties => ({
   height: 22, padding: '0 7px', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: 'pointer',
   display: 'flex', alignItems: 'center',
-  background: sel ? '#E91E8C' : 'rgba(255,255,255,0.08)', color: sel ? '#fff' : 'rgba(255,255,255,0.75)',
+  background: sel ? '#F58CDE' : 'rgba(255,255,255,0.08)', color: sel ? '#fff' : 'rgba(255,255,255,0.75)',
 })
 
 /** The popup the round Layers button opens. `openUp` anchors it above
