@@ -46,7 +46,7 @@ export default function LandTypeButtons({
             onClick={() => toggle(t)}
             className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               on
-                ? 'bg-gg-pink text-white border-gg-pink hover:bg-gg-pink/80'
+                ? 'bg-gg-pink text-gg-black border-gg-pink hover:bg-gg-pink/80'
                 : 'bg-transparent text-gg-gray-400 border-gg-gray-600 hover:border-gg-gray-400 hover:text-gg-gray-200'
             }`}
             title={on ? `Remove ${t}` : `Add ${t}`}

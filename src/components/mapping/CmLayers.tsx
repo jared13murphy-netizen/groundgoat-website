@@ -192,7 +192,7 @@ function OverlayRow({ active, label, swatchGradient, swatchColor, onClick }: {
 }) {
   const [hovered, setHovered] = useState(false)
   const base = active
-    ? { background: 'linear-gradient(135deg,#F58CDE 0%,#C563AD 100%)', border: '1px solid #F58CDE', color: '#fff', boxShadow: '0 2px 10px rgba(233,30,140,0.40)' }
+    ? { background: 'linear-gradient(135deg,#F58CDE 0%,#C563AD 100%)', border: '1px solid #F58CDE', color: '#0a0a0a', boxShadow: '0 2px 10px rgba(233,30,140,0.40)' }
     : hovered
     ? { background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.22)', color: 'rgba(255,255,255,0.80)' }
     : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.55)' }

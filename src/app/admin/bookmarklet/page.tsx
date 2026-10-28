@@ -114,7 +114,7 @@ export default function BookmarkletPage() {
               href={getBookmarkletCode()}
               onClick={(e) => e.preventDefault()}
               draggable={true}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gg-pink text-white rounded-lg font-semibold hover:bg-gg-pink/80 cursor-grab active:cursor-grabbing"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gg-pink text-gg-black rounded-lg font-semibold hover:bg-gg-pink/80 cursor-grab active:cursor-grabbing"
             >
               <Bookmark size={20} />
               Scrape to Ground Goat

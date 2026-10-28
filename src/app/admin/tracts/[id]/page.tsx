@@ -598,7 +598,7 @@ export default function EditTractPage() {
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+              className="flex items-center gap-2 px-6 py-3 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
             >
               {saving ? (
                 <>

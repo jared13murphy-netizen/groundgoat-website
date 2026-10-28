@@ -617,7 +617,7 @@ export default function SubscriptionPage() {
               {user?.account_type === 'firm_admin' && (
                 <button
                   onClick={handleManageBilling}
-                  className="bg-gg-pink hover:bg-gg-pink/80 text-white font-semibold py-2.5 px-4 rounded-lg flex items-center gap-2 transition"
+                  className="bg-gg-pink hover:bg-gg-pink/80 text-gg-black font-semibold py-2.5 px-4 rounded-lg flex items-center gap-2 transition"
                 >
                   Manage Billing
                   <ExternalLink size={14} />

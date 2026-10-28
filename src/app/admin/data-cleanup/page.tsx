@@ -1287,7 +1287,7 @@ export default function TractDataCleanupPage() {
                                 <button
                                   type="button"
                                   onClick={() => toggleTract(it.listing_id, tract.id)}
-                                  className="group w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-white rounded-lg px-2 -mx-2 transition-colors"
+                                  className="group w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-gg-black rounded-lg px-2 -mx-2 transition-colors"
                                 >
                                   <span className="text-gg-gray-400 text-xs w-3 shrink-0">{tractIsOpen ? '▼' : '▶'}</span>
                                   <span className="text-base text-white font-bold tracking-tight shrink-0">
@@ -1416,7 +1416,7 @@ export default function TractDataCleanupPage() {
                                         window.open(`/access?${params.toString()}`, '_blank')
                                       }}
                                       className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
-                                        mapDisabled ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed' : 'bg-gg-pink text-white hover:bg-gg-pink-light'
+                                        mapDisabled ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed' : 'bg-gg-pink text-gg-black hover:bg-gg-pink-light'
                                       }`}
                                     >
                                       <MapPin size={14} /> View on Map
@@ -1710,7 +1710,7 @@ export default function TractDataCleanupPage() {
                           <button
                             onClick={() => addTractToListing(it.listing_id)}
                             disabled={addingTractFor === it.listing_id}
-                            className="mt-2 mb-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-pink text-white hover:bg-gg-pink/80 disabled:opacity-50"
+                            className="mt-2 mb-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-pink text-gg-black hover:bg-gg-pink/80 disabled:opacity-50"
                           >
                             {addingTractFor === it.listing_id
                               ? <Loader2 className="animate-spin" size={15} />
@@ -1848,7 +1848,7 @@ export default function TractDataCleanupPage() {
                     disabled={!!deleteRescrapingId}
                     className={`px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 ${
                       rescrapeAsType === val
-                        ? 'bg-gg-pink text-white'
+                        ? 'bg-gg-pink text-gg-black'
                         : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
                     }`}
                   >

@@ -259,7 +259,7 @@ const ACTION_BTN: React.CSSProperties = {
   whiteSpace: 'nowrap',
   border: '1.5px solid #C563AD',
   background: '#F58CDE',
-  color: '#fff',
+  color: '#0a0a0a',
   cursor: 'pointer',
 }
 
@@ -827,7 +827,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 padding: '12px 14px', borderRadius: 999,
                 border: '1.5px solid #000',
                 background: '#F58CDE',
-                color: '#fff', fontSize: 14, fontWeight: 700,
+                color: '#0a0a0a', fontSize: 14, fontWeight: 700,
                 cursor: loadingOwnedGround ? 'default' : 'pointer',
                 letterSpacing: 0.2,
                 opacity: loadingOwnedGround ? 0.85 : 1,

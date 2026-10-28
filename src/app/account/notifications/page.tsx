@@ -294,7 +294,7 @@ function CountyPicker({
           ) : counties === null ? (
             <div className="flex items-center justify-between py-6">
               <p className="text-sm text-red-400">Couldn&apos;t load counties.</p>
-              <button type="button" onClick={onReload} className="px-3 py-1.5 rounded-lg bg-gg-pink text-white text-xs font-semibold">
+              <button type="button" onClick={onReload} className="px-3 py-1.5 rounded-lg bg-gg-pink text-gg-black text-xs font-semibold">
                 Try again
               </button>
             </div>
@@ -338,7 +338,7 @@ function CountyPicker({
               type="button"
               onClick={handleSave}
               disabled={saving || changes.length === 0}
-              className="flex-1 py-2.5 rounded-lg bg-gg-pink hover:bg-gg-pink-dark text-sm font-semibold text-white disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 py-2.5 rounded-lg bg-gg-pink hover:bg-gg-pink-dark text-sm font-semibold text-gg-black disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
               {changes.length > 0 ? `Save ${changes.length} ${changes.length === 1 ? 'change' : 'changes'}` : 'Save'}
@@ -585,7 +585,7 @@ export default function NotificationsPage() {
         {loadError ? (
           <div className={`${sectionCard} py-6 text-center`}>
             <p className="text-sm text-white mb-3">Couldn&apos;t load notification settings.</p>
-            <button type="button" onClick={load} className="px-4 py-2 rounded-lg bg-gg-pink text-white text-sm font-semibold">
+            <button type="button" onClick={load} className="px-4 py-2 rounded-lg bg-gg-pink text-gg-black text-sm font-semibold">
               Try again
             </button>
           </div>
@@ -610,7 +610,7 @@ export default function NotificationsPage() {
             {geoError && (
               <div className="mb-4 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-center justify-between">
                 <p className="text-sm text-red-400">{geoError}</p>
-                <button type="button" onClick={load} className="px-3 py-1.5 rounded-lg bg-gg-pink text-white text-xs font-semibold">Try again</button>
+                <button type="button" onClick={load} className="px-3 py-1.5 rounded-lg bg-gg-pink text-gg-black text-xs font-semibold">Try again</button>
               </div>
             )}
             {sortedGeoStates.length > 0 && (

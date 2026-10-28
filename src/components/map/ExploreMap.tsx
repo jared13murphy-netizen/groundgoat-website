@@ -1753,7 +1753,7 @@ function OverlayButton({
     ? {
         background: 'linear-gradient(135deg,#F58CDE 0%,#C563AD 100%)',
         border: '1px solid #F58CDE',
-        color: '#fff',
+        color: '#0a0a0a',
         boxShadow: '0 2px 10px rgba(233,30,140,0.40)',
       }
     : hovered
@@ -10792,7 +10792,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             padding: '8px 12px', borderRadius: 999,
             background: dragChip.over ? '#F58CDE' : 'rgba(10,10,12,0.92)',
             border: `1.5px solid ${dragChip.over ? '#C563AD' : 'rgba(255,255,255,0.25)'}`,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.5)', color: '#fff',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)', color: dragChip.over ? '#0a0a0a' : '#fff',
             fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
             transform: dragChip.over ? 'scale(1.06)' : 'scale(1)', transition: 'background 120ms, transform 120ms',
           }}
@@ -11962,7 +11962,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     {drawPoints.length >= 3 && (
                       <button
                         onClick={handleFinishDrawArea}
-                        style={{ ...pinActionButtonStyle, background: '#F58CDE', borderColor: '#F58CDE', color: '#fff', fontWeight: 700 }}
+                        style={{ ...pinActionButtonStyle, background: '#F58CDE', borderColor: '#F58CDE', color: '#0a0a0a', fontWeight: 700 }}
                       >
                         Finish
                       </button>
@@ -12564,7 +12564,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 flex: 1, padding: '12px 0', borderRadius: 10,
                 border: 'none',
                 backgroundColor: '#F58CDE',
-                color: '#fff',
+                color: '#0a0a0a',
                 fontSize: 14, fontWeight: 700, cursor: 'pointer',
               }}
             >
@@ -12795,7 +12795,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             {selectedSale.polygonCoordinates && selectedSale.polygonCoordinates.length > 2 ? (
               <button
                 className="sale-modal-action-btn"
-                style={{ backgroundColor: '#F58CDE', color: '#fff', marginBottom: '8px' }}
+                style={{ backgroundColor: '#F58CDE', color: '#0a0a0a', marginBottom: '8px' }}
                 onClick={() => setShow3DViewer(true)}
               >
                 🏔 View 3D Terrain
@@ -12883,7 +12883,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           backgroundColor: '#F58CDE', borderRadius: 30, padding: '12px 24px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 500, cursor: 'pointer',
         }}>
-          <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
+          <span style={{ color: '#0a0a0a', fontWeight: 700, fontSize: 15 }}>
             {selectedIds.size} Selected
           </span>
           <button

@@ -241,7 +241,7 @@ export default function CommissionsPage() {
             onClick={() => setActiveTab('report')}
             className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
               activeTab === 'report'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
             }`}
           >
@@ -252,7 +252,7 @@ export default function CommissionsPage() {
             onClick={() => setActiveTab('team')}
             className={`px-6 py-3 rounded-lg font-semibold transition-colors ${
               activeTab === 'team'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-400 hover:text-white'
             }`}
           >
