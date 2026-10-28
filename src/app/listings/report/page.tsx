@@ -161,7 +161,7 @@ export default function ExploreReportPage() {
         <button
           onClick={handleEmail}
           disabled={sending}
-          className="w-full py-3 rounded-xl bg-gg-pink text-white font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
+          className="w-full py-3 rounded-xl bg-gg-pink text-gg-black font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
         >
           {sent ? <Check size={18} /> : <Mail size={18} />}
           {sent ? 'Queued ✓' : 'Email Report'}

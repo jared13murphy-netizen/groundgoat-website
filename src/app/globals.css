@@ -101,7 +101,7 @@ input:focus, textarea:focus, select:focus {
 
 /* Button hover effects */
 .btn-primary {
-  @apply bg-gradient-pink text-white font-semibold py-3 px-8 rounded-full transition-all duration-300;
+  @apply bg-gradient-pink text-gg-black font-semibold py-3 px-8 rounded-full transition-all duration-300;
 }
 
 .btn-primary:hover {

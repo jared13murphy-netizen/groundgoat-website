@@ -833,7 +833,7 @@ export function TractDetailActionBar({
         {hasBoundaries && tract.tractId && onView3DTerrain && (
           <button
             onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink text-white font-semibold rounded-xl hover:bg-gg-pink/80 transition text-xs"
+            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gg-pink text-gg-black font-semibold rounded-xl hover:bg-gg-pink/80 transition text-xs"
           >
             <Mountain size={14} />
             3D Map
@@ -923,7 +923,7 @@ export function TractDetailActionBar({
               ? 'bg-green-500/20 text-green-400 border border-green-500/30'
               : emailStatus === 'sending'
                 ? 'bg-gg-pink/50 text-white/70 cursor-wait'
-                : 'bg-gg-pink text-white hover:bg-gg-pink/80'
+                : 'bg-gg-pink text-gg-black hover:bg-gg-pink/80'
           }`}
         >
           {emailStatus === 'sent' ? (

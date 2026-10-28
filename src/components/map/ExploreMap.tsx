@@ -290,7 +290,7 @@ const DRAW_AREA_SOURCE_ID = 'draw-area-src'
 const DRAW_AREA_FILL_LAYER = 'draw-area-fill'
 const DRAW_AREA_LINE_LAYER = 'draw-area-line'
 const DRAW_AREA_POINTS_LAYER = 'draw-area-points'
-const DRAW_AREA_COLOR = '#E91E8C'
+const DRAW_AREA_COLOR = '#F58CDE'
 
 // Spherical excess / shoelace-on-sphere area for a closed lng/lat ring —
 // no @turf dependency in this repo (checked package.json). Returns
@@ -1751,9 +1751,9 @@ function OverlayButton({
   const [hovered, setHovered] = useState(false)
   const base: Record<string, string | number> = active
     ? {
-        background: 'linear-gradient(135deg,#E91E8C 0%,#c4186f 100%)',
-        border: '1px solid #E91E8C',
-        color: '#fff',
+        background: 'linear-gradient(135deg,#F58CDE 0%,#C563AD 100%)',
+        border: '1px solid #F58CDE',
+        color: '#0a0a0a',
         boxShadow: '0 2px 10px rgba(233,30,140,0.40)',
       }
     : hovered
@@ -1801,7 +1801,7 @@ function OverlayButton({
 
 // ── UtilityTile — one 3-per-row tile in the Utilities panel (owner
 // 2026-09-08: same look as the mobile app — #111 tile, 1px #333 border,
-// radius 12, icon over a 12px regular-weight label, pink #E91E8C when
+// radius 12, icon over a 12px regular-weight label, pink #F58CDE when
 // active) ────────────────────────────────────────────────────────────────
 function UtilityTile({
   icon,
@@ -1834,9 +1834,9 @@ function UtilityTile({
         background: active
           ? 'linear-gradient(180deg, #ffffff 0%, #f1f1f1 100%)'
           : 'linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.06) 100%)',
-        border: `1px solid ${active ? '#E91E8C' : 'rgba(255,255,255,0.22)'}`,
+        border: `1px solid ${active ? '#F58CDE' : 'rgba(255,255,255,0.22)'}`,
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.4)',
-        color: active ? '#E91E8C' : '#fff',
+        color: active ? '#F58CDE' : '#fff',
         cursor: 'pointer',
       }}
     >
@@ -1889,7 +1889,7 @@ const pinActionButtonStyle: React.CSSProperties = {
 // to a plain crosshair if the data URI ever fails to load. ─────────────
 const SET_PIN_CURSOR_SVG =
   "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='32' viewBox='0 0 24 32'>" +
-  "<path d='M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z' fill='#E91E8C' stroke='#000' stroke-width='1.5'/>" +
+  "<path d='M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z' fill='#F58CDE' stroke='#000' stroke-width='1.5'/>" +
   "<circle cx='12' cy='12' r='4.5' fill='#fff'/>" +
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
@@ -3171,7 +3171,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     if (!pin || !map || !mapLoaded) return
 
-    const marker = new maplibregl.Marker({ color: '#E91E8C', anchor: 'bottom' })
+    const marker = new maplibregl.Marker({ color: '#F58CDE', anchor: 'bottom' })
       .setLngLat([pin.lng, pin.lat])
       .addTo(map)
 
@@ -4091,7 +4091,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         <path fill="#fff" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
       </svg>
       <svg width="34" height="34" viewBox="0 0 24 24">
-        <path fill="#E91E8C" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
+        <path fill="#F58CDE" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
       </svg>
     `
     el.style.position = 'relative'
@@ -4112,7 +4112,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Shared-area outline (/go Quick-Draw share, sharedArea prop). Lazily
   // creates the source/layers on first use (mirrors the tract-polygons
   // effect above) rather than adding them in the mount-time 'load' handler
-  // — keeps this feature fully self-contained. Same #E91E8C fill/line the
+  // — keeps this feature fully self-contained. Same #F58CDE fill/line the
   // mobile app's own Draw Area layer uses (ExploreMapView.js), so a shared
   // area reads the same on both surfaces.
   useEffect(() => {
@@ -4133,13 +4133,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'shared-area-fill',
         type: 'fill',
         source: 'shared-area',
-        paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
+        paint: { 'fill-color': '#F58CDE', 'fill-opacity': 0.18 },
       })
       map.addLayer({
         id: 'shared-area-line',
         type: 'line',
         source: 'shared-area',
-        paint: { 'line-color': '#E91E8C', 'line-width': 3 },
+        paint: { 'line-color': '#F58CDE', 'line-width': 3 },
       })
     }
 
@@ -5077,7 +5077,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         maxzoom: TRACT_TIER_MIN,
         layout: { visibility: 'none' },
         paint: {
-          'circle-color': '#E91E8C',
+          'circle-color': '#F58CDE',
           'circle-radius': 16,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
@@ -5380,7 +5380,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // or a search-in-progress would show polygons the pins are hiding.
         layout: { visibility: ownerSearchActiveRef.current ? 'none' : 'visible' },
         paint: {
-          'fill-color': '#E91E8C',
+          'fill-color': '#F58CDE',
           // Bumped 0.08 → 0.20 per user 2026-05-15 — when zoomed in
           // far enough to see Regrid parcel borders, the tract pink
           // was barely visible against the black grid.
@@ -5394,7 +5394,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         minzoom: TRACT_TIER_MIN,
         layout: { visibility: ownerSearchActiveRef.current ? 'none' : 'visible' },
         paint: {
-          'line-color': '#E91E8C',
+          'line-color': '#F58CDE',
           'line-width': 3,
           'line-opacity': 1.0,
         },
@@ -5477,7 +5477,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'fill-color': [
           'case',
           ['boolean', ['feature-state', 'hover'], false],
-          '#E91E8C',
+          '#F58CDE',
           '#60A5FA',
         ],
         'fill-opacity': [
@@ -6954,7 +6954,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // that's not working anymore"). The web dot's circle-color was a hardcoded
   // pink with no selected state at all, so nothing could ever recolour it —
   // mobile has had this since launch (ComparablesMapView.js ~2097:
-  // `['case', ['==', ['get','selected'], 1], '#16A34A', '#E91E8C']`).
+  // `['case', ['==', ['get','selected'], 1], '#16A34A', '#F58CDE']`).
   //
   // Driven by a paint expression rather than a `selected` feature property,
   // because these features live in the append-only durableDotsByIdRef
@@ -10790,9 +10790,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             position: 'fixed', zIndex: 1000, pointerEvents: 'none',
             left: dragChip.x + 14, top: dragChip.y - 18,
             padding: '8px 12px', borderRadius: 999,
-            background: dragChip.over ? '#E91E8C' : 'rgba(10,10,12,0.92)',
-            border: `1.5px solid ${dragChip.over ? '#C2186F' : 'rgba(255,255,255,0.25)'}`,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.5)', color: '#fff',
+            background: dragChip.over ? '#F58CDE' : 'rgba(10,10,12,0.92)',
+            border: `1.5px solid ${dragChip.over ? '#C563AD' : 'rgba(255,255,255,0.25)'}`,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)', color: dragChip.over ? '#0a0a0a' : '#fff',
             fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
             transform: dragChip.over ? 'scale(1.06)' : 'scale(1)', transition: 'background 120ms, transform 120ms',
           }}
@@ -10897,7 +10897,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             maxWidth: '92vw',
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="#E91E8C" style={{ flexShrink: 0 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#F58CDE" style={{ flexShrink: 0 }}>
             <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z" />
           </svg>
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -11511,7 +11511,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       onClick={e => { e.stopPropagation(); setMyTractsOn(v => !v) }}
                       style={{
                         width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
-                        background: myTractsOn ? '#E91E8C' : 'rgba(255,255,255,0.18)',
+                        background: myTractsOn ? '#F58CDE' : 'rgba(255,255,255,0.18)',
                         position: 'relative', transition: 'background 0.15s',
                       }}
                     >
@@ -11544,7 +11544,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     step={0.1}
                     value={terrainExaggeration}
                     onChange={e => setTerrainExaggeration(Number(e.target.value))}
-                    style={{ flex: 1, accentColor: '#E91E8C', cursor: 'pointer' }}
+                    style={{ flex: 1, accentColor: '#F58CDE', cursor: 'pointer' }}
                   />
                   <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>{terrainExaggeration.toFixed(1)}×</span>
                 </div>
@@ -11793,7 +11793,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         height: 34,
                         borderRadius: 6,
                         border: 'none',
-                        backgroundColor: selected ? '#E91E8C' : 'rgba(255,255,255,0.08)',
+                        backgroundColor: selected ? '#F58CDE' : 'rgba(255,255,255,0.08)',
                         color: selected ? '#fff' : 'rgba(255,255,255,0.85)',
                         fontSize: 12,
                         fontWeight: 600,
@@ -11962,7 +11962,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     {drawPoints.length >= 3 && (
                       <button
                         onClick={handleFinishDrawArea}
-                        style={{ ...pinActionButtonStyle, background: '#E91E8C', borderColor: '#E91E8C', color: '#fff', fontWeight: 700 }}
+                        style={{ ...pinActionButtonStyle, background: '#F58CDE', borderColor: '#F58CDE', color: '#0a0a0a', fontWeight: 700 }}
                       >
                         Finish
                       </button>
@@ -12063,7 +12063,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           height: 36,
           borderRadius: 6,
           border: 'none',
-          backgroundColor: hasActiveFilters ? '#E91E8C' : 'rgba(0,0,0,0.75)',
+          backgroundColor: hasActiveFilters ? '#F58CDE' : 'rgba(0,0,0,0.75)',
           color: '#fff',
           fontSize: 18,
           cursor: 'pointer',
@@ -12151,9 +12151,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       style={{
                         padding: '6px 14px',
                         borderRadius: 20,
-                        border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+                        border: `1px solid ${isActive ? '#F58CDE' : 'rgba(255,255,255,0.2)'}`,
                         backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                        color: isActive ? '#E91E8C' : '#BBBBBB',
+                        color: isActive ? '#F58CDE' : '#BBBBBB',
                         fontSize: 13,
                         fontWeight: 600,
                         cursor: 'pointer',
@@ -12192,12 +12192,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 >
                   <div style={{
                     width: 18, height: 18, borderRadius: '50%',
-                    border: `2px solid ${filters.dateRange === opt.value ? '#E91E8C' : 'rgba(255,255,255,0.3)'}`,
+                    border: `2px solid ${filters.dateRange === opt.value ? '#F58CDE' : 'rgba(255,255,255,0.3)'}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                   }}>
                     {filters.dateRange === opt.value && (
-                      <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: '#E91E8C' }} />
+                      <div style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: '#F58CDE' }} />
                     )}
                   </div>
                   <span style={{ color: '#BBBBBB', fontSize: 14 }}>{opt.label}</span>
@@ -12300,9 +12300,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                           style={{
                             padding: '6px 14px',
                             borderRadius: 20,
-                            border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+                            border: `1px solid ${isActive ? '#F58CDE' : 'rgba(255,255,255,0.2)'}`,
                             backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                            color: isActive ? '#E91E8C' : '#BBBBBB',
+                            color: isActive ? '#F58CDE' : '#BBBBBB',
                             fontSize: 13,
                             fontWeight: 600,
                             cursor: 'pointer',
@@ -12356,9 +12356,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                             style={{
                               padding: '4px 10px',
                               borderRadius: 14,
-                              border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.15)'}`,
+                              border: `1px solid ${isActive ? '#F58CDE' : 'rgba(255,255,255,0.15)'}`,
                               backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                              color: isActive ? '#E91E8C' : '#BBBBBB',
+                              color: isActive ? '#F58CDE' : '#BBBBBB',
                               fontSize: 12,
                               fontWeight: 500,
                               cursor: 'pointer',
@@ -12411,9 +12411,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                           style={{
                             padding: '4px 10px',
                             borderRadius: 14,
-                            border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.15)'}`,
+                            border: `1px solid ${isActive ? '#F58CDE' : 'rgba(255,255,255,0.15)'}`,
                             backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                            color: isActive ? '#E91E8C' : '#BBBBBB',
+                            color: isActive ? '#F58CDE' : '#BBBBBB',
                             fontSize: 12,
                             fontWeight: 500,
                             cursor: 'pointer',
@@ -12517,9 +12517,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         style={{
                           padding: '6px 14px',
                           borderRadius: 20,
-                          border: `1px solid ${isActive ? '#E91E8C' : 'rgba(255,255,255,0.2)'}`,
+                          border: `1px solid ${isActive ? '#F58CDE' : 'rgba(255,255,255,0.2)'}`,
                           backgroundColor: isActive ? 'rgba(233,30,140,0.2)' : 'transparent',
-                          color: isActive ? '#E91E8C' : '#BBBBBB',
+                          color: isActive ? '#F58CDE' : '#BBBBBB',
                           fontSize: 13,
                           fontWeight: 600,
                           cursor: 'pointer',
@@ -12563,8 +12563,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               style={{
                 flex: 1, padding: '12px 0', borderRadius: 10,
                 border: 'none',
-                backgroundColor: '#E91E8C',
-                color: '#fff',
+                backgroundColor: '#F58CDE',
+                color: '#0a0a0a',
                 fontSize: 14, fontWeight: 700, cursor: 'pointer',
               }}
             >
@@ -12728,7 +12728,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 0' }}>
                   <div style={{
                     width: 16, height: 16,
-                    border: '2px solid #e0e0e0', borderTopColor: '#E91E8C',
+                    border: '2px solid #e0e0e0', borderTopColor: '#F58CDE',
                     borderRadius: '50%', animation: 'spin 1s linear infinite',
                   }} />
                   <span style={{ color: '#999', fontSize: 13 }}>Loading soil & land data...</span>
@@ -12795,7 +12795,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             {selectedSale.polygonCoordinates && selectedSale.polygonCoordinates.length > 2 ? (
               <button
                 className="sale-modal-action-btn"
-                style={{ backgroundColor: '#E91E8C', color: '#fff', marginBottom: '8px' }}
+                style={{ backgroundColor: '#F58CDE', color: '#0a0a0a', marginBottom: '8px' }}
                 onClick={() => setShow3DViewer(true)}
               >
                 🏔 View 3D Terrain
@@ -12836,8 +12836,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 className="sale-modal-action-btn"
                 style={{
                   backgroundColor: 'transparent',
-                  color: '#E91E8C',
-                  border: '1px solid #E91E8C',
+                  color: '#F58CDE',
+                  border: '1px solid #F58CDE',
                   marginBottom: '8px',
                   display: 'flex',
                   alignItems: 'center',
@@ -12860,8 +12860,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               className="sale-modal-action-btn"
               style={{
                 backgroundColor: selectedIds.has(selectedSale.id) ? 'rgba(233,30,140,0.08)' : 'rgba(0,0,0,0.05)',
-                color: selectedIds.has(selectedSale.id) ? '#E91E8C' : '#333',
-                border: selectedIds.has(selectedSale.id) ? '1px solid #E91E8C' : '1px solid rgba(0,0,0,0.15)',
+                color: selectedIds.has(selectedSale.id) ? '#F58CDE' : '#333',
+                border: selectedIds.has(selectedSale.id) ? '1px solid #F58CDE' : '1px solid rgba(0,0,0,0.15)',
                 marginBottom: '16px',
               }}
               onClick={() => {
@@ -12880,10 +12880,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         <div style={{
           position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
           display: 'flex', alignItems: 'center', gap: 12,
-          backgroundColor: '#E91E8C', borderRadius: 30, padding: '12px 24px',
+          backgroundColor: '#F58CDE', borderRadius: 30, padding: '12px 24px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.4)', zIndex: 500, cursor: 'pointer',
         }}>
-          <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
+          <span style={{ color: '#0a0a0a', fontWeight: 700, fontSize: 15 }}>
             {selectedIds.size} Selected
           </span>
           <button
@@ -13109,7 +13109,7 @@ function _section(title: string, rows: string[]): string {
   if (!rows.length) return ''
   return `
     <div style="padding:12px 16px 4px;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#E91E8C;margin-bottom:4px;">${_esc(title)}</div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#F58CDE;margin-bottom:4px;">${_esc(title)}</div>
       ${rows.join('')}
     </div>
   `
@@ -13335,7 +13335,7 @@ function _regridPopupHTML(record: any): string {
         : 'center'
       return `
         <div style="flex:${c.emphasize ? 1.4 : 1};text-align:${align};border-left:${isFirst ? 'none' : '1px solid rgba(0,0,0,0.06)'};padding-left:${isFirst ? 0 : 8}px;padding-right:${isLast ? 0 : 8}px;">
-          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${c.emphasize ? '#E91E8C' : '#888'};">${_esc(c.label)}</div>
+          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${c.emphasize ? '#F58CDE' : '#888'};">${_esc(c.label)}</div>
           <div style="font-size:${c.emphasize ? 19 : 15}px;font-weight:${c.emphasize ? 800 : 700};color:#1a1a1a;margin-top:2px;letter-spacing:${c.emphasize ? -0.3 : 0}px;">${_esc(c.value)}</div>
         </div>
       `

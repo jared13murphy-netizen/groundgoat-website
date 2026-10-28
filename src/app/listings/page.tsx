@@ -402,7 +402,7 @@ function ListingsPageContent() {
             onClick={() => { setActiveTab('auctions'); setPage(1) }}
             className={`px-6 py-3 rounded-lg font-medium transition-colors ${
               activeTab === 'auctions'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
             }`}
           >
@@ -413,7 +413,7 @@ function ListingsPageContent() {
             onClick={() => { setActiveTab('private_treaty'); setPage(1) }}
             className={`px-6 py-3 rounded-lg font-medium transition-colors ${
               activeTab === 'private_treaty'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
             }`}
           >
@@ -424,7 +424,7 @@ function ListingsPageContent() {
             onClick={() => { setActiveTab('results'); setPage(1) }}
             className={`px-6 py-3 rounded-lg font-medium transition-colors ${
               activeTab === 'results'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
             }`}
           >
@@ -434,7 +434,7 @@ function ListingsPageContent() {
             onClick={() => { setActiveTab('map'); setPage(1) }}
             className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
               activeTab === 'map'
-                ? 'bg-gg-pink text-white'
+                ? 'bg-gg-pink text-gg-black'
                 : 'bg-gg-gray-800 text-gg-gray-300 hover:bg-gg-gray-700'
             }`}
           >
@@ -449,7 +449,7 @@ function ListingsPageContent() {
               onClick={() => setShowFilters(!showFilters)}
               className={`flex items-center gap-2 px-4 py-3 rounded-lg transition-colors ${
                 showFilters || hasActiveFilters
-                  ? 'bg-gg-pink text-white'
+                  ? 'bg-gg-pink text-gg-black'
                   : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'
               }`}
             >

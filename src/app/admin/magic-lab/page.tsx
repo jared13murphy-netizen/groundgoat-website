@@ -430,7 +430,7 @@ export default function MagicLabPage() {
             <button
               onClick={run}
               disabled={running || !url.trim()}
-              className="px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white text-sm font-semibold rounded flex items-center gap-2"
+              className="px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-gg-black text-sm font-semibold rounded flex items-center gap-2"
             >
               {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
               {running ? 'Running…' : 'Run probe'}

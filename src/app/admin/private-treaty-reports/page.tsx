@@ -155,7 +155,7 @@ export default function PrivateTreatyReportsPage() {
           <button
             onClick={runCheckNow}
             disabled={running}
-            className="flex items-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink-dark text-white rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink-dark text-gg-black rounded-lg transition-colors disabled:opacity-50"
           >
             {running ? (
               <Loader2 className="animate-spin" size={18} />
@@ -176,7 +176,7 @@ export default function PrivateTreatyReportsPage() {
             <button
               onClick={runCheckNow}
               disabled={running}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gg-pink hover:bg-gg-pink-dark text-white rounded-lg transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gg-pink hover:bg-gg-pink-dark text-gg-black rounded-lg transition-colors disabled:opacity-50"
             >
               {running ? <Loader2 className="animate-spin" size={18} /> : <RefreshCw size={18} />}
               {running ? 'Running...' : 'Run First Check'}

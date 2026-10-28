@@ -266,7 +266,7 @@ function Pager({ page, totalCount, pageSize, onGo }: { page: number; totalCount:
             key={n}
             onClick={() => onGo(n)}
             aria-current={n === page ? 'page' : undefined}
-            className={`${btn} ${n === page ? 'bg-gg-pink text-white font-semibold' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'}`}
+            className={`${btn} ${n === page ? 'bg-gg-pink text-gg-black font-semibold' : 'bg-gg-gray-800 text-white hover:bg-gg-gray-700'}`}
           >
             {n + 1}
           </button>
@@ -1692,7 +1692,7 @@ export default function AdminStagingPage() {
               <p className="text-red-400 mb-3">Failed to load: {fetchError}</p>
               <button
                 onClick={() => { setLoading(false); fetchStagingListings(); fetchRunLog() }}
-                className="px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 text-sm"
+                className="px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80 text-sm"
               >
                 Retry
               </button>
@@ -1731,7 +1731,7 @@ export default function AdminStagingPage() {
             <button
               onClick={runScraper}
               disabled={startingScraper || scraperStatus?.running}
-              className="px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex items-center gap-2"
+              className="px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm flex items-center gap-2"
             >
               {startingScraper ? (
                 <>
@@ -1810,7 +1810,7 @@ export default function AdminStagingPage() {
           <button
             onClick={scrapeSingleUrl}
             disabled={!scrapeUrl.trim() || scrapingUrl}
-            className="px-5 py-2.5 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2 shrink-0"
+            className="px-5 py-2.5 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium flex items-center gap-2 shrink-0"
           >
             {scrapingUrl ? (
               <>
@@ -2129,7 +2129,7 @@ export default function AdminStagingPage() {
                               href={listing.source_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-1 px-3 py-1.5 text-sm font-semibold text-white bg-gg-pink hover:bg-gg-pink-light rounded-lg transition-colors shadow-sm"
+                              className="flex items-center gap-1 px-3 py-1.5 text-sm font-semibold text-gg-black bg-gg-pink hover:bg-gg-pink-light rounded-lg transition-colors shadow-sm"
                               title="Open the auctioneer's listing page in a new tab"
                             >
                               <ExternalLink size={14} />
@@ -2351,7 +2351,7 @@ export default function AdminStagingPage() {
                                   <button
                                     type="button"
                                     onClick={() => toggleTract(tractKey)}
-                                    className="group w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-white rounded-lg px-2 -mx-2 transition-colors"
+                                    className="group w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-gg-black rounded-lg px-2 -mx-2 transition-colors"
                                   >
                                     <span className="text-gg-gray-400 text-xs w-3 shrink-0">{tractIsOpen ? '▼' : '▶'}</span>
                                     <span className="text-base text-white font-bold tracking-tight shrink-0">
@@ -2500,7 +2500,7 @@ export default function AdminStagingPage() {
                                             className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors shadow-sm ${
                                               disabled
                                                 ? 'bg-gg-gray-800 text-gg-gray-600 cursor-not-allowed'
-                                                : 'bg-gg-pink text-white hover:bg-gg-pink-light'
+                                                : 'bg-gg-pink text-gg-black hover:bg-gg-pink-light'
                                             }`}
                                           >
                                             <MapPin size={14} /> View on Map
@@ -2717,7 +2717,7 @@ export default function AdminStagingPage() {
                               <button
                                 onClick={() => addStagingTract(listing)}
                                 disabled={addingTractFor === listing.id}
-                                className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-pink text-white hover:bg-gg-pink/80 disabled:opacity-50"
+                                className="mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gg-pink text-gg-black hover:bg-gg-pink/80 disabled:opacity-50"
                               >
                                 {addingTractFor === listing.id ? <Loader2 className="animate-spin" size={15} /> : <Plus size={15} />}
                                 Add Tract
@@ -3101,7 +3101,7 @@ export default function AdminStagingPage() {
               </button>
               <button
                 onClick={handleVerifyReplace}
-                className="px-4 py-2 text-sm bg-gg-pink text-white font-semibold rounded-lg hover:bg-gg-pink/80 transition"
+                className="px-4 py-2 text-sm bg-gg-pink text-gg-black font-semibold rounded-lg hover:bg-gg-pink/80 transition"
               >
                 Replace with New
               </button>
@@ -3459,7 +3459,7 @@ export default function AdminStagingPage() {
               <button
                 onClick={handleEditSave}
                 disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/80 disabled:opacity-50"
               >
                 {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                 {saving ? 'Saving...' : 'Save Changes'}

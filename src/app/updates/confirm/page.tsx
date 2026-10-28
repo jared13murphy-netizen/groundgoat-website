@@ -101,7 +101,7 @@ function ConfirmInner() {
             </p>
             <Link
               href="/"
-              className="inline-block bg-gg-pink hover:bg-gg-pink/80 text-white font-semibold py-3 px-6 rounded-lg transition"
+              className="inline-block bg-gg-pink hover:bg-gg-pink/80 text-gg-black font-semibold py-3 px-6 rounded-lg transition"
             >
               Browse Listings
             </Link>

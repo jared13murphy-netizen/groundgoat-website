@@ -174,7 +174,7 @@ export default function UsageMetricsPanel() {
                 onClick={() => setHours(opt.hours)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
                   hours === opt.hours
-                    ? 'bg-gg-pink text-white'
+                    ? 'bg-gg-pink text-gg-black'
                     : 'text-gg-gray-400 hover:text-white'
                 }`}
               >

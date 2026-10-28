@@ -417,7 +417,7 @@ export default function ProfilePage() {
                   </button>
                   <Link
                     href="/account/subscription"
-                    className="flex-1 bg-gg-pink hover:bg-gg-pink-dark text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    className="flex-1 bg-gg-pink hover:bg-gg-pink-dark text-gg-black font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
                     onClick={() => setShowDeleteModal(false)}
                   >
                     <ExternalLink size={16} />

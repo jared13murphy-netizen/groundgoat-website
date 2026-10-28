@@ -266,7 +266,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
           <button
             onClick={handleEmail}
             disabled={sending || downloading}
-            className="flex-1 py-3 rounded-xl bg-gg-pink text-white font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
+            className="flex-1 py-3 rounded-xl bg-gg-pink text-gg-black font-semibold flex items-center justify-center gap-2 hover:bg-gg-pink/90 disabled:opacity-50"
           >
             {sending ? <Check size={18} /> : <Mail size={18} />}
             {sending ? 'Queued ✓' : 'Email Report'}

@@ -125,7 +125,7 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
       borderRadius: 14, border: '1px solid #D6D3DC', background: '#FBF7FB',
     }}>
       <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', color: 'rgba(0,0,0,0.45)' }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: '#E91E8C', marginTop: 4 }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: '#F58CDE', marginTop: 4 }}>{value}</div>
       {sub ? <div style={{ fontSize: 11.5, fontWeight: 700, color: 'rgba(0,0,0,0.45)', marginTop: 3 }}>{sub}</div> : null}
     </div>
   )
@@ -257,9 +257,9 @@ const ACTION_BTN: React.CSSProperties = {
   fontWeight: 700,
   lineHeight: 1.1,
   whiteSpace: 'nowrap',
-  border: '1.5px solid #C2186F',
-  background: '#E91E8C',
-  color: '#fff',
+  border: '1.5px solid #C563AD',
+  background: '#F58CDE',
+  color: '#0a0a0a',
   cursor: 'pointer',
 }
 
@@ -826,8 +826,8 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
                 padding: '12px 14px', borderRadius: 999,
                 border: '1.5px solid #000',
-                background: '#E91E8C',
-                color: '#fff', fontSize: 14, fontWeight: 700,
+                background: '#F58CDE',
+                color: '#0a0a0a', fontSize: 14, fontWeight: 700,
                 cursor: loadingOwnedGround ? 'default' : 'pointer',
                 letterSpacing: 0.2,
                 opacity: loadingOwnedGround ? 0.85 : 1,

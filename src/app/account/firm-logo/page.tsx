@@ -132,7 +132,7 @@ export default function FirmLogoPage() {
                   <button
                     onClick={save}
                     disabled={!preview || saving}
-                    className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-white rounded-lg hover:bg-gg-pink/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-gg-pink text-gg-black rounded-lg hover:bg-gg-pink/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     {saving ? <Loader2 className="animate-spin" size={16} /> : <Upload size={16} />}
                     Save logo

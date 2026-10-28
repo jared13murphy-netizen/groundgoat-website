@@ -210,7 +210,7 @@ function section(title: string, rows: string[]): string {
   if (!rows.length) return ''
   return `
     <div style="padding:12px 16px 4px;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#E91E8C;margin-bottom:4px;">${esc(title)}</div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#F58CDE;margin-bottom:4px;">${esc(title)}</div>
       ${rows.join('')}
     </div>
   `
@@ -295,7 +295,7 @@ function regridPopupHTML(record: any): string {
           padding-left:${isFirst ? 0 : 8}px;
           padding-right:${isLast ? 0 : 8}px;
         ">
-          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${c.emphasize ? '#E91E8C' : '#888'};">${esc(c.label)}</div>
+          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${c.emphasize ? '#F58CDE' : '#888'};">${esc(c.label)}</div>
           <div style="font-size:${c.emphasize ? 19 : 15}px;font-weight:${c.emphasize ? 800 : 700};color:#1a1a1a;margin-top:2px;letter-spacing:${c.emphasize ? -0.3 : 0}px;">${esc(c.value)}</div>
         </div>
       `
@@ -329,7 +329,7 @@ function regridPopupHTML(record: any): string {
   const mailadrHTML = mailadd
     ? `
       <div style="padding:12px 16px 14px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#E91E8C;margin-bottom:4px;">Mailing Address</div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#F58CDE;margin-bottom:4px;">Mailing Address</div>
         <div style="color:rgba(0,0,0,0.8);font-size:12.5px;line-height:1.45;">${esc(mailadd)}</div>
       </div>`
     : ''

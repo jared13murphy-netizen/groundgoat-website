@@ -288,11 +288,11 @@ export default function UploadBoundaryTractPage() {
       map.addSource('vision-poly', { type: 'geojson', data: buildPolyGeo([]) })
       map.addLayer({
         id: 'vision-fill', type: 'fill', source: 'vision-poly',
-        paint: { 'fill-color': '#E91E8C', 'fill-opacity': 0.18 },
+        paint: { 'fill-color': '#F58CDE', 'fill-opacity': 0.18 },
       })
       map.addLayer({
         id: 'vision-line', type: 'line', source: 'vision-poly',
-        paint: { 'line-color': '#E91E8C', 'line-width': 2.5 },
+        paint: { 'line-color': '#F58CDE', 'line-width': 2.5 },
       })
       // Draggable vertex handles
       map.addSource('vision-vertices', { type: 'geojson', data: buildVertexGeo([]) })
@@ -301,7 +301,7 @@ export default function UploadBoundaryTractPage() {
         paint: {
           'circle-radius': 6,
           'circle-color': '#ffffff',
-          'circle-stroke-color': '#E91E8C',
+          'circle-stroke-color': '#F58CDE',
           'circle-stroke-width': 2,
         },
       })
@@ -926,7 +926,7 @@ export default function UploadBoundaryTractPage() {
             <button
               onClick={extractFromSurety}
               disabled={extractingSurety || !suretyUrlInput.trim()}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white font-semibold rounded-lg transition flex-shrink-0"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-gg-black font-semibold rounded-lg transition flex-shrink-0"
               title="Run the 5-step Surety pipeline on this image"
             >
               {extractingSurety ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
@@ -960,7 +960,7 @@ export default function UploadBoundaryTractPage() {
             <button
               onClick={extractFromUrl}
               disabled={extractingUrl || !urlInput.trim()}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white font-semibold rounded-lg transition flex-shrink-0"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-gg-black font-semibold rounded-lg transition flex-shrink-0"
               title="Fetch the page, find the Land ID map, extract the polygon"
             >
               {extractingUrl ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
@@ -1004,7 +1004,7 @@ export default function UploadBoundaryTractPage() {
                 <button
                   onClick={extract}
                   disabled={extracting}
-                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-white font-semibold rounded-lg transition"
+                  className="flex-1 flex items-center justify-center gap-2 py-3 bg-gg-pink hover:bg-gg-pink/85 disabled:opacity-50 text-gg-black font-semibold rounded-lg transition"
                 >
                   {extracting ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                   {extracting ? 'Extracting…' : polygon.length > 0 ? 'Re-extract' : 'Extract with Claude Vision'}

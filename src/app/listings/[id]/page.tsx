@@ -435,7 +435,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               href={listing.bidding_url || listing.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 w-full py-3 bg-gg-pink text-white font-semibold rounded-lg hover:bg-gg-pink/80 transition-colors"
+              className="flex items-center justify-center gap-2 w-full py-3 bg-gg-pink text-gg-black font-semibold rounded-lg hover:bg-gg-pink/80 transition-colors"
             >
               <ExternalLink size={18} />
               {isAuction || listing.bidding_url ? 'View Auction' : 'View Listing'}
