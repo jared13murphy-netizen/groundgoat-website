@@ -1,6 +1,7 @@
 'use client'
 
 import ReportRowNotes from './ReportRowNotes'
+import CardThumb from '@/components/CardThumb'
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Trash2, Check, Download } from 'lucide-react'
@@ -263,11 +264,11 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                     </div>
 
                     {/* Stats grid */}
-                    {/* Thumbnails removed (owner 2026-10-27 late): "all or none —
-                      if an image can't show up in under 2 seconds every time,
-                      we can never include it." CardThumb stays for when the
-                      pre-render covers every addable sale. */}
-                  <div className="grid grid-cols-4 gap-2 px-4 pb-2">
+                  {/* Saved/inline-rendered thumbnail (owner 2026-10-29): parcel rows key
+                      on their ll_uuid, tract rows on tractId; hidden until loaded. */}
+                  <div className="flex gap-3 px-4 pb-2 items-start">
+                    <CardThumb kind={t.tractId ? 'tract' : 'parcel'} id={t.tractId || t.llUuid || asRealUuid(t.id)} size={64} />
+                    <div className="grid grid-cols-4 gap-2 flex-1 min-w-0">
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Acres</div>
                         <div className="text-sm font-medium">{t.totalAcres ? formatAcres(t.totalAcres) : '—'}</div>
@@ -318,6 +319,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                     value={t.notes}
                     onSave={(notes) => onUpdateTract?.(t.id, { notes })}
                   />
+                    </div>
                   </div>
                 ))}
               </div>
