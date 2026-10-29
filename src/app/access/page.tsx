@@ -989,6 +989,7 @@ function AccessPortalPageInner() {
           onView3DTerrain={handleView3DTerrain}
           isInReport={(id) => reportIds.has(id)}
           reportIds={reportIds}
+          reportRows={reportTracts}
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
           zoomToBoundsSignal={zoomToBoundsSignal}
