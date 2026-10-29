@@ -682,6 +682,12 @@ function AccessPortalPageInner() {
     setShowReportPanel(true)
   }
 
+  // Per-row report notes (owner 2026-10-29): the panels own the input, the
+  // page owns the rows, so the note lives on the row and rides into the
+  // email/download payload.
+  const handleUpdateReportTract = (id: string, patch: Partial<TractSaleData>) => {
+    setReportTracts(prev => prev.map(t => (t.id === id ? { ...t, ...patch } : t)))
+  }
   const handleRemoveFromReport = (tractId: string) => {
     setReportIds(prev => {
       const next = new Set(prev)
@@ -1293,6 +1299,7 @@ function AccessPortalPageInner() {
               setReportIds(prev => { const next = new Set(prev); next.delete(id); return next })
               setReportTracts(prev => prev.filter(t => t.id !== id))
             }}
+            onUpdateTract={handleUpdateReportTract}
             onClose={handleCloseComparables}
             onView3DTerrain={handleView3DTerrain}
             onViewListing={(listingId) => setMapListingId(listingId)}
@@ -1324,6 +1331,7 @@ function AccessPortalPageInner() {
             tracts={reportTracts}
             onClose={() => setShowReportPanel(false)}
             onRemoveTract={handleRemoveFromReport}
+            onUpdateTract={handleUpdateReportTract}
             subjectInfo={comparablesSubjectInfo}
           />
         )}
@@ -1339,6 +1347,7 @@ function AccessPortalPageInner() {
               setReportIds(prev => { const next = new Set(prev); next.delete(id); return next })
               setReportTracts(prev => prev.filter(t => t.id !== id))
             }}
+            onUpdateTract={handleUpdateReportTract}
             onClose={() => {
               setShowMainReportPanel(false)
               setReportIds(new Set())
