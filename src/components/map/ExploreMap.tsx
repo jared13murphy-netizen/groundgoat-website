@@ -1623,7 +1623,7 @@ interface ExploreMapProps {
   reportIds?: Set<string>
   /** Report rows in panel order (owner 2026-10-29): each gets a yellow numbered
       box on the map at its coordinate, matching the number on its card. */
-  reportRows?: Array<{ id: string; latitude?: number | null; longitude?: number | null }>
+  reportRows?: Array<{ id: string; latitude?: number | null; longitude?: number | null; polygonCoordinates?: any }>
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
   /** Fit the map to a polygon's bounds. Bumped via `nonce` so the same
@@ -9995,9 +9995,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     reportNumberMarkersRef.current.forEach(m => m.remove())
     reportNumberMarkersRef.current = []
+    const centroidOf = (poly: any): [number, number] | null => {
+      // polygon_coordinates is a ring [[lng,lat],...] or a list of rings
+      if (!Array.isArray(poly) || !poly.length) return null
+      const ring: any[] = Array.isArray(poly[0]) && Array.isArray(poly[0][0]) ? poly[0] : poly
+      const pts = ring.filter((p: any) => Array.isArray(p) && typeof p[0] === 'number' && typeof p[1] === 'number')
+      if (pts.length < 3) return null
+      const sx = pts.reduce((a: number, p: any) => a + p[0], 0), sy = pts.reduce((a: number, p: any) => a + p[1], 0)
+      return [sx / pts.length, sy / pts.length]
+    }
     ;(reportRows || []).forEach((row, i) => {
-      const lat = row.latitude, lng = row.longitude
-      if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) return
+      let lat = row.latitude, lng = row.longitude
+      if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) {
+        // A tract added from the auction panel's tract card has a boundary
+        // but no coordinate — put the number at the boundary's centre.
+        const c = centroidOf((row as any).polygonCoordinates)
+        if (!c) return
+        lng = c[0]; lat = c[1]
+      }
       const el = document.createElement('div')
       el.textContent = String(i + 1)
       Object.assign(el.style, {
