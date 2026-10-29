@@ -502,6 +502,8 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     landType: tract.land_type,
                     landTypes: tract.land_types,
                     polygonCoordinates: tract.polygon_coordinates,
+                    latitude: (tract as any).latitude ?? null,
+                    longitude: (tract as any).longitude ?? null,
                     saleStatus: tract.sale_status || listing.status,
                     listingType: listing.listing_type,
                     sourceUrl: tract.source_url,
