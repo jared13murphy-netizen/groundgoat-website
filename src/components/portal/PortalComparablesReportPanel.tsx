@@ -253,7 +253,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                   <div className="flex items-start justify-between px-4 pt-3 pb-2">
                     <div>
                       <div className="text-sm font-semibold flex items-center gap-2">
-                        <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1 rounded-md bg-[#FFD60A] text-black text-[11px] font-extrabold shrink-0 border border-black/40">{i + 1}</span>
+                        <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1 rounded-md bg-[#FFD60A] text-black text-[11px] font-extrabold shrink-0 border-[1.5px] border-[#C9A100]">{i + 1}</span>
                         {t.county}, {t.state}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gg-gray-400">

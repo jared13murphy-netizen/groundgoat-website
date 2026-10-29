@@ -10001,9 +10001,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const el = document.createElement('div')
       el.textContent = String(i + 1)
       Object.assign(el.style, {
-        minWidth: '26px', height: '26px', padding: '0 6px', borderRadius: '6px',
-        background: '#FFD60A', color: '#000', border: '1.5px solid rgba(0,0,0,0.6)',
-        font: '800 13px/26px system-ui, -apple-system, sans-serif', textAlign: 'center',
+        minWidth: '32px', height: '32px', padding: '0 7px', borderRadius: '7px',
+        background: '#FFD60A', color: '#000', border: '2px solid #C9A100',
+        font: '800 14px/28px system-ui, -apple-system, sans-serif', textAlign: 'center',
         boxShadow: '0 2px 6px rgba(0,0,0,0.5)', pointerEvents: 'none', boxSizing: 'border-box',
       } as CSSStyleDeclaration)
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
