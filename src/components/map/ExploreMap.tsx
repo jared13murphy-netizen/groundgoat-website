@@ -10003,7 +10003,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       Object.assign(el.style, {
         minWidth: '32px', height: '32px', padding: '0 7px', borderRadius: '7px',
         background: '#FFD60A', color: '#000', border: '2px solid #C9A100',
-        font: '800 14px/28px system-ui, -apple-system, sans-serif', textAlign: 'center',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: '800', fontSize: '14px', lineHeight: '1',
         boxShadow: '0 2px 6px rgba(0,0,0,0.5)', pointerEvents: 'none', boxSizing: 'border-box',
       } as CSSStyleDeclaration)
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
