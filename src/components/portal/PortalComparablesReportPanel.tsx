@@ -1,5 +1,6 @@
 'use client'
 
+import ReportRowNotes from './ReportRowNotes'
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Trash2, Check, Mountain, ExternalLink, Download } from 'lucide-react'
@@ -65,12 +66,14 @@ interface PortalComparablesReportPanelProps {
   subjectInfo: SubjectInfo | null
   reportTracts: TractSaleData[]
   onRemoveTract: (id: string) => void
+  /** Saves per-row notes (owner 2026-10-29); the page owns the rows. */
+  onUpdateTract?: (id: string, patch: Partial<TractSaleData>) => void
   onClose: () => void
   onView3DTerrain?: (tractId: string, tractName: string) => void
   onViewListing?: (listingId: string) => void
 }
 
-export default function PortalComparablesReportPanel({ subjectInfo, reportTracts, onRemoveTract, onClose, onView3DTerrain, onViewListing }: PortalComparablesReportPanelProps) {
+export default function PortalComparablesReportPanel({ subjectInfo, reportTracts, onRemoveTract, onUpdateTract, onClose, onView3DTerrain, onViewListing }: PortalComparablesReportPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -127,6 +130,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       owner: t.owner ?? null,
       latitude: t.latitude ?? null,
       longitude: t.longitude ?? null,
+      notes: (t.notes || '').trim() || null,
     })),
   })
 
@@ -341,7 +345,14 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                       )}
                     </div>
                   )}
-                </div>
+                
+                  {/* Per-row notes (owner 2026-10-29): typed here, printed at the
+                      top of this row's page in the PDF. */}
+                  <ReportRowNotes
+                    value={t.notes}
+                    onSave={(notes) => onUpdateTract?.(t.id, { notes })}
+                  />
+                  </div>
               ))}
             </div>
           </div>
