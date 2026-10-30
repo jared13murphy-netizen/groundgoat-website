@@ -46,8 +46,6 @@ const PRIVATE_PATHS = [
   '/auth',
   '/dev',
   '/access',
-  '/configure-map',
-  '/map-portfolio',
   '/upgrade',
   '/reset-password',
   '/verify',

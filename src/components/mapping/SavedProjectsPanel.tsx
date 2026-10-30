@@ -12,15 +12,26 @@
  */
 import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import Link from 'next/link'
 import {
-  ChevronDown, ChevronRight, FolderPlus, Loader2, MoreHorizontal, Plus, X,
+  ChevronDown, ChevronRight, Download, FolderPlus, Loader2, MoreHorizontal, Plus, Trash2, X,
 } from 'lucide-react'
 import {
-  archiveParcel, createProject, getProject, listProjects, moveParcel, renameParcel,
-  updateProject, type Project, type SavedParcelRow,
+  archiveParcel, createProject, deleteReport, downloadReport, duplicateProject, firmMembers,
+  getProject, listProjects, listReports, moveParcel, projectShares, queueReport, renameParcel,
+  reportFilename, setProjectShares, updateProject, updateProjectAerialYear,
+  REPORT_BUSY_LABEL, REPORT_LABEL, USES_ELEVATION,
+  type FirmMember, type Project, type ReportKind, type ReportRow, type SavedParcelRow,
 } from '@/lib/configurableMapping'
+import { AERIAL_YEARS } from '@/components/map/mapConstants'
 
 const PINK = '#F58CDE'
+/** Same default the old Configure Map slider started at. */
+const DEFAULT_EXAGGERATION = 2.5
+/** Stop polling a report that never finishes (~5 min at 3 s). */
+const POLL_MS = 3000
+const POLL_CAP_MS = 5 * 60 * 1000
+const MAP_REPORT_KINDS: ReportKind[] = ['soil_map', 'ground_goat', 'elevation_3d']
 
 export interface PanelTract { id: string; name: string; projectId: string; projectName: string }
 
@@ -73,6 +84,10 @@ const menuItem: CSSProperties = {
   color: '#fff', padding: '7px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
 }
 
+const section: CSSProperties = {
+  background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 10px', marginBottom: 4,
+}
+
 const fmt = (n: unknown) => (typeof n === 'number' && isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '0')
 
 function mapLine(t: SavedParcelRow) {
@@ -101,6 +116,24 @@ export default function SavedProjectsPanel({
   const [creating, setCreating] = useState<string | null>(null) // new project name draft
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  const [reportsOpen, setReportsOpen] = useState<Record<string, boolean>>({})
+  const [reports, setReports] = useState<Record<string, ReportRow[]>>({})
+  const reportsOpenRef = useRef(reportsOpen); reportsOpenRef.current = reportsOpen
+  const [queuing, setQueuing] = useState<string | null>(null)   // '<projectId>:<kind>:<parcelId>'
+  const [deletingReport, setDeletingReport] = useState<string | null>(null)
+  const [members, setMembers] = useState<FirmMember[] | null>(null)
+  const [sharing, setSharing] = useState<{ projectId: string; ids: string[] } | null>(null)
+  const [yearFor, setYearFor] = useState<string | null>(null)   // project id
+  const [mapReportFor, setMapReportFor] = useState<string | null>(null) // tract id
+
+  const loadReports = useCallback(async (projectId: string) => {
+    try {
+      const r = await listReports({ projectId })
+      setReports((x) => ({ ...x, [projectId]: r.reports || [] }))
+    } catch (e: any) {
+      setMsg(e?.message || 'Could not load the reports.')
+    }
+  }, [])
 
   const loadProjects = useCallback(async () => {
     setLoading(true); setError(null)
@@ -127,9 +160,31 @@ export default function SavedProjectsPanel({
   const refreshAll = useCallback(async () => {
     await loadProjects()
     for (const id of Object.keys(detailsRef.current)) void loadDetail(id, true)
-  }, [loadProjects, loadDetail])
+    for (const id of Object.keys(reportsOpenRef.current)) if (reportsOpenRef.current[id]) void loadReports(id)
+  }, [loadProjects, loadDetail, loadReports])
 
   useEffect(() => { if (open) void loadProjects() }, [open, loadProjects])
+  useEffect(() => {
+    if (!open || members !== null) return
+    firmMembers().then((r) => setMembers(r.members || [])).catch(() => setMembers([]))
+  }, [open, members])
+
+  // Poll a project's reports every 3 s while any is queued/running, for at
+  // most ~5 min; the effect re-arms only when the pending set changes.
+  const pendingIds = Object.entries(reports)
+    .filter(([, rows]) => rows.some((r) => r.status === 'queued' || r.status === 'running'))
+    .map(([id]) => id)
+  const pendingKey = pendingIds.join(',')
+  useEffect(() => {
+    if (!open || !pendingKey) return
+    const started = Date.now()
+    const ids = pendingKey.split(',')
+    const t = setInterval(() => {
+      if (Date.now() - started > POLL_CAP_MS) { clearInterval(t); return }
+      ids.forEach((id) => void loadReports(id))
+    }, POLL_MS)
+    return () => clearInterval(t)
+  }, [open, pendingKey, loadReports])
   const firstNonce = useRef(reloadNonce)
   useEffect(() => {
     if (reloadNonce === firstNonce.current) return
@@ -227,6 +282,66 @@ export default function SavedProjectsPanel({
     void run('Renaming…', () => (kind === 'p' ? updateProject(id, { name: text }) : renameParcel(id, text)))
   }
 
+  const openReports = (projectId: string) => {
+    setReportsOpen((x) => ({ ...x, [projectId]: true }))
+    setExpanded((x) => ({ ...x, [projectId]: true }))
+    void loadDetail(projectId)
+    void loadReports(projectId)
+  }
+
+  const queue = async (projectId: string, kind: ReportKind, parcelId?: string) => {
+    const key = `${projectId}:${kind}:${parcelId || ''}`
+    setQueuing(key); setMsg(null)
+    try {
+      await queueReport(
+        parcelId ? { parcelId } : { projectId }, kind,
+        USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {})
+      await loadReports(projectId)
+    } catch (e: any) {
+      setMsg(e?.message || 'Could not start that report.')
+    } finally { setQueuing(null) }
+  }
+
+  const download = async (projectName: string, r: ReportRow) => {
+    setMsg(null)
+    try { await downloadReport(r.id, reportFilename(projectName, r.kind)) }
+    catch (e: any) { setMsg(e?.message || 'That report could not be downloaded.') }
+  }
+
+  const removeReport = async (projectId: string, r: ReportRow) => {
+    if (!window.confirm(`Delete this ${REPORT_LABEL[r.kind] || 'report'}?`)) return
+    setDeletingReport(r.id); setMsg(null)
+    try {
+      await deleteReport(r.id)
+      setReports((x) => ({ ...x, [projectId]: (x[projectId] || []).filter((o) => o.id !== r.id) }))
+    } catch (e: any) {
+      setMsg(e?.message || 'That report could not be deleted.')
+    } finally { setDeletingReport(null) }
+  }
+
+  const openShare = async (projectId: string) => {
+    setMsg(null)
+    try {
+      const cur = await projectShares(projectId)
+      setSharing({ projectId, ids: cur.user_ids || [] })
+    } catch (e: any) {
+      setMsg(e?.message || 'Could not load the sharing list.')
+    }
+  }
+
+  const duplicate = async (projectId: string) => {
+    setBusy('Duplicating…'); setMsg(null)
+    try {
+      const r = await duplicateProject(projectId)
+      await loadProjects()
+      setExpanded((x) => ({ ...x, [r.id]: true }))
+      void loadDetail(r.id, true)
+      onChanged()
+    } catch (e: any) {
+      setMsg(e?.message || 'Could not duplicate the project.')
+    } finally { setBusy(null) }
+  }
+
   const slide = useSlide(open, 240)
   if (!slide.mounted) return null
 
@@ -310,8 +425,12 @@ export default function SavedProjectsPanel({
                   <div style={muted}>
                     {where ? `${where} · ` : ''}
                     {sm.parcels ?? 0} map{(sm.parcels ?? 0) === 1 ? '' : 's'} · {fmt(sm.acres)} ac · {fmt(sm.tillable_acres)} tillable
+                    {p.aerial_year != null ? ` · Aerial ${p.aerial_year}` : ''}
                   </div>
                   {p.shared && <div style={{ ...muted, color: PINK }}>shared by {p.shared_by || 'a colleague'}</div>}
+                  {!p.shared && (p.shared_with?.length ?? 0) > 0 && (
+                    <div style={{ ...muted, color: PINK }}>shared with {p.shared_with!.map((m) => m.name).join(', ')}</div>
+                  )}
                 </div>
                 <button type="button" style={iconBtn} aria-label="Project menu"
                         onClick={(e) => { e.stopPropagation(); setMenu(menu === pKey ? null : pKey) }}>
@@ -323,11 +442,29 @@ export default function SavedProjectsPanel({
                             onClick={() => { setMenu(null); onAddTract({ id: p.id, name: p.name }) }}>
                       Add a New Tract
                     </button>
+                    <button type="button" style={menuItem}
+                            onClick={() => { setMenu(null); openReports(p.id) }}>
+                      Reports…
+                    </button>
                     {!p.shared && (
                       <>
                         <button type="button" style={menuItem}
                                 onClick={() => { setMenu(null); setEditing({ key: pKey, text: p.name }) }}>
                           Rename
+                        </button>
+                        {(members?.length ?? 0) > 0 && (
+                          <button type="button" style={menuItem}
+                                  onClick={() => { setMenu(null); void openShare(p.id) }}>
+                            Share…
+                          </button>
+                        )}
+                        <button type="button" style={menuItem}
+                                onClick={() => { setMenu(null); setYearFor(p.id) }}>
+                          Aerial year…
+                        </button>
+                        <button type="button" style={menuItem}
+                                onClick={() => { setMenu(null); void duplicate(p.id) }}>
+                          Duplicate
                         </button>
                         <button type="button" style={{ ...menuItem, color: '#fca5a5' }}
                                 onClick={() => {
@@ -351,6 +488,118 @@ export default function SavedProjectsPanel({
                     </div>
                   )}
                   {det?.error && <div style={{ fontSize: 12, color: '#fca5a5' }}>{det.error}</div>}
+                  {sharing?.projectId === p.id && (
+                    <div style={section}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Share this project</div>
+                      {(members || []).map((m) => (
+                        <label key={m.id} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '2px 0', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={sharing.ids.includes(m.id)}
+                                 onChange={(e) => setSharing({
+                                   projectId: p.id,
+                                   ids: e.target.checked ? Array.from(new Set([...sharing.ids, m.id])) : sharing.ids.filter((x) => x !== m.id),
+                                 })} />
+                          <span>{m.full_name || m.email}</span>
+                        </label>
+                      ))}
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                        <button type="button" style={pinkBtn} disabled={!!busy}
+                                onClick={() => void run('Sharing…', () => setProjectShares(p.id, sharing.ids), () => setSharing(null))}>
+                          Save
+                        </button>
+                        <button type="button" style={{ ...pinkBtn, background: 'none', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}
+                                onClick={() => setSharing(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  {yearFor === p.id && (
+                    <div style={section}>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>Aerial year</div>
+                      <select autoFocus style={input} value={p.aerial_year ?? ''}
+                              onBlur={() => setYearFor(null)}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setYearFor(null)
+                                void run('Saving…', () => updateProjectAerialYear(p.id, v === '' ? null : Number(v)))
+                              }}>
+                        <option value="">Latest</option>
+                        {AERIAL_YEARS.map((y) => <option key={y.year} value={y.year}>{y.year}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {reportsOpen[p.id] && (() => {
+                    const rows = reports[p.id] || []
+                    const nameOf = (id: string | null) => (id && (det?.parcels || []).find((x) => x.id === id)?.name) || ''
+                    const mapTarget = mapReportFor && (det?.parcels || []).find((x) => x.id === mapReportFor)
+                    const inFlight = rows.some((r) => r.status === 'queued' || r.status === 'running')
+                    const btn = (kind: ReportKind, parcelId?: string) => {
+                      const working = queuing === `${p.id}:${kind}:${parcelId || ''}`
+                        || rows.some((r) => r.kind === kind && (r.parcel_id || undefined) === parcelId && (r.status === 'queued' || r.status === 'running'))
+                      return (
+                        <button key={kind} type="button" style={{ ...pinkBtn, opacity: working ? 0.6 : 1 }}
+                                disabled={working || !!queuing}
+                                onClick={() => void queue(p.id, kind, parcelId)}>
+                          {working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
+                        </button>
+                      )
+                    }
+                    return (
+                      <div style={section}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                          <span style={{ fontWeight: 600, flex: 1 }}>Reports</span>
+                          <button type="button" style={iconBtn} aria-label="Close reports"
+                                  onClick={() => { setReportsOpen((x) => ({ ...x, [p.id]: false })); setMapReportFor(null) }}>
+                            <X size={13} />
+                          </button>
+                        </div>
+                        {(p.summary?.parcels ?? 0) === 0 ? (
+                          <div style={muted}>Add a tract before building a report.</div>
+                        ) : (
+                          <>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{btn('aerial')}</div>
+                            {mapTarget && (
+                              <div style={{ marginTop: 8 }}>
+                                <div style={{ ...muted, marginBottom: 4 }}>For &quot;{mapTarget.name || 'Untitled'}&quot;</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                  {MAP_REPORT_KINDS.map((k) => btn(k, mapTarget.id))}
+                                </div>
+                              </div>
+                            )}
+                            {!mapTarget && <div style={{ ...muted, marginTop: 6 }}>Soil, Ground Goat and 3D reports: use Reports… on a map.</div>}
+                          </>
+                        )}
+                        {inFlight && <div style={{ ...muted, marginTop: 6 }}>Building… this updates on its own.</div>}
+                        {rows.map((r) => {
+                          const label = REPORT_LABEL[r.kind] || r.kind
+                          const mapName = nameOf(r.parcel_id)
+                          const pending = r.status === 'queued' || r.status === 'running'
+                          return (
+                            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {label}{mapName ? ` · ${mapName}` : ''}
+                                </div>
+                                <div style={{ ...muted, color: r.status === 'failed' ? '#fca5a5' : muted.color }}>
+                                  {pending ? (REPORT_BUSY_LABEL[r.kind] || 'Working…')
+                                    : r.status === 'failed' ? (r.error || 'Failed')
+                                    : 'Ready'} · {new Date(r.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                </div>
+                              </div>
+                              {r.status === 'done' && r.ready && (
+                                <button type="button" style={iconBtn} aria-label="Download"
+                                        onClick={() => void download(p.name, r)}><Download size={14} /></button>
+                              )}
+                              <button type="button" style={iconBtn} aria-label="Delete report"
+                                      disabled={deletingReport === r.id}
+                                      onClick={() => void removeReport(p.id, r)}><Trash2 size={14} /></button>
+                            </div>
+                          )
+                        })}
+                        <div style={{ ...muted, marginTop: 10 }}>
+                          Report logo: <Link href="/account/branding" style={{ color: PINK }}>Account → Branding</Link>
+                        </div>
+                      </div>
+                    )
+                  })()}
                   {det && !det.loading && !det.error && !det.parcels.length && (
                     <div style={muted}>No maps in this project yet.</div>
                   )}
@@ -401,6 +650,10 @@ export default function SavedProjectsPanel({
                             <button type="button" style={menuItem}
                                     onClick={() => { setMenu(null); onEditTract({ id: t.id, name: t.name, projectId: p.id, projectName: p.name }) }}>
                               Edit in Map It
+                            </button>
+                            <button type="button" style={menuItem}
+                                    onClick={() => { setMenu(null); setMapReportFor(t.id); openReports(p.id) }}>
+                              Reports…
                             </button>
                             <button type="button" style={menuItem}
                                     onClick={() => { setMenu(null); setEditing({ key: tKey, text: t.name }) }}>

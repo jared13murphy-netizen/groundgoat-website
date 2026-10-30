@@ -2175,6 +2175,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
   const [savedPanelFocus, setSavedPanelFocus] = useState<{ projectId: string; n: number } | null>(null)
+  // Old /map-portfolio and /configure-map links arrive as /access?project=<id>:
+  // open the Saved Projects panel on that project, then drop the param.
+  useEffect(() => {
+    if (!portalMode || typeof window === 'undefined') return
+    const u = new URL(window.location.href)
+    const id = u.searchParams.get('project')
+    if (!id) return
+    u.searchParams.delete('project')
+    window.history.replaceState(null, '', u.pathname + (u.search ? u.search : '') + u.hash)
+    setSavedPanelFocus({ projectId: id, n: Date.now() })
+    setSavedPanelOpen(true)
+  }, [portalMode])
   // "Choose Parcel" armed inside an Add-a-New-Tract session.
   const [chooseArmed, setChooseArmed] = useState(false)
   const [myTractsOn, setMyTractsOn] = useState(true)
