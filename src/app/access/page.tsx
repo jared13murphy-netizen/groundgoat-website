@@ -1452,7 +1452,7 @@ function AccessPortalPageInner() {
           onOwnerParcels={handleOwnerParcels}
           onSearchQueryStart={setActiveSearchQuery}
           activeSearchQuery={activeSearchQuery}
-          clearActiveSearch={clearActiveSearch}
+          clearActiveSearch={() => clearActiveSearch(true)}  /* owner 10/30: clearing a search must not move the camera */
           hasActiveFilters={
             !!chatAppliedFilters?.filters &&
             Object.keys(chatAppliedFilters.filters).length > 0
