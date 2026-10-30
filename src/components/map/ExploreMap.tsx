@@ -1,5 +1,6 @@
 'use client'
 
+import useSlide from '@/lib/useSlide'
 import { useRef, useEffect, useState, useCallback, useMemo, type MutableRefObject } from 'react'
 import Link from 'next/link'
 import maplibregl from 'maplibre-gl'
@@ -3317,7 +3318,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!t || !map || !bb) return
     const narrow = (containerRef.current?.clientWidth ?? 800) < 700
     map.fitBounds(bb as any, {
-      padding: { top: 90, bottom: 90, right: 60, left: narrow ? 60 : 340 + 60 },
+      padding: { top: 90, bottom: 90, left: 60, right: narrow ? 60 : 340 + 60 },
       maxZoom: 17, duration: 800,
     })
     const SRC = 'saved-tract-highlight', LYR = 'saved-tract-highlight-line'
@@ -3337,6 +3338,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }, 2600)
     } catch { /* style reloading; the fly-to still happened */ }
   }, [])
+
+  const filterSlide = useSlide(filterOpen, 240)
 
   // Saved Projects panel: clicking a project zooms to all of its maps
   // (owner 10/30) and turns the saved-maps layer on.
@@ -3363,7 +3366,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!seen) { showZoomToast('No maps in this project yet.'); return }
     const narrow = (containerRef.current?.clientWidth ?? 800) < 700
     map.fitBounds([[w, so], [e, n]], {
-      padding: { top: 90, bottom: 90, right: 60, left: narrow ? 60 : 340 + 60 },
+      padding: { top: 90, bottom: 90, left: 60, right: narrow ? 60 : 340 + 60 },
       maxZoom: 16, duration: 800,
     })
   }, [])
@@ -12325,7 +12328,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       </button>
 
       {/* Filter Panel */}
-      {filterOpen && (
+      {filterSlide.mounted && (
         <div style={{
           position: portalMode ? 'fixed' : 'absolute',
           top: 0,
@@ -12338,6 +12341,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
           display: 'flex',
           flexDirection: 'column',
+          // Owner 10/30: slide in/out like the Utilities panel, never pop.
+          transform: filterSlide.shown ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 240ms ease',
         }}>
           {/* Header */}
           <div style={{

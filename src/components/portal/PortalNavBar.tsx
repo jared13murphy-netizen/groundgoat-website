@@ -1,5 +1,6 @@
 'use client'
 
+import useSlide from '@/lib/useSlide'
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -47,6 +48,7 @@ interface PortalNavBarProps {
 export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, filterOpen, filterCount = 0, onAnalyticsToggle, analyticsOpen, onWatchlistToggle, watchlistOpen, watchlistCount = 0, onGoatSearchToggle, onUtilitiesToggle, utilitiesActive = false, user }: PortalNavBarProps) {
   const router = useRouter()
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const menuSlide = useSlide(showUserMenu, 180)
   const menuRef = useRef<HTMLDivElement>(null)
 
   const isAdmin = user.account_type === 'groundgoat_admin' || user.account_type === 'groundgoat_sales'
@@ -234,7 +236,7 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
           slide-out panels. */}
       <div
         className={`fixed top-4 right-14 pointer-events-auto ${
-          showUserMenu ? 'z-[1100]' : 'z-[15]'
+          menuSlide.mounted ? 'z-[1100]' : 'z-[15]'
         }`}
         ref={menuRef}
       >
@@ -248,8 +250,15 @@ export default function PortalNavBar({ activeTab, onTabChange, onFilterToggle, f
           <span className="text-xs text-white/70">Hi, {user.first_name}</span>
         </button>
 
-        {showUserMenu && (
-          <div className="absolute right-0 top-full mt-2 w-48 bg-gg-gray-900/95 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl overflow-hidden">
+        {menuSlide.mounted && (
+          <div className="absolute right-0 top-full mt-2 w-48 bg-gg-gray-900/95 backdrop-blur-xl rounded-xl border border-white/10 shadow-2xl overflow-hidden"
+               style={{
+                 // Owner 10/30: the menu drops down, it does not pop.
+                 transformOrigin: 'top right',
+                 transform: menuSlide.shown ? 'translateY(0) scaleY(1)' : 'translateY(-8px) scaleY(0.92)',
+                 opacity: menuSlide.shown ? 1 : 0,
+                 transition: 'transform 180ms ease, opacity 180ms ease',
+               }}>
             <div className="px-4 py-3 border-b border-white/5">
               <div className="text-sm font-medium">{user.first_name} {user.last_name}</div>
               <div className="text-[10px] text-gg-gray-400 uppercase tracking-wider mt-0.5">

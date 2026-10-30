@@ -10,6 +10,7 @@
  * configurableMapping.ts; the host (ExploreMap) refreshes its map layer via
  * onChanged and owns what "Edit in Map It" and "Add a New Tract" do.
  */
+import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   ChevronDown, ChevronRight, FolderPlus, Loader2, MoreHorizontal, Plus, X,
@@ -40,10 +41,11 @@ interface Props {
 }
 
 const panel: CSSProperties = {
-  position: 'absolute', top: 0, left: 0, bottom: 0, zIndex: 540,
+  position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 540,
   width: 'min(340px, calc(100% - 24px))', boxSizing: 'border-box',
   background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(8px)', color: '#fff',
-  boxShadow: '4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
+  boxShadow: '-4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
+  transition: 'transform 240ms ease',
   fontSize: 13,
 }
 const input: CSSProperties = {
@@ -225,12 +227,13 @@ export default function SavedProjectsPanel({
     void run('Renaming…', () => (kind === 'p' ? updateProject(id, { name: text }) : renameParcel(id, text)))
   }
 
-  if (!open) return null
+  const slide = useSlide(open, 240)
+  if (!slide.mounted) return null
 
   const ownProjects = projects.filter((p) => !p.shared)
 
   return (
-    <div style={panel} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+    <div style={{ ...panel, transform: slide.shown ? 'translateX(0)' : 'translateX(100%)' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
       <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>Saved Projects</span>
