@@ -44,6 +44,8 @@ import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
+import MapItToolbar from '@/components/mapping/MapItToolbar'
+import { useTractEditor, type SavedInfo } from '@/components/mapping/useTractEditor'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
@@ -2159,6 +2161,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // project-map tract fetch effect below lists it in its deps array, which
   // is evaluated at render time.
   const [canUseProjectMaps, setCanUseProjectMaps] = useState(false)
+  // "Map It" (sandbox): the user is drawing a tract on this map. Same
+  // gate as the saved-maps layer. Suspends normal map interaction below.
+  const [mappingMode, setMappingMode] = useState<{ ll_uuid: string } | null>(null)
   const [myTractsOn, setMyTractsOn] = useState(true)
   const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
@@ -2790,7 +2795,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const drawModeActiveRef = useRef(false)
   useEffect(() => { drawModeActiveRef.current = drawMode }, [drawMode])
   const mapInteractionSuspendedRef = useRef(false)
-  useEffect(() => { mapInteractionSuspendedRef.current = pinMode || drawMode }, [pinMode, drawMode])
+  useEffect(() => { mapInteractionSuspendedRef.current = pinMode || drawMode || !!mappingMode }, [pinMode, drawMode, mappingMode])
 
   // Cursor + Escape-to-cancel while in placement mode. The hint pill
   // itself is rendered in JSX below (top-center, under the nav).
@@ -3257,6 +3262,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // remains the source of truth for parcelDataScope/UI derivations that
   // don't have this ordering constraint.
   const [parcelDataStates, setParcelDataStates] = useState<string[] | undefined>(undefined)
+
+  // ── Map It: one tract's editing session on this map ──────────────
+  // Saving turns "Show My Saved Maps" on and refreshes its geometry so
+  // the new map is visible immediately; the user never leaves this page.
+  const onMapItSaved = useCallback((info: SavedInfo) => {
+    setMappingMode(null)
+    setMyTractsOn(true)
+    allTractsGeometry(true)
+      .then(r => { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) })
+      .catch(() => { /* the toast below is still true; the layer refreshes on next load */ })
+    showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
+  }, [])
+  const tractEditor = useTractEditor({
+    mapRef, enabled: !!mappingMode, startParcel: mappingMode, projectId: null,
+    onSaved: onMapItSaved,
+  })
+  // While mapping, the other panels stay out of the way.
+  useEffect(() => {
+    if (!mappingMode) return
+    setLandDetail(null)
+    setMyTractChoice(null)
+    setUtilitiesOpen(false)
+    setFilterOpenInternal(false)
+  }, [mappingMode, utilitiesOpen, filterOpen])
 
   // Fetch today's auction tracts on mount and re-fetch every 10 minutes so
   // the dots roll over correctly when the user keeps the tab open past
@@ -11145,7 +11174,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           Regrid parcel popup + the soil/crop popup. Docked to the right
           edge so it never overlaps map content. */}
       <LandDetailPanel
-        clickData={landDetail}
+        clickData={mappingMode ? null : landDetail}
         onClose={() => setLandDetail(null)}
         onGeometryResolved={handleParcelGeometryResolved}
         onToggleReport={onToggleReport}
@@ -11160,11 +11189,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
            one panel. */
         compMode={Boolean(subjectTractId)}
         onShowOwnedGround={onShowOwnedGround}
+        onMapIt={canUseProjectMaps ? (llUuid) => { setLandDetail(null); setMappingMode({ ll_uuid: llUuid }) } : undefined}
         onFindComparables={onFindParcelComparables ? (p) => {
           setLandDetail(null)
           onFindParcelComparables(p)
         } : undefined}
       />
+
+      {/* Map It: the in-map tract editor. Normal map interaction is
+          suspended while this is up (mapInteractionSuspendedRef). */}
+      {mappingMode && (
+        <MapItToolbar editor={tractEditor} onExit={() => setMappingMode(null)} />
+      )}
 
       {/* Goat Search animation overlay — renders while a chat-driven
           search is in flight. Pure visual sugar; pointer-events:none so
