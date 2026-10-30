@@ -345,6 +345,15 @@ export function renameParcel(id: string, name: string) {
   })
 }
 
+/** Move a tract to another of YOUR projects. */
+export function moveParcel(id: string, projectId: string) {
+  return j<{ id: string; name: string; project_id: string }>(`/api/mapping/parcels/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId }),
+  })
+}
+
 export function archiveParcel(id: string) {
   return j<{ ok: true }>(`/api/mapping/parcels/${id}`, { method: 'DELETE' })
 }

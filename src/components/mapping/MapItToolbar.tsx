@@ -5,14 +5,15 @@
  * useTractEditor session. Dark floating style matching the Explore map's
  * other controls (rgba(0,0,0,0.75) + blur, #F58CDE accent).
  *
- * Outline step:    Draw a Tract, Snap to Parcel, Undo, Redo, Land Types ->
+ * Outline step:    [Draw a Tract + Choose Parcel when starting empty], Snap to
+ *                  Parcel, Undo, Redo, Land Types, Save ->
  * Land Types step: class chips, Add Polygon, Delete, Split, Erase,
  *                  Fill Holes, Clear, Start Over, Undo, Redo, Save.
  * Save opens a small panel: name, optional project, Save / Cancel.
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, Eraser, Layers, Loader2, Magnet, PaintBucket, PenTool, Plus,
+  ArrowLeft, ArrowRight, Check, Eraser, Layers, Loader2, Magnet, MapPin, PaintBucket, PenTool, Plus,
   RotateCcw, RotateCw, Save, Scissors, Trash2, X,
 } from 'lucide-react'
 import {
@@ -71,10 +72,20 @@ function Btn({ icon, dot, text, onClick, active, disabled, primary, title }: {
   )
 }
 
-export default function MapItToolbar({ editor, onExit }: {
+export default function MapItToolbar({
+  editor, onExit, startKind, lockedProject, choosing, onToggleChoose,
+}: {
   editor: TractEditor
   /** Leave Map It without saving. */
   onExit: () => void
+  /** How this session started: a parcel, a saved tract, or empty. */
+  startKind: 'parcel' | 'tract' | 'empty'
+  /** Project the tract is saved into, fixed for this session (Add a New
+   *  Tract / editing a saved map). Null = the user picks on save. */
+  lockedProject: { id: string; name: string } | null
+  /** "Choose Parcel" is armed: the next parcel click loads its outline. */
+  choosing: boolean
+  onToggleChoose: () => void
 }) {
   const e = editor
   const [savePanel, setSavePanel] = useState(false)
@@ -85,6 +96,7 @@ export default function MapItToolbar({ editor, onExit }: {
 
   // The user's existing projects, for the optional "Add to project".
   useEffect(() => {
+    if (lockedProject) return
     let stale = false
     listProjects()
       .then((r: any) => {
@@ -95,13 +107,18 @@ export default function MapItToolbar({ editor, onExit }: {
       })
       .catch(() => { /* saving with no project still works */ })
     return () => { stale = true }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!lockedProject])
 
   const openSave = () => {
     setName((n) => n || e.defaultName)
     setSavePanel(true)
   }
   const doSave = () => {
+    if (lockedProject) {
+      void e.save({ name, projectId: lockedProject.id, projectName: null, projectLabel: lockedProject.name })
+      return
+    }
     const picked = projects.find((p) => p.id === pick)
     void e.save({
       name,
@@ -141,6 +158,12 @@ export default function MapItToolbar({ editor, onExit }: {
               onKeyDown={(ev) => { if (ev.key === 'Enter' && name.trim() && !busy) doSave() }}
               placeholder="e.g. Home Place, North 80" style={field} />
           </div>
+          {lockedProject ? (
+            <div>
+              <span style={label}>Project</span>
+              <div style={{ ...field, background: 'rgba(255,255,255,0.04)' }}>{lockedProject.name}</div>
+            </div>
+          ) : (
           <div>
             <span style={label}>Add to project (optional)</span>
             <select value={pick} onChange={(ev) => setPick(ev.target.value)} style={field}>
@@ -154,6 +177,7 @@ export default function MapItToolbar({ editor, onExit }: {
                 placeholder="Project name" style={{ ...field, marginTop: 6 }} />
             )}
           </div>
+          )}
           <div style={{ ...row, justifyContent: 'flex-end' }}>
             <Btn text="Cancel" onClick={() => setSavePanel(false)} disabled={busy} />
             <Btn icon={busy ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
@@ -194,12 +218,24 @@ export default function MapItToolbar({ editor, onExit }: {
           <div style={stat}>
             {drawingTract
               ? 'Click to add corners · double-click or Enter to finish · Esc to cancel'
+              : choosing
+              ? 'Zoom in until parcel lines show, then click a parcel'
+              : startKind === 'empty' && !hasOutline
+              ? 'Draw a tract, or choose a parcel on the map'
               : 'Drag a corner to move it · click the outline to add one · right-click a corner to remove it'}
           </div>
           <div style={row}>
-            <Btn icon={drawingTract ? <X size={13} /> : <PenTool size={13} />} active={drawingTract}
-                 text={drawingTract ? 'Cancel Drawing' : 'Draw a Tract'} disabled={busy || e.loading}
-                 onClick={e.startDrawTract} />
+            {startKind === 'empty' && (
+              <>
+                <Btn icon={drawingTract ? <X size={13} /> : <PenTool size={13} />} active={drawingTract}
+                     text={drawingTract ? 'Cancel Drawing' : 'Draw a Tract'} disabled={busy || e.loading}
+                     onClick={() => { if (choosing) onToggleChoose(); e.startDrawTract() }} />
+                <Btn icon={<MapPin size={13} />} active={choosing} text="Choose Parcel"
+                     disabled={busy || e.loading || e.drawing}
+                     title="Then click a parcel on the map to use its outline."
+                     onClick={onToggleChoose} />
+              </>
+            )}
             <Btn icon={<Magnet size={13} />} text="Snap to Parcel"
                  disabled={busy || !hasOutline || e.drawing}
                  title="Fits the outline to the parcel lines underneath so the acres are exact."

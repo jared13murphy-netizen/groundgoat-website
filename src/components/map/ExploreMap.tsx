@@ -45,7 +45,9 @@ import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
 import MapItToolbar from '@/components/mapping/MapItToolbar'
-import { useTractEditor, type SavedInfo } from '@/components/mapping/useTractEditor'
+import { useTractEditor, type SavedInfo, type TractStart } from '@/components/mapping/useTractEditor'
+import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
+import { bboxOf } from '@/lib/cmShapes'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
@@ -86,6 +88,7 @@ import {
   Plus as PlusIcon,
   FolderOpen as MapPortfolioIcon,
   FolderPlus as NewMapProjectIcon,
+  Folder as SavedProjectsIcon,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -2163,7 +2166,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [canUseProjectMaps, setCanUseProjectMaps] = useState(false)
   // "Map It" (sandbox): the user is drawing a tract on this map. Same
   // gate as the saved-maps layer. Suspends normal map interaction below.
-  const [mappingMode, setMappingMode] = useState<{ ll_uuid: string } | null>(null)
+  // start: parcel (from the parcel panel) | tract (edit a saved map) |
+  // empty (Add a New Tract). projectId/projectName lock the project the
+  // tract is saved into (null = the user picks, or the server names one).
+  const [mappingMode, setMappingMode] = useState<{
+    start: TractStart; projectId: string | null; projectName: string | null
+  } | null>(null)
+  // Saved Projects slide-out (replaces the separate portfolio screens).
+  const [savedPanelOpen, setSavedPanelOpen] = useState(false)
+  const [savedPanelNonce, setSavedPanelNonce] = useState(0)
+  const [savedPanelFocus, setSavedPanelFocus] = useState<{ projectId: string; n: number } | null>(null)
+  // "Choose Parcel" armed inside an Add-a-New-Tract session.
+  const [chooseArmed, setChooseArmed] = useState(false)
   const [myTractsOn, setMyTractsOn] = useState(true)
   const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
@@ -3269,18 +3283,91 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const onMapItSaved = useCallback((info: SavedInfo) => {
     setMappingMode(null)
     setMyTractsOn(true)
-    allTractsGeometry(true)
-      .then(r => { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) })
-      .catch(() => { /* the toast below is still true; the layer refreshes on next load */ })
+    refreshMyTracts()
+    setSavedPanelNonce(n => n + 1)
     showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
   }, [])
   const tractEditor = useTractEditor({
-    mapRef, enabled: !!mappingMode, startParcel: mappingMode, projectId: null,
+    mapRef, enabled: !!mappingMode, start: mappingMode?.start ?? null,
+    projectId: mappingMode?.projectId ?? null, projectName: mappingMode?.projectName ?? null,
     onSaved: onMapItSaved,
   })
+
+  // Reload the saved-maps layer after a save / rename / move / delete.
+  function refreshMyTracts() {
+    allTractsGeometry(true)
+      .then(r => { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) })
+      .catch(() => { /* the layer refreshes on next load */ })
+  }
+
+  // Fly to a saved map and outline it for a moment. Turns the layer on
+  // and loads the geometry first when it is not there yet.
+  const showSavedTract = useCallback(async (tractId: string) => {
+    setMyTractsOn(true)
+    let list = myTractsRef.current
+    if (!list.some(t => t.id === tractId)) {
+      try {
+        const r = await allTractsGeometry(true)
+        list = r.tracts
+        setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null)
+      } catch { return }
+    }
+    const t = list.find(x => x.id === tractId)
+    const map = mapRef.current
+    const bb = t?.boundary ? bboxOf(t.boundary.coordinates) : null
+    if (!t || !map || !bb) return
+    const narrow = (containerRef.current?.clientWidth ?? 800) < 700
+    map.fitBounds(bb as any, {
+      padding: { top: 90, bottom: 90, right: 60, left: narrow ? 60 : 340 + 60 },
+      maxZoom: 17, duration: 800,
+    })
+    const SRC = 'saved-tract-highlight', LYR = 'saved-tract-highlight-line'
+    try {
+      if (!map.getSource(SRC)) {
+        map.addSource(SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      }
+      if (!map.getLayer(LYR)) {
+        map.addLayer({ id: LYR, type: 'line', source: SRC,
+          paint: { 'line-color': '#F58CDE', 'line-width': 5, 'line-opacity': 0.95 } })
+      }
+      const src = map.getSource(SRC) as maplibregl.GeoJSONSource
+      src.setData({ type: 'Feature', properties: {}, geometry: t.boundary } as any)
+      setTimeout(() => {
+        try { (mapRef.current?.getSource(SRC) as maplibregl.GeoJSONSource | undefined)
+          ?.setData({ type: 'FeatureCollection', features: [] } as any) } catch { /* map gone */ }
+      }, 2600)
+    } catch { /* style reloading; the fly-to still happened */ }
+  }, [])
+
+  // Choose Parcel: while armed, the next click on a parcel loads its
+  // outline as the tract. The normal parcel handler is suspended
+  // (mapInteractionSuspendedRef), so this one gets the click.
+  useEffect(() => { if (!mappingMode) setChooseArmed(false) }, [mappingMode])
+  useEffect(() => {
+    const map = mapRef.current
+    if (!chooseArmed || !map) return
+    const hint = 'Zoom in until parcel lines show, then click a parcel'
+    const onPick = (e: maplibregl.MapMouseEvent) => {
+      const feats = map.getLayer('regrid-parcels-fill')
+        ? map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] }) : []
+      const props: any = feats[0]?.properties
+      const id = props?.ll_uuid || props?.path
+      if (!id) { showZoomToast(hint); return }
+      setChooseArmed(false)
+      void tractEditorRef.current?.loadParcel(String(id), true)
+    }
+    map.on('click', onPick)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      try { map.off('click', onPick); map.getCanvas().style.cursor = '' } catch { /* map torn down */ }
+    }
+  }, [chooseArmed])
+  const tractEditorRef = useRef<typeof tractEditor | null>(null)
+  tractEditorRef.current = tractEditor
   // While mapping, the other panels stay out of the way.
   useEffect(() => {
     if (!mappingMode) return
+    setSavedPanelOpen(false)
     setLandDetail(null)
     setMyTractChoice(null)
     setUtilitiesOpen(false)
@@ -10925,12 +11012,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               const c = myTractChoice
               setMyTractChoice(null)
               if (!c) return
-              window.location.href = `/map-portfolio?project=${encodeURIComponent(c.projectId)}&tract=${encodeURIComponent(c.tractId)}`
+              setMappingMode({ start: { kind: 'tract', id: c.tractId }, projectId: c.projectId, projectName: c.projectName })
             }}
             style={{ display: 'block', width: '100%', padding: '8px 10px', borderRadius: 8, border: 'none',
                      background: 'linear-gradient(135deg, #ff7ad9 0%, #f58cde 100%)',
                      color: '#1a0a14', cursor: 'pointer', fontWeight: 700 }}>
-            Show Configurable Map
+            Edit in Map It
+          </button>
+          <button
+            onClick={() => {
+              const c = myTractChoice
+              setMyTractChoice(null)
+              if (!c) return
+              setSavedPanelFocus({ projectId: c.projectId, n: Date.now() })
+              setSavedPanelOpen(true)
+            }}
+            style={{ display: 'block', width: '100%', marginTop: 6, padding: '4px 0', background: 'none',
+                     border: 'none', color: '#F58CDE', cursor: 'pointer', fontSize: 12, textDecoration: 'underline' }}>
+            Open in Saved Projects
           </button>
           <button onClick={() => setMyTractChoice(null)} aria-label="Close"
                   style={{ position: 'absolute', top: 4, right: 6, background: 'none', border: 'none',
@@ -11189,7 +11288,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
            one panel. */
         compMode={Boolean(subjectTractId)}
         onShowOwnedGround={onShowOwnedGround}
-        onMapIt={canUseProjectMaps ? (llUuid) => { setLandDetail(null); setMappingMode({ ll_uuid: llUuid }) } : undefined}
+        onMapIt={canUseProjectMaps ? (llUuid) => { setLandDetail(null); setMappingMode({ start: { kind: 'parcel', ll_uuid: llUuid }, projectId: null, projectName: null }) } : undefined}
         onFindComparables={onFindParcelComparables ? (p) => {
           setLandDetail(null)
           onFindParcelComparables(p)
@@ -11199,7 +11298,52 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {/* Map It: the in-map tract editor. Normal map interaction is
           suspended while this is up (mapInteractionSuspendedRef). */}
       {mappingMode && (
-        <MapItToolbar editor={tractEditor} onExit={() => setMappingMode(null)} />
+        <MapItToolbar
+          editor={tractEditor} onExit={() => setMappingMode(null)}
+          startKind={mappingMode.start.kind}
+          lockedProject={mappingMode.projectId
+            ? { id: mappingMode.projectId, name: mappingMode.projectName || 'this project' } : null}
+          choosing={chooseArmed}
+          onToggleChoose={() => {
+            if (!chooseArmed) tractEditor.cancelDraft()
+            setChooseArmed(v => !v)
+          }} />
+      )}
+
+      {/* Saved Projects: floating button (top-left, under the logo) and
+          its slide-out. Hidden while mapping. */}
+      {canUseProjectMaps && !mappingMode && !savedPanelOpen && (
+        <button
+          type="button"
+          onClick={() => setSavedPanelOpen(true)}
+          aria-label="Saved Projects"
+          style={{
+            position: 'absolute', top: 104, left: 16, zIndex: 15,
+            display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 14px',
+            borderRadius: 999, border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer',
+            background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(6px)', color: '#fff',
+            fontSize: 13, fontWeight: 600, boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
+          }}>
+          <SavedProjectsIcon size={15} color="#F58CDE" />
+          Saved Projects
+        </button>
+      )}
+      {canUseProjectMaps && !mappingMode && (
+        <SavedProjectsPanel
+          open={savedPanelOpen}
+          onClose={() => setSavedPanelOpen(false)}
+          reloadNonce={savedPanelNonce}
+          focus={savedPanelFocus}
+          onShowTract={(id) => { void showSavedTract(id) }}
+          onChanged={refreshMyTracts}
+          onEditTract={(t) => {
+            setSavedPanelOpen(false)
+            setMappingMode({ start: { kind: 'tract', id: t.id }, projectId: t.projectId, projectName: t.projectName })
+          }}
+          onAddTract={(p) => {
+            setSavedPanelOpen(false)
+            setMappingMode({ start: { kind: 'empty' }, projectId: p.id, projectName: p.name })
+          }} />
       )}
 
       {/* Goat Search animation overlay — renders while a chat-driven
