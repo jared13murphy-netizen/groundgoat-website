@@ -236,6 +236,8 @@ interface LandDetailPanelProps {
       Shown only with report access (same firm/premium gate as the backend
       endpoint) and a resolved ll_uuid; hidden in comp mode. */
   onFindComparables?: (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null }) => void
+  /** Start Map It (draw this parcel as a tract on the Explore map). The button only renders when this is passed. */
+  onMapIt?: (llUuid: string) => void
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -263,7 +265,7 @@ export const ACTION_BTN: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround, onFindComparables }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround, onFindComparables, onMapIt }: LandDetailPanelProps) {
   // Show Owned Ground fetch is async and can take a moment on a large
   // owner; without a spinner the button looks dead and gets double-clicked
   // (owner 2026-08-20). Mobile already had one — this brings web to parity.
@@ -1116,14 +1118,14 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 ll_uuid; Download / Email / Find Comps need report access;
                 in comp mode only the Report toggle shows. */}
             <div style={{ display: 'flex', gap: 6 }}>
-              {llUuid && !compMode && (
-                <a
-                  href={`/configure-map?ll_uuid=${encodeURIComponent(llUuid)}&stage=tracts`}
-                  title="Configure Map"
-                  style={{ ...ACTION_BTN, textDecoration: 'none' }}
+              {llUuid && !compMode && onMapIt && (
+                <button
+                  onClick={() => onMapIt(llUuid)}
+                  title="Map It"
+                  style={ACTION_BTN}
                 >
-                  <Layers size={16} /> Map
-                </a>
+                  <Layers size={16} /> Map It
+                </button>
               )}
               {onToggleReport && (canUseReports || compMode) && (
                 <button
