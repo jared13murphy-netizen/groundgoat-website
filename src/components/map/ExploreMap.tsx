@@ -10985,7 +10985,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   })
 
   return (
-    <div className="comparables-map-container" style={{ height, overflow: 'hidden' }}>
+    <div className="comparables-map-container" style={{ height, overflow: 'clip' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       {/* Drag-to-report chip — follows the pointer; pink when over the panel */}
       {dragChip && (
