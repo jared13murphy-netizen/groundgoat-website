@@ -1731,6 +1731,8 @@ interface ExploreMapProps {
       active. The parent mirrors this into PortalNavBar's active styling
       since that state lives inside this component. */
   onUtilitiesActiveChange?: (active: boolean) => void
+  /** Map It entered/left: the page hides the Goat Search dock meanwhile. */
+  onMappingModeChange?: (active: boolean) => void
   /** /go Quick-Draw share: outlines this ring on the map and fits the
       camera to it. [lng, lat] pairs, same convention as
       zoomToBoundsSignal/pinnedTractPolygon's coords. Does not need to be
@@ -1901,7 +1903,7 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -3360,6 +3362,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (window.scrollX) window.scrollTo(0, window.scrollY)
     if (document.documentElement.scrollLeft) document.documentElement.scrollLeft = 0
   }, [utilitiesOpen, savedPanelOpen, filterOpen])
+
+  useEffect(() => { onMappingModeChange?.(!!mappingMode) }, [!!mappingMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Saved Projects panel: clicking a project zooms to all of its maps
   // (owner 10/30) and turns the saved-maps layer on.

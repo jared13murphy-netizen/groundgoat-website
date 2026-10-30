@@ -26,9 +26,10 @@ const NEW_PROJECT = '__new__'
 const NO_PROJECT = ''
 
 const bar: CSSProperties = {
-  // Owner 10/30: sits ABOVE the Goat Search pill (fixed bottom-6, z 540)
-  // instead of behind it — the pill and its result chip hid the buttons.
-  position: 'absolute', left: '50%', bottom: 128, transform: 'translateX(-50%)',
+  // Owner 10/30: at the bottom with a small gap; the Goat Search dock is
+  // hidden by the page while Map It is up (MapChatPanel `hidden`), so
+  // nothing sits on top of these buttons.
+  position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)',
   zIndex: 560, width: 'min(960px, calc(100% - 24px))',
   background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(6px)', color: '#fff',
   borderRadius: 14, boxShadow: '0 4px 14px rgba(0,0,0,0.4)', padding: '10px 12px',
