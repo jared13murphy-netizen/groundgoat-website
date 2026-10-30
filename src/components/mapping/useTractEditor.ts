@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type maplibregl from 'maplibre-gl'
 import {
-  CLASS_COLOR, LAND_CLASSES, classifyBoundary, combineGeometry, fetchParcel, fitTracts,
+  CLASS_COLOR, LAND_CLASSES, classifyBoundary, combineGeometry, fetchParcel, fitTracts, getSavedParcel,
   normalizeGeometry, parcelsUnder, previewSoil, saveParcel, splitGeometry, updateParcel,
   type LandClass, type ParcelDetail,
 } from '@/lib/configurableMapping'
@@ -54,11 +54,22 @@ export interface SaveOptions {
   projectLabel?: string | null
 }
 
+/** How a Map It session starts:
+ *  parcel — load that parcel's outline (the parcel-panel entry);
+ *  tract  — open a saved tract for editing (boundary + land types, Save = PUT);
+ *  empty  — nothing yet: draw a tract or choose a parcel (Add a New Tract). */
+export type TractStart =
+  | { kind: 'parcel'; ll_uuid: string }
+  | { kind: 'tract'; id: string }
+  | { kind: 'empty' }
+
 interface Params {
   mapRef: { current: maplibregl.Map | null }
   enabled: boolean
-  startParcel: { ll_uuid: string } | null
+  start: TractStart | null
+  /** Locked project the tract belongs to (Add a New Tract / Edit). */
   projectId: string | null
+  projectName?: string | null
   onSaved?: (info: SavedInfo) => void
   onBusy?: (msg: string | null) => void
   onError?: (msg: string | null) => void
@@ -76,7 +87,7 @@ const coarsePointer = () =>
   typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches
 
 export function useTractEditor({
-  mapRef, enabled, startParcel, projectId, onSaved, onBusy, onError,
+  mapRef, enabled, start, projectId, projectName, onSaved, onBusy, onError,
 }: Params) {
   // ── state ────────────────────────────────────────────────────────
   const [detail, setDetail] = useState<ParcelDetail | null>(null)
@@ -100,6 +111,7 @@ export function useTractEditor({
   const [soil, setSoil] = useState<{ rating: number | null; rating_type: string | null } | null>(null)
   const [soilBusy, setSoilBusy] = useState(false)
   const [layerTick, setLayerTick] = useState(0)
+  const [savedName, setDefaultNameSaved] = useState('')
   const [, forceHist] = useState(0)
 
   // ── refs mirroring state for map handlers (registered once) ──────
@@ -120,6 +132,9 @@ export function useTractEditor({
   const onBusyRef = useRef(onBusy); onBusyRef.current = onBusy
   const onErrorRef = useRef(onError); onErrorRef.current = onError
   const projectIdRef = useRef(projectId); projectIdRef.current = projectId
+  const projectNameRef = useRef(projectName); projectNameRef.current = projectName
+  /** source parcels of a saved tract being edited (no detail record). */
+  const sourceRef = useRef<string[]>([])
 
   const histRef = useRef<Hist[]>([])
   const redoRef = useRef<Hist[]>([])
@@ -233,39 +248,70 @@ export function useTractEditor({
   const resetSession = useCallback(() => {
     loadSeq.current++
     histRef.current = []; redoRef.current = []
-    savedIdRef.current = null; classifyingRef.current = null
+    savedIdRef.current = null; classifyingRef.current = null; sourceRef.current = []
     setDetail(null); setBoundaryState([]); setShapesState([]); setClassified(false)
+    setDefaultNameSaved('')
     setModeState('outline'); setTool(null); setDrawing(false); setDraft([]); setCutPts([])
     setMarq(null); setSelectedId(null); setFrame(null); setSoil(null)
     setBusyState(null); setErrorState(null); setNotice(null); setDirty(false); setLoading(false)
     cleanRef.current = fingerprint([], [])
   }, [])
 
-  const startLlUuid = startParcel?.ll_uuid ?? null
+  const startLlUuid = start?.kind === 'parcel' ? start.ll_uuid : null
+  const startTractId = start?.kind === 'tract' ? start.id : null
+
+  /** Load a parcel's outline as the tract outline. Used by the parcel
+   *  entry and by "Choose Parcel" in an Add-a-New-Tract session. */
+  const loadParcel = useCallback(async (llUuid: string, replacing = false) => {
+    const seq = ++loadSeq.current
+    setLoading(true); setBusy('Loading parcel…'); setError(null)
+    try {
+      const d = await fetchParcel(llUuid)
+      if (seq !== loadSeq.current) return
+      const rings = geometryToPolys(d.boundary)
+      if (replacing) snapshotTract()
+      setDetail(d)
+      boundaryRef.current = rings; shapesRef.current = []; classifiedRef.current = false
+      setBoundaryState(rings)
+      setShapesState([]); setClassified(false); setSelectedId(null); setFrame(null)
+      if (!replacing) markClean([], rings)
+      fitMap(bboxOf(d.boundary?.coordinates))
+    } catch (e: any) {
+      if (seq === loadSeq.current) setError(e?.message || 'Could not load that parcel.')
+    } finally {
+      if (seq === loadSeq.current) { setLoading(false); setBusy(null) }
+    }
+  }, [fitMap, markClean, setBusy, setError, snapshotTract])
+
   useEffect(() => {
     if (!enabled) { resetSession(); return }
     resetSession()
-    if (!startLlUuid) return
+    if (startLlUuid) { void loadParcel(startLlUuid); return }
+    if (!startTractId) return
     const seq = loadSeq.current
-    setLoading(true); setBusy('Loading parcel…')
+    setLoading(true); setBusy('Opening map…')
     ;(async () => {
       try {
-        const d = await fetchParcel(startLlUuid)
+        const t = await getSavedParcel(startTractId)
         if (seq !== loadSeq.current) return
-        const rings = geometryToPolys(d.boundary)
-        setDetail(d)
+        const rings = geometryToPolys(t.boundary)
+        const loaded = simplifyShapes(explodeShapes(t.polygons as any))
+        savedIdRef.current = t.id
+        sourceRef.current = t.source_ll_uuids || []
+        boundaryRef.current = rings; shapesRef.current = loaded; classifiedRef.current = true
         setBoundaryState(rings)
-        setShapesState([]); setClassified(false)
-        markClean([], rings)
-        fitMap(bboxOf(d.boundary?.coordinates))
+        setShapesState(loaded); setClassified(true)
+        setDefaultNameSaved(t.name || '')
+        markClean(loaded, rings)
+        fitMap(bboxOf(t.boundary?.coordinates))
       } catch (e: any) {
-        if (seq === loadSeq.current) setError(e?.message || 'Could not load that parcel.')
+        if (seq === loadSeq.current) setError(e?.message || 'Could not open that map.')
       } finally {
         if (seq === loadSeq.current) { setLoading(false); setBusy(null) }
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, startLlUuid])
+  }, [enabled, startLlUuid, startTractId])
 
   // ── classify (outline -> land types) ─────────────────────────────
   const ensureClassified = useCallback(async (): Promise<void> => {
@@ -553,7 +599,7 @@ export function useTractEditor({
         frameGeom = d.boundary
         frameParts = [frameGeom]
         frameMeta = {
-          ll_uuids: [String(d.parcel?.ll_uuid || startLlUuid || '')].filter(Boolean),
+          ll_uuids: [String(d.parcel?.ll_uuid || '')].filter(Boolean),
           boundary: geometryToPolys(frameGeom),
         }
       } else {
@@ -590,7 +636,7 @@ export function useTractEditor({
     } catch (e: any) {
       setError(e?.message || 'Could not snap this tract.')
     } finally { setBusy(null) }
-  }, [setBusy, setError, snapshotTract, startLlUuid])
+  }, [setBusy, setError, snapshotTract])
 
   // ── soil preview (debounced, real SSURGO query) ──────────────────
   const tillableKey = useMemo(
@@ -632,11 +678,12 @@ export function useTractEditor({
 
   // ── name suggestion ──────────────────────────────────────────────
   const defaultName = useMemo(() => {
+    if (savedName) return savedName
     const p = detail?.parcel
     if (p?.parcelnumb) return `Parcel ${p.parcelnumb}`
     if (p?.owner) return String(p.owner)
     return ''
-  }, [detail])
+  }, [detail, savedName])
 
   // ── save ─────────────────────────────────────────────────────────
   const save = useCallback(async (opts: SaveOptions): Promise<boolean> => {
@@ -662,8 +709,9 @@ export function useTractEditor({
         polygons: shapesRef.current
           .map((s) => ({ cls: s.cls, geometry: polysToGeometry(s.polys) }))
           .filter((p) => p.geometry) as any,
-        source_ll_uuids: [String(detailRef.current?.parcel?.ll_uuid || startLlUuid || '')]
-          .filter((x) => x && x !== 'null'),
+        source_ll_uuids: detailRef.current?.parcel?.ll_uuid
+          ? [String(detailRef.current.parcel.ll_uuid)]
+          : sourceRef.current,
         project_id: opts.projectId ?? null,
         project_name: opts.projectId ? null : (opts.projectName?.trim() || null),
       }
@@ -685,7 +733,7 @@ export function useTractEditor({
       setError(e?.message || 'Save failed.')
       return false
     } finally { setBusy(null); savingRef.current = false }
-  }, [ensureClassified, markClean, setBusy, setError, startLlUuid])
+  }, [ensureClassified, markClean, setBusy, setError])
 
   // ── keyboard: Enter finishes a ring, Esc cancels, Cmd/Ctrl-Z undo ─
   useEffect(() => {
@@ -1205,7 +1253,7 @@ export function useTractEditor({
     // actions
     setMode, setDrawClass, startDrawTract, startDrawPolygon, toggleCut, toggleErase,
     deleteSelected, fillHoles, clearPolygons, startOver, snapToParcel,
-    finishDraft, cancelDraft, undo, redo, save,
+    finishDraft, cancelDraft, undo, redo, save, loadParcel,
     clearMessages: () => { setNotice(null); setError(null) },
   }
 }
