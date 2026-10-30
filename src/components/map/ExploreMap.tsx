@@ -87,7 +87,6 @@ import {
   Trash as TrashIcon,
   Map as MapDrawIcon,
   Plus as PlusIcon,
-  FolderPlus as NewMapProjectIcon,
   Folder as SavedProjectsIcon,
 } from 'lucide-react'
 
@@ -3340,6 +3339,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [])
 
   const filterSlide = useSlide(filterOpen, 240)
+  // Belt and braces for the sideways-scroll bug above: nothing on this
+  // page should ever be scrolled horizontally.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const root = containerRef.current?.parentElement
+    if (root && root.scrollLeft) root.scrollLeft = 0
+    if (window.scrollX) window.scrollTo(0, window.scrollY)
+    if (document.documentElement.scrollLeft) document.documentElement.scrollLeft = 0
+  }, [utilitiesOpen, savedPanelOpen, filterOpen])
 
   // Saved Projects panel: clicking a project zooms to all of its maps
   // (owner 10/30) and turns the saved-maps layer on.
@@ -10977,7 +10985,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   })
 
   return (
-    <div className="comparables-map-container" style={{ height }}>
+    <div className="comparables-map-container" style={{ height, overflow: 'hidden' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       {/* Drag-to-report chip — follows the pointer; pink when over the panel */}
       {dragChip && (
@@ -11606,7 +11614,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           display: 'flex',
           flexDirection: 'column',
           transform: utilitiesOpen ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 220ms ease',
+          // Owner 10/30: the closed panel used to sit just off the right
+          // edge and the page could scroll sideways to it (My Maps "stuck"
+          // beside Saved Projects). Hidden once closed, so nothing can
+          // focus it or scroll it into view; the container also clips.
+          visibility: utilitiesOpen ? 'visible' : 'hidden',
+          transition: utilitiesOpen ? 'transform 220ms ease' : 'transform 220ms ease, visibility 0s linear 220ms',
           pointerEvents: utilitiesOpen ? 'auto' : 'none',
           boxShadow: '-4px 0 24px rgba(0,0,0,0.5)',
         }}
@@ -11710,18 +11723,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     nav-dropdown links; they now live here instead. Gated
                     by canUseProjectMaps — see its declaration above for
                     exactly what it checks. */}
-                {/* Owner 10/6 (reversing his 9/16 "only Map Portfolio
-                    here" ruling now that the menu is "My Maps"): a "New
-                    Map Project" tile opens Configurable Mapping — the
-                    same link as the pink "New Project" button on the
-                    Saved Maps screen. Same gate as Saved Maps. */}
-                {canUseProjectMaps && (
-                  <UtilityTile
-                    icon={<NewMapProjectIcon size={20} />}
-                    label="New Map Project"
-                    onClick={() => { window.location.href = '/configure-map' }}
-                  />
-                )}
+                {/* "New Map Project" tile removed 10/30 (owner): new maps
+                    start from Map It on a parcel or from a project in the
+                    Saved Projects slide-out. */}
                 {/* Owner 10/30: the Saved Projects slide-out opens from
                     here, never from a floating map button. */}
                 {canUseProjectMaps && (
