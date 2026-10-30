@@ -10417,40 +10417,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       const silhouettePath = stateSilhouettes[state]
       const bbox = stateBboxes[state]
-      const maskId = `aem-cut-${state}`
-      const blurId = `aem-blur-${state}`
 
       const el = document.createElement('div')
       el.className = 'aem-marker-shell'
       const inner = document.createElement('div')
       inner.className = 'aem-state-badge'
-      // Hovering shadow: render the silhouette TWICE inside one SVG.
-      // First copy is a translated + blurred shadow, masked so only
-      // the part OUTSIDE the silhouette draws. Second copy is the
-      // 62%-opacity silhouette on top. Result: shadow appears only
-      // along the bottom-right edge, silhouette stays see-through,
-      // state appears to lift off the map.
+      // Hovering shadow: the silhouette drawn twice — a plain offset
+      // shadow copy under the 62%-opacity silhouette. Owner 10/30: the
+      // previous blurred + masked copy (feGaussianBlur inside an SVG
+      // mask) painted its whole filter region as a solid dark rectangle
+      // in Chrome when the badges were stretched large mid zoom-out,
+      // leaving overlapping black boxes across the map. No filters, no
+      // masks: nothing here can paint outside the state outline.
       inner.innerHTML = `
         <svg class="aem-state-shape" viewBox="0 0 100 100"
              preserveAspectRatio="none">
           ${silhouettePath ? `
-            <defs>
-              <mask id="${maskId}" maskUnits="userSpaceOnUse"
-                    x="-50" y="-50" width="200" height="200">
-                <rect x="-50" y="-50" width="200" height="200" fill="white"/>
-                <path d="${silhouettePath}" fill="black"/>
-              </mask>
-              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="1.5"/>
-              </filter>
-            </defs>
-            <g mask="url(#${maskId})" pointer-events="none">
-              <path d="${silhouettePath}"
-                    fill="rgba(0,0,0,0.92)"
-                    transform="translate(3 4)"
-                    filter="url(#${blurId})"
-                    stroke="none"/>
-            </g>
+            <path d="${silhouettePath}"
+                  fill="rgba(0,0,0,0.55)"
+                  transform="translate(2.5 3)"
+                  pointer-events="none"
+                  stroke="none"/>
             <path d="${silhouettePath}"
                   fill="rgba(10,10,12,0.62)"
                   stroke="none" />
@@ -10518,13 +10505,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // ONLY when zoom is below the fade threshold. Above FADE_START the
     // badges are fading/gone and re-stretching them every frame is what
     // causes the mid-zoom glitch — skip it entirely.
+    // Owner 10/30: resize on EVERY move while the badge is still visible
+    // (below FADE_END), not only below FADE_START — a zoom-out that
+    // settled in the fade band left badges stretched to the size they
+    // were created at, overlapping their neighbours.
     const onMove = () => {
       const z = map.getZoom()
-      if (z < FADE_START) {
+      if (z < FADE_END) {
         for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
       }
     }
     map.on('move', onMove)
+    map.on('moveend', onMove)
 
     // Live-zoom opacity: drive fade via direct DOM style manipulation
     // on the inner badge element. No React setState — that would cause
@@ -10551,6 +10543,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     return () => {
       map.off('move', onMove)
+      map.off('moveend', onMove)
       map.off('zoom', onZoomLive)
       fadeOutAndRemove(stateMarkersRef.current)
       stateMarkersRef.current = []
