@@ -33,6 +33,8 @@ interface Props {
   onEditTract: (t: PanelTract) => void
   onAddTract: (p: { id: string; name: string }) => void
   onShowTract: (tractId: string) => void
+  /** Zoom the map to every map in the project (owner 10/30). */
+  onShowProject: (projectId: string) => void
   /** A rename/move/delete happened: refresh the map's saved-maps layer. */
   onChanged: () => void
 }
@@ -82,7 +84,7 @@ function mapLine(t: SavedParcelRow) {
 type Detail = { loading: boolean; error?: string; parcels: SavedParcelRow[] }
 
 export default function SavedProjectsPanel({
-  open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onChanged,
+  open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged,
 }: Props) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
@@ -286,7 +288,8 @@ export default function SavedProjectsPanel({
                         aria-label={isOpen ? 'Collapse' : 'Expand'}>
                   {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
-                <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => toggle(p.id)}>
+                <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                     onClick={() => { if (editing?.key === pKey) return; if (!expanded[p.id]) toggle(p.id); onShowProject(p.id) }}>
                   {editing?.key === pKey ? (
                     <input autoFocus style={input} value={editing.text}
                            onClick={(e) => e.stopPropagation()}
