@@ -143,6 +143,7 @@ export function useTractEditor({
   const savingRef = useRef(false)
   const classifyingRef = useRef<Promise<void> | null>(null)
   const loadSeq = useRef(0)
+  const prewarmRef = useRef<{ key: string; p: Promise<any> } | null>(null)
 
   const setBusy = useCallback((m: string | null) => {
     setBusyState(m); onBusyRef.current?.(m)
@@ -266,11 +267,18 @@ export function useTractEditor({
     const seq = ++loadSeq.current
     setLoading(true); setBusy('Loading parcel…'); setError(null)
     try {
-      const d = await fetchParcel(llUuid)
+      const d = await fetchParcel(llUuid, { engine: false })
       if (seq !== loadSeq.current) return
       const rings = geometryToPolys(d.boundary)
       if (replacing) snapshotTract()
       setDetail(d)
+      // Warm the engine for this outline in the background so the Land
+      // Types step is instant when the outline is left as is. Discarded
+      // by ensureClassified if the boundary changed in the meantime.
+      prewarmRef.current = {
+        key: JSON.stringify(d.boundary),
+        p: classifyBoundary(d.boundary, d.parcel?.state ?? null).catch(() => null),
+      }
       boundaryRef.current = rings; shapesRef.current = []; classifiedRef.current = false
       setBoundaryState(rings)
       setShapesState([]); setClassified(false); setSelectedId(null); setFrame(null)
@@ -323,7 +331,10 @@ export function useTractEditor({
     const run = (async () => {
       setBusy('Fitting land types to the boundary…'); setError(null)
       try {
-        const fresh = await classifyBoundary(geom, state)
+        const warm = prewarmRef.current
+        const fresh: Awaited<ReturnType<typeof classifyBoundary>> =
+          (warm && warm.key === JSON.stringify(geom) ? await warm.p : null)
+          ?? await classifyBoundary(geom, state)
         // Still normalise: the engine's classes are disjoint, but the
         // user may already have drawn shapes of their own over them.
         const res = await normalizeGeometry(

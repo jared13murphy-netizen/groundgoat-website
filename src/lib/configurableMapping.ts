@@ -148,9 +148,13 @@ export function listCounties(state: string) {
  *  The map's vector tiles carry `path`, never `ll_uuid`, so a click can
  *  only supply the former — sending it as ll_uuid found nothing and the
  *  click silently did nothing. */
-export function fetchParcel(id: string): Promise<ParcelDetail> {
+/** `engine: false` = outline + figures only (no engine land types) — the
+ *  Map It editor loads that first so the outline is on screen at once
+ *  (owner 10/30), then classifies through classifyBoundary. */
+export function fetchParcel(id: string, opts: { engine?: boolean } = {}): Promise<ParcelDetail> {
   const key = id.startsWith('/') ? 'path' : 'll_uuid'
-  return j<ParcelDetail>(`/api/mapping/parcel?${key}=${encodeURIComponent(id)}`)
+  const eng = opts.engine === false ? '&engine=false' : ''
+  return j<ParcelDetail>(`/api/mapping/parcel?${key}=${encodeURIComponent(id)}${eng}`)
 }
 
 export interface SaveBody {
