@@ -86,7 +86,6 @@ import {
   Trash as TrashIcon,
   Map as MapDrawIcon,
   Plus as PlusIcon,
-  FolderOpen as MapPortfolioIcon,
   FolderPlus as NewMapProjectIcon,
   Folder as SavedProjectsIcon,
 } from 'lucide-react'
@@ -3337,6 +3336,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           ?.setData({ type: 'FeatureCollection', features: [] } as any) } catch { /* map gone */ }
       }, 2600)
     } catch { /* style reloading; the fly-to still happened */ }
+  }, [])
+
+  // Saved Projects panel: clicking a project zooms to all of its maps
+  // (owner 10/30) and turns the saved-maps layer on.
+  const showSavedProject = useCallback(async (projectId: string) => {
+    setMyTractsOn(true)
+    let list = myTractsRef.current
+    if (!list.some(t => t.project_id === projectId)) {
+      try {
+        const r = await allTractsGeometry(true)
+        list = r.tracts
+        setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null)
+      } catch { return }
+    }
+    const map = mapRef.current
+    if (!map) return
+    let w = 180, so = 90, e = -180, n = -90, seen = false
+    for (const t of list) {
+      if (t.project_id !== projectId || !t.boundary) continue
+      const bb = bboxOf(t.boundary.coordinates)
+      if (!bb) continue
+      seen = true
+      w = Math.min(w, bb[0][0]); so = Math.min(so, bb[0][1]); e = Math.max(e, bb[1][0]); n = Math.max(n, bb[1][1])
+    }
+    if (!seen) { showZoomToast('No maps in this project yet.'); return }
+    const narrow = (containerRef.current?.clientWidth ?? 800) < 700
+    map.fitBounds([[w, so], [e, n]], {
+      padding: { top: 90, bottom: 90, right: 60, left: narrow ? 60 : 340 + 60 },
+      maxZoom: 16, duration: 800,
+    })
   }, [])
 
   // Choose Parcel: while armed, the next click on a parcel loads its
@@ -11310,24 +11339,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }} />
       )}
 
-      {/* Saved Projects: floating button (top-left, under the logo) and
-          its slide-out. Hidden while mapping. */}
-      {canUseProjectMaps && !mappingMode && !savedPanelOpen && (
-        <button
-          type="button"
-          onClick={() => setSavedPanelOpen(true)}
-          aria-label="Saved Projects"
-          style={{
-            position: 'absolute', top: 104, left: 16, zIndex: 15,
-            display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 14px',
-            borderRadius: 999, border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer',
-            background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(6px)', color: '#fff',
-            fontSize: 13, fontWeight: 600, boxShadow: '0 2px 10px rgba(0,0,0,0.4)',
-          }}>
-          <SavedProjectsIcon size={15} color="#F58CDE" />
-          Saved Projects
-        </button>
-      )}
+      {/* Saved Projects slide-out: opened from the My Maps menu tile
+          (owner 10/30: no floating button on the map). Hidden while mapping. */}
       {canUseProjectMaps && !mappingMode && (
         <SavedProjectsPanel
           open={savedPanelOpen}
@@ -11335,6 +11348,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           reloadNonce={savedPanelNonce}
           focus={savedPanelFocus}
           onShowTract={(id) => { void showSavedTract(id) }}
+          onShowProject={(id) => { void showSavedProject(id) }}
           onChanged={refreshMyTracts}
           onEditTract={(t) => {
             setSavedPanelOpen(false)
@@ -11705,11 +11719,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     onClick={() => { window.location.href = '/configure-map' }}
                   />
                 )}
+                {/* Owner 10/30: the Saved Projects slide-out opens from
+                    here, never from a floating map button. */}
                 {canUseProjectMaps && (
                   <UtilityTile
-                    icon={<MapPortfolioIcon size={20} />}
-                    label="Saved Maps"
-                    onClick={() => { window.location.href = '/map-portfolio' }}
+                    icon={<SavedProjectsIcon size={20} />}
+                    label="Saved Projects"
+                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true) }}
                   />
                 )}
               </div>
