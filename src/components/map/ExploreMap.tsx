@@ -3498,8 +3498,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Used to render the silhouette badges with bbox-projected sizing.
   useEffect(() => {
     let cancelled = false
-    fetch('/data/us-states.json')
-      .then(r => r.ok ? r.json() : null)
+    // Retry (owner 10/30): one failed fetch here left every badge
+    // without an outline for the whole session.
+    const load = async (): Promise<any> => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try { const r = await fetch('/data/us-states.json'); if (r.ok) return await r.json() } catch { /* retry */ }
+        await new Promise(res => setTimeout(res, 800 * (attempt + 1)))
+      }
+      return null
+    }
+    load()
       .then((geo: any) => {
         if (cancelled || !geo?.features) return
         const paths: Record<string, string> = {}
@@ -10441,7 +10449,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const bbox = stateBboxes[state]
 
       const maskId = `aem-cut-${state}`
-      const blurId = `aem-blur-${state}`
 
       const el = document.createElement('div')
       el.className = 'aem-marker-shell'
@@ -10453,11 +10460,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // 62%-opacity silhouette on top. Result: shadow appears only
       // along the bottom-right edge, silhouette stays see-through,
       // state appears to lift off the map.
-      // Owner 10/30: this is the production look and stays. The black
-      // rectangles seen mid zoom-out (Chrome painting the blur's filter
-      // region solid when a badge is stretched huge) are prevented by
-      // (1) clamping the badge size in sizeBadge and (2) hiding ONLY the
-      // shadow group while a zoom animation runs (.aem-zooming).
+      // Owner 10/30: same look as before, WITHOUT the SVG blur filter —
+      // Chrome painted the filter's whole region as a dark rectangle
+      // when a badge was stretched large mid zoom-out (reproduced in a
+      // headless run after restoring feGaussianBlur). The soft edge is
+      // now three masked offset copies at fading opacity: no filter,
+      // nothing can paint outside the state outline. A state with no
+      // outline draws NO shape (the old rounded-rectangle fallback is
+      // what overlapping bounding boxes would look like).
       inner.innerHTML = `
         <svg class="aem-state-shape" viewBox="0 0 100 100"
              preserveAspectRatio="none">
@@ -10468,21 +10478,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 <rect x="-50" y="-50" width="200" height="200" fill="white"/>
                 <path d="${silhouettePath}" fill="black"/>
               </mask>
-              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="1.5"/>
-              </filter>
             </defs>
             <g class="aem-shadow" mask="url(#${maskId})" pointer-events="none">
-              <path d="${silhouettePath}"
-                    fill="rgba(0,0,0,0.92)"
-                    transform="translate(3 4)"
-                    filter="url(#${blurId})"
-                    stroke="none"/>
+              <path d="${silhouettePath}" fill="rgba(0,0,0,0.18)" transform="translate(4.5 6)" stroke="none"/>
+              <path d="${silhouettePath}" fill="rgba(0,0,0,0.30)" transform="translate(3.6 4.8)" stroke="none"/>
+              <path d="${silhouettePath}" fill="rgba(0,0,0,0.55)" transform="translate(2.6 3.5)" stroke="none"/>
             </g>
             <path d="${silhouettePath}"
                   fill="rgba(10,10,12,0.62)"
                   stroke="none" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
+          ` : ''}
         </svg>
         <div class="aem-state-overlay">
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
