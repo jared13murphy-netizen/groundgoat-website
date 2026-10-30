@@ -1621,6 +1621,9 @@ interface ExploreMapProps {
   onView3DTerrain?: (tractId: string, tractName: string) => void
   isInReport?: (tractId: string) => boolean
   reportIds?: Set<string>
+  /** Report rows in panel order (owner 2026-10-29): each gets a yellow numbered
+      box on the map at its coordinate, matching the number on its card. */
+  reportRows?: Array<{ id: string; latitude?: number | null; longitude?: number | null; polygonCoordinates?: any }>
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
   /** Fit the map to a polygon's bounds. Bumped via `nonce` so the same
@@ -1894,7 +1897,7 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -1906,6 +1909,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // silhouettes are already suppressed. See the today-marker build effect
   // and the 3D toggle effect for the show/hide wiring.
   const todayMarkersRef = useRef<maplibregl.Marker[]>([])
+  const reportNumberMarkersRef = useRef<maplibregl.Marker[]>([])
   // Filter-active per-county count bubbles (number + "tracts" label),
   // shown when zoomed too low for individual tract dots.
   const countyCountMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -9982,6 +9986,50 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       todayMarkersRef.current = []
     }
   }, [mapLoaded, todayPinGeoJSON, handleTodayPinClick])
+
+  // ── Report numbers on the map (owner 2026-10-29): the same yellow box and
+  // black number as the card, at each report row's coordinate, so the user
+  // can tell which parcel/tract is which. DOM markers: a handful at most.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    reportNumberMarkersRef.current.forEach(m => m.remove())
+    reportNumberMarkersRef.current = []
+    const centroidOf = (poly: any): [number, number] | null => {
+      // polygon_coordinates is a ring [[lng,lat],...] or a list of rings
+      if (!Array.isArray(poly) || !poly.length) return null
+      const ring: any[] = Array.isArray(poly[0]) && Array.isArray(poly[0][0]) ? poly[0] : poly
+      const pts = ring.filter((p: any) => Array.isArray(p) && typeof p[0] === 'number' && typeof p[1] === 'number')
+      if (pts.length < 3) return null
+      const sx = pts.reduce((a: number, p: any) => a + p[0], 0), sy = pts.reduce((a: number, p: any) => a + p[1], 0)
+      return [sx / pts.length, sy / pts.length]
+    }
+    ;(reportRows || []).forEach((row, i) => {
+      let lat = row.latitude, lng = row.longitude
+      if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) {
+        // A tract added from the auction panel's tract card has a boundary
+        // but no coordinate — put the number at the boundary's centre.
+        const c = centroidOf((row as any).polygonCoordinates)
+        if (!c) return
+        lng = c[0]; lat = c[1]
+      }
+      const el = document.createElement('div')
+      el.textContent = String(i + 1)
+      Object.assign(el.style, {
+        minWidth: '32px', height: '32px', padding: '0 7px', borderRadius: '7px',
+        background: '#FFD60A', color: '#000', border: '2px solid #C9A100',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: '800', fontSize: '14px', lineHeight: '1',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.5)', pointerEvents: 'none', boxSizing: 'border-box',
+      } as CSSStyleDeclaration)
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([lng, lat]).addTo(map)
+      reportNumberMarkersRef.current.push(marker)
+    })
+    return () => {
+      reportNumberMarkersRef.current.forEach(m => m.remove())
+      reportNumberMarkersRef.current = []
+    }
+  }, [mapLoaded, reportRows])
 
   // ── Report-highlight (portal mode): drive the tract-pin-circles pink
   // stroke via setFeatureState({highlighted}) instead of mutating DOM.
