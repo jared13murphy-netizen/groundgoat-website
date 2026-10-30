@@ -39,28 +39,29 @@
    squares / tract pins). Animation: cross-fade on tier change
    via .aem-leaving applied to the inner element by JS.
    ──────────────────────────────────────────────────────────── */
+/* Owner 10/30: no CSS `filter` in these keyframes. `filter: blur()` on a
+   badge stretched to hundreds of pixels made Chrome paint the badge's
+   whole box as a dark rectangle (the overlapping boxes seen zooming
+   out), and `forwards` kept `filter: blur(0)` on the element after the
+   animation, so the box could stay. Opacity + scale only. */
 @keyframes aem-fade-in {
   from {
     opacity: 0;
     transform: scale(0.7);
-    filter: blur(6px);
   }
   to {
     opacity: 1;
     transform: scale(1);
-    filter: blur(0);
   }
 }
 @keyframes aem-fade-out {
   from {
     opacity: 1;
     transform: scale(1);
-    filter: blur(0);
   }
   to {
     opacity: 0;
     transform: scale(1.18);
-    filter: blur(8px);
   }
 }
 /* Outer shell — maplibre sets transform: translate() on this to
