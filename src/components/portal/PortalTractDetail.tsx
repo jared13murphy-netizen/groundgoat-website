@@ -54,6 +54,9 @@ export interface TractSaleData {
   soilRatingType?: string | null
   polygonCoordinates?: [number, number][] | null
   saleStatus?: string | null
+  /** User-typed notes for this row on a report card (owner 2026-10-29);
+      printed at the top of the row's page in the PDF. */
+  notes?: string | null
   listingType?: string | null
   askingPrice?: number | null
   pctTillable?: number | null

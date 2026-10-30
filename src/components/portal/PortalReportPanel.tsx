@@ -1,5 +1,6 @@
 'use client'
 
+import ReportRowNotes from './ReportRowNotes'
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Trash2, Check, Download } from 'lucide-react'
@@ -61,10 +62,12 @@ interface PortalReportPanelProps {
   tracts: TractSaleData[]
   onClose: () => void
   onRemoveTract: (id: string) => void
+  /** Saves per-row notes (owner 2026-10-29); the page owns the rows. */
+  onUpdateTract?: (id: string, patch: Partial<TractSaleData>) => void
   subjectInfo?: SubjectInfo | null
 }
 
-export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subjectInfo }: PortalReportPanelProps) {
+export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUpdateTract, subjectInfo }: PortalReportPanelProps) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -103,6 +106,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
       owner: t.owner ?? null,
       latitude: t.latitude ?? null,
       longitude: t.longitude ?? null,
+      notes: (t.notes || '').trim() || null,
     })),
   })
 
@@ -307,6 +311,13 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, subj
                         )}
                       </div>
                     )}
+                  
+                  {/* Per-row notes (owner 2026-10-29): typed here, printed at the
+                      top of this row's page in the PDF. */}
+                  <ReportRowNotes
+                    value={t.notes}
+                    onSave={(notes) => onUpdateTract?.(t.id, { notes })}
+                  />
                   </div>
                 ))}
               </div>
