@@ -365,6 +365,8 @@ function AccessPortalPageInner() {
   // toggle-in signal + the active-state mirrored back out for styling.
   const [utilitiesToggleSignal, setUtilitiesToggleSignal] = useState(0)
   const [utilitiesActive, setUtilitiesActive] = useState(false)
+  // Map It is editing a tract: the Goat Search dock hides (owner 10/30).
+  const [mappingActive, setMappingActive] = useState(false)
   // Bubble's X button: clears the bubble AND resets the map's
   // chat-applied filters. handleChatApplyFilters({}, true) bumps
   // chatAppliedFilters' nonce, which ExploreMap's applyExternalFilters
@@ -1012,6 +1014,7 @@ function AccessPortalPageInner() {
           onOpenGoatSearch={() => setGoatSearchOpenSignal(n => n + 1)}
           utilitiesToggleSignal={utilitiesToggleSignal}
           onUtilitiesActiveChange={setUtilitiesActive}
+          onMappingModeChange={setMappingActive}
         />
       </div>
 
@@ -1442,6 +1445,7 @@ function AccessPortalPageInner() {
       {!compModeOn &&
         (user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
         <MapChatPanel
+          hidden={mappingActive}
           openSignal={goatSearchOpenSignal}
           allowedStates={allowedStates}
           onApplyFilters={handleChatApplyFilters}
