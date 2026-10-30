@@ -5,7 +5,7 @@
  * useTractEditor session. Dark floating style matching the Explore map's
  * other controls (rgba(0,0,0,0.75) + blur, #F58CDE accent).
  *
- * Outline step:    [Draw a Tract + Choose Parcel when starting empty], Snap to
+ * Outline step:    [Draw a Tract + Choose Parcel when starting empty],
  *                  Parcel, Undo, Redo, Land Types, Save ->
  * Land Types step: class chips, Add Polygon, Delete, Split, Erase,
  *                  Fill Holes, Clear, Start Over, Undo, Redo, Save.
@@ -13,7 +13,7 @@
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, Eraser, Layers, Loader2, Magnet, MapPin, PaintBucket, PenTool, Plus,
+  ArrowLeft, ArrowRight, Check, Eraser, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus,
   RotateCcw, RotateCw, Save, Scissors, Trash2, X,
 } from 'lucide-react'
 import {
@@ -239,10 +239,7 @@ export default function MapItToolbar({
                      onClick={onToggleChoose} />
               </>
             )}
-            <Btn icon={<Magnet size={13} />} text="Snap to Parcel"
-                 disabled={busy || !hasOutline || e.drawing}
-                 title="Fits the outline to the parcel lines underneath so the acres are exact."
-                 onClick={() => void e.snapToParcel()} />
+            {/* Snap to Parcel removed 10/30 (owner: did not work, not needed). */}
             {undoBtns}
             <Btn icon={<ArrowRight size={13} />} text="Land Types" primary
                  disabled={busy || !hasOutline || e.drawing}
