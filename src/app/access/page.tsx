@@ -38,6 +38,7 @@ const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: f
 // and New Map Project all live in this panel.
 const UTILITIES_NAV_ENABLED = true
 
+const LISTINGS_PAGE_SIZE = 40
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 type TabType = 'map' | 'auctions' | 'private_treaty' | 'results'
@@ -104,6 +105,20 @@ function AccessPortalPageInner() {
   const [activeFilters, setActiveFilters] = useState<{ stateFilter: string; countyFilters: string[] }>({ stateFilter: '', countyFilters: [] })
   const [listings, setListings] = useState<Listing[]>([])
   const [listingsLoading, setListingsLoading] = useState(false)
+  // Paged Auctions / Results / Private Treaty lists (owner: no cap, lazy-load
+  // on scroll). Total comes from the API's X-Total-Count header.
+  const activeFiltersRef = useRef(activeFilters)
+  activeFiltersRef.current = activeFilters
+  const [listingsTotal, setListingsTotal] = useState<number | null>(null)
+  const [listingsHasMore, setListingsHasMore] = useState(false)
+  const [listingsLoadingMore, setListingsLoadingMore] = useState(false)
+  const [listingsSearching, setListingsSearching] = useState(false)
+  const listingsQueryRef = useRef('')
+  const listingsGenRef = useRef(0) // bumps on every fresh load; stale responses are dropped
+  const listingsPagingRef = useRef<{ tab: TabType; filters: { stateFilter: string; countyFilters: string[] }; q: string; offset: number; hasMore: boolean; loadingMore: boolean }>(
+    { tab: 'auctions', filters: { stateFilter: '', countyFilters: [] }, q: '', offset: 0, hasMore: false, loadingMore: false },
+  )
+  const listingsSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
@@ -490,53 +505,159 @@ function AccessPortalPageInner() {
     }
   }
 
-  const fetchListings = async (tab: TabType, filtersOverride?: { stateFilter: string; countyFilters: string[] }) => {
-    if (tab === 'map') return
-    setListingsLoading(true)
-    const filters = filtersOverride || activeFilters
-    try {
-      let data: Listing[] = []
+  // Fetches ONE page (LISTINGS_PAGE_SIZE rows) of a tab's list. Auctions and
+  // Results filter state / county / search on the server (states=, counties=,
+  // q=) so paging stays correct; Private Treaty still filters client-side.
+  // `rows` are what survive the client-side filters; `nextOffset` counts the
+  // raw rows consumed so the next page never skips or repeats.
+  const fetchListingsPage = async (
+    tab: TabType,
+    filters: { stateFilter: string; countyFilters: string[] },
+    q: string,
+    offset: number,
+  ): Promise<{ rows: Listing[]; nextOffset: number; hasMore: boolean; total: number | null }> => {
+    const params = new URLSearchParams({ limit: String(LISTINGS_PAGE_SIZE), offset: String(offset) })
+    let url: string
+    if (tab === 'private_treaty') {
+      params.set('listing_type', 'private_treaty')
+      params.set('status', 'listed,live')
+      url = `${API_URL}/api/listings?${params}`
+    } else {
+      if (filters.stateFilter) params.set('states', filters.stateFilter)
+      if (filters.countyFilters.length > 0) params.set('counties', filters.countyFilters.join(','))
+      if (q.trim()) params.set('q', q.trim())
+      if (tab === 'results') params.set('listing_type', 'auction')
+      url = `${API_URL}/api/listings/${tab === 'auctions' ? 'upcoming/auctions' : 'recent/results'}?${params}`
+    }
+    const response = await fetchWithAuth(url)
+    if (!response.ok) return { rows: [], nextOffset: offset, hasMore: false, total: null }
+    let rows: Listing[] = await response.json()
+    const raw = rows.length
+    const totalHeader = response.headers.get('X-Total-Count')
+    const total = totalHeader !== null && totalHeader !== '' && !isNaN(Number(totalHeader)) ? Number(totalHeader) : null
+    const nextOffset = offset + raw
+    // Private Treaty has no total header: a full page means there may be more.
+    const hasMore = total !== null ? nextOffset < total : raw >= LISTINGS_PAGE_SIZE
 
-      if (tab === 'auctions') {
-        const response = await fetchWithAuth(`${API_URL}/api/listings/upcoming/auctions`)
-        if (response.ok) data = await response.json()
-      } else if (tab === 'results') {
-        const response = await fetchWithAuth(`${API_URL}/api/listings/recent/results?listing_type=auction`)
-        if (response.ok) {
-          const resultsData = await response.json()
-          data = (resultsData as Listing[]).filter((l: Listing) =>
-            ['sold', 'no_sale', 'pending'].includes(l.status)
-          )
-        }
-      } else if (tab === 'private_treaty') {
-        const response = await fetchWithAuth(`${API_URL}/api/listings?listing_type=private_treaty&status=listed,live&limit=100&offset=0`)
-        if (response.ok) {
-          data = await response.json()
-          if (user?.home_state && user?.home_county) {
-            data = data.map(listing => ({
-              ...listing,
-              _distance: getDistanceToCounty(user.home_state!, user.home_county!, listing.state, listing.county) ?? 999999,
-            })).sort((a, b) => (a._distance ?? 999999) - (b._distance ?? 999999))
-          }
-        }
-      }
-
-      // Apply filters (state/county) client-side
+    if (tab === 'results') {
+      rows = rows.filter((l: Listing) => ['sold', 'no_sale', 'pending'].includes(l.status))
+    } else if (tab === 'private_treaty') {
       if (filters.stateFilter) {
         const states = filters.stateFilter.split(',').map(s => s.trim().toUpperCase())
-        data = data.filter(l => states.includes(l.state?.toUpperCase()))
+        rows = rows.filter(l => states.includes(l.state?.toUpperCase()))
       }
       if (filters.countyFilters.length > 0) {
         const counties = filters.countyFilters.map(c => c.toLowerCase())
-        data = data.filter(l => counties.includes(l.county?.toLowerCase()))
+        rows = rows.filter(l => counties.includes(l.county?.toLowerCase()))
       }
+    }
+    return { rows, nextOffset, hasMore, total }
+  }
 
-      setListings(data)
+  // Keep asking for the next page while client-side filtering left this one
+  // short (results status filter / Private Treaty state+county), capped.
+  const collectListingsPage = async (
+    tab: TabType,
+    filters: { stateFilter: string; countyFilters: string[] },
+    q: string,
+    startOffset: number,
+    gen: number,
+  ) => {
+    let offset = startOffset
+    let collected: Listing[] = []
+    let hasMore = false
+    let total: number | null = null
+    for (let i = 0; i < 6; i++) {
+      const page = await fetchListingsPage(tab, filters, q, offset)
+      if (gen !== listingsGenRef.current) break
+      collected = collected.concat(page.rows)
+      offset = page.nextOffset
+      hasMore = page.hasMore
+      total = page.total
+      if (!hasMore || collected.length >= LISTINGS_PAGE_SIZE) break
+    }
+    return { rows: collected, nextOffset: offset, hasMore, total }
+  }
+
+  const sortByHomeDistance = (rows: Listing[]): Listing[] => {
+    if (!(user?.home_state && user?.home_county)) return rows
+    return rows
+      .map(listing => ({
+        ...listing,
+        _distance: getDistanceToCounty(user.home_state!, user.home_county!, listing.state, listing.county) ?? 999999,
+      }))
+      .sort((a, b) => (a._distance ?? 999999) - (b._distance ?? 999999))
+  }
+
+  // Loads PAGE 0 (replaces the list). `queryOverride` is passed by the search
+  // box: it replaces the rows without flashing the full-panel spinner.
+  const fetchListings = async (tab: TabType, filtersOverride?: { stateFilter: string; countyFilters: string[] }, queryOverride?: string) => {
+    if (tab === 'map') return
+    const filters = filtersOverride || activeFiltersRef.current
+    const q = queryOverride !== undefined ? queryOverride : listingsQueryRef.current
+    const gen = ++listingsGenRef.current
+    listingsQueryRef.current = q
+    listingsPagingRef.current = { tab, filters, q, offset: 0, hasMore: false, loadingMore: false }
+    setListingsLoadingMore(false)
+    if (queryOverride !== undefined) setListingsSearching(true)
+    else setListingsLoading(true)
+    try {
+      const page = await collectListingsPage(tab, filters, q, 0, gen)
+      if (gen !== listingsGenRef.current) return
+      const rows = tab === 'private_treaty' ? sortByHomeDistance(page.rows) : page.rows
+      listingsPagingRef.current = { tab, filters, q, offset: page.nextOffset, hasMore: page.hasMore, loadingMore: false }
+      setListings(rows)
+      setListingsTotal(page.total)
+      setListingsHasMore(page.hasMore)
     } catch (err) {
+      if (gen !== listingsGenRef.current) return
       console.error('Failed to fetch listings:', err)
     } finally {
-      setListingsLoading(false)
+      if (gen === listingsGenRef.current) {
+        setListingsLoading(false)
+        setListingsSearching(false)
+      }
     }
+  }
+
+  // Appends the next page (called by the list panel's scroll sentinel).
+  const loadMoreListings = async () => {
+    const paging = listingsPagingRef.current
+    if (paging.loadingMore || !paging.hasMore) return
+    const gen = listingsGenRef.current
+    paging.loadingMore = true
+    setListingsLoadingMore(true)
+    try {
+      const page = await collectListingsPage(paging.tab, paging.filters, paging.q, paging.offset, gen)
+      if (gen !== listingsGenRef.current) return
+      listingsPagingRef.current = { ...paging, offset: page.nextOffset, hasMore: page.hasMore, loadingMore: false }
+      setListings(prev => {
+        const seen = new Set(prev.map(l => l.id))
+        const merged = prev.concat(page.rows.filter(l => !seen.has(l.id)))
+        return paging.tab === 'private_treaty' ? sortByHomeDistance(merged) : merged
+      })
+      if (page.total !== null) setListingsTotal(page.total)
+      setListingsHasMore(page.hasMore)
+    } catch (err) {
+      if (gen !== listingsGenRef.current) return
+      console.error('Failed to load more listings:', err)
+      listingsPagingRef.current.loadingMore = false
+    } finally {
+      if (gen === listingsGenRef.current) setListingsLoadingMore(false)
+    }
+  }
+
+  // Search box -> server search, debounced 300 ms. A new query resets to page 0.
+  const fetchListingsRef = useRef(fetchListings)
+  fetchListingsRef.current = fetchListings
+  const handleListingsSearchChange = (q: string) => {
+    if (listingsSearchTimerRef.current) clearTimeout(listingsSearchTimerRef.current)
+    listingsSearchTimerRef.current = setTimeout(() => {
+      const tab = activeTabRef.current
+      if (tab === 'map' || tab === 'private_treaty') return // PT searches client-side only
+      if (q.trim() === listingsQueryRef.current.trim()) return
+      fetchListingsRef.current(tab, undefined, q.trim())
+    }, 300)
   }
 
   const fetchWatchlist = async () => {
@@ -1062,8 +1183,17 @@ function AccessPortalPageInner() {
           <PortalListPanel
             listings={listings}
             loading={listingsLoading}
+            searching={listingsSearching}
+            hasMore={listingsHasMore}
+            loadingMore={listingsLoadingMore}
+            total={listingsTotal}
+            onLoadMore={loadMoreListings}
+            onSearchChange={handleListingsSearchChange}
             activeTab={activeTab as 'auctions' | 'private_treaty' | 'results'}
             onClose={() => {
+              // The panel's search box resets on close; drop the paged query too.
+              if (listingsSearchTimerRef.current) clearTimeout(listingsSearchTimerRef.current)
+              listingsQueryRef.current = ''
               setShowListPanel(false)
               setActiveTab('map')
             }}

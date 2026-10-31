@@ -1,7 +1,7 @@
 'use client'
 
 import AddToCalendarButton from '@/components/AddToCalendarButton'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import Image from 'next/image'
 import AuctionCountdown from '@/components/AuctionCountdown'
@@ -61,6 +61,18 @@ interface PortalListPanelProps {
       tab title and the restricted empty-state copy. null = unlimited
       (staff/firms). See @/lib/stateAccess. */
   allowedStates?: string[] | null
+  /** Paged loading (owner: no cap on Auctions / Results). The page owns the
+      data; the panel shows a sentinel at the bottom of the scroll area that
+      calls onLoadMore() while hasMore && !loadingMore. */
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void
+  /** True while a server-side search refetch is in flight. */
+  searching?: boolean
+  /** Raw (un-debounced) search text, so the page can search the server. */
+  onSearchChange?: (q: string) => void
+  /** Total rows matching the current server-side filters, when known. */
+  total?: number | null
 }
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -188,6 +200,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
             fill
             className="object-cover"
             sizes="500px"
+            quality={70}
             onError={handleImgError}
           />
         )}
@@ -375,7 +388,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
   )
 }
 
-export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onListingLoaded, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist, allowedStates }: PortalListPanelProps) {
+export default function PortalListPanel({ listings, loading, activeTab, onClose, onTractSelected, onListingLoaded, onFindComparables, activeFilters, onClearFilters, userAccountType, watchlistIds, onToggleWatchlist, allowedStates, hasMore, loadingMore, onLoadMore, searching, onSearchChange, total }: PortalListPanelProps) {
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
   // Free-text search over the panel's listings (owner ask 2026-07-28 — parity
   // with the mobile Auctions/Results screens). Filters CLIENT-SIDE over the
@@ -383,6 +396,34 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
   // instant and costs no API calls. Shared matcher: @/lib/listingSearch.
   const [searchQuery, setSearchQuery] = useState('')
   const visibleListings = listings.filter(l => listingMatchesSearch(l, searchQuery))
+
+  // The client filter above is instant over rows already loaded; this lifts the
+  // query to the page, which debounces and searches the server so auctions
+  // beyond the loaded rows are found too.
+  const updateSearch = (q: string) => {
+    setSearchQuery(q)
+    onSearchChange?.(q)
+  }
+
+  // Infinite scroll: sentinel at the bottom of the list, observed against the
+  // scrolling content div. Re-subscribes after each load so a sentinel that is
+  // still on screen (short page) triggers the next page immediately.
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+  const canLoadMore = !!hasMore && !loadingMore && !searching && !loading && !selectedListingId
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    const root = scrollRef.current
+    if (!canLoadMore || !sentinel || !root || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries.some(e => e.isIntersecting)) onLoadMoreRef.current?.() },
+      { root, rootMargin: '400px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [canLoadMore, listings.length, visibleListings.length])
 
   return (
     <motion.div
@@ -436,7 +477,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => updateSearch(e.target.value)}
               placeholder="Search by county, state, or company..."
               aria-label="Search listings"
               className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-9 py-2 text-sm text-white placeholder:text-gg-gray-500 focus:outline-none focus:border-gg-pink/50 transition"
@@ -448,7 +489,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
                 dead chrome. */}
             {searchQuery && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => updateSearch('')}
                 aria-label="Clear search"
                 className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-md flex items-center justify-center text-gg-gray-400 hover:text-white hover:bg-white/10 transition"
               >
@@ -456,6 +497,13 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
               </button>
             )}
           </div>
+        )}
+        {!selectedListingId && !loading && (searching || (typeof total === 'number' && total > 0)) && (
+          <p className="text-[11px] text-gg-gray-500 mt-2">
+            {searching
+              ? 'Searching…'
+              : `${Math.min(listings.length, total as number).toLocaleString()} of ${(total as number).toLocaleString()}`}
+          </p>
         )}
         {/* Active filters display with clear button */}
         {!selectedListingId && activeFilters && (activeFilters.stateFilter || activeFilters.countyFilters.length > 0) && (
@@ -476,7 +524,7 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4">
         {selectedListingId ? (
           <PortalListingDetail
             listingId={selectedListingId}
@@ -498,11 +546,11 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
           <div className="text-center text-gg-gray-500 py-12">
             {/* Distinguish "your search matched nothing" from "there's nothing
                 here at all" — otherwise a stray query looks like missing data. */}
-            {searchQuery.trim() && listings.length > 0 ? (
+            {searchQuery.trim() ? (
               <>
                 <p className="text-sm">No listings match &ldquo;{searchQuery.trim()}&rdquo;</p>
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => updateSearch('')}
                   className="mt-2 text-xs text-gg-pink hover:text-gg-pink/80 font-medium transition"
                 >
                   Clear search
@@ -528,6 +576,16 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
               />
             ))}
           </div>
+        )}
+        {/* Scroll sentinel + "Loading more" row for paged lists. */}
+        {!selectedListingId && !loading && listings.length > 0 && (hasMore || loadingMore) && (
+          <>
+            <div ref={sentinelRef} aria-hidden="true" className="h-px" />
+            <div className="flex items-center justify-center gap-2 py-4 text-xs text-gg-gray-500">
+              {loadingMore && <Loader2 className="animate-spin text-gg-pink" size={14} />}
+              {loadingMore ? 'Loading more…' : ''}
+            </div>
+          </>
         )}
       </div>
     </motion.div>
