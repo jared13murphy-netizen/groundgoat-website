@@ -117,12 +117,7 @@
 .aem-state-shape rect {
   pointer-events: visiblePainted;
 }
-/* Owner 10/30: the blurred shadow is skipped while a zoom animation
-   runs (Chrome painted its filter region as a black rectangle when a
-   badge was stretched large mid zoom-out). The silhouette stays. */
-.aem-zooming .aem-shadow {
-  visibility: hidden;
-}
+
 /* OWNER BUG (reported 2026-07-31, long-standing): hovering Illinois'
    Filter button highlighted MISSOURI's, and clicking it zoomed to
    Missouri. Cause: this overlay is `inset: 0`, so it spans the badge's
