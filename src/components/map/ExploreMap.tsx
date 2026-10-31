@@ -10465,7 +10465,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // when a badge was stretched large mid zoom-out (reproduced in a
       // headless run after restoring feGaussianBlur). The soft edge is
       // now three masked offset copies at fading opacity: no filter,
-      // nothing can paint outside the state outline. A state with no
+      // nothing can paint outside the state outline, and the shadow stays
+      // on through zoom animations (owner 10/30). A state with no
       // outline draws NO shape (the old rounded-rectangle fallback is
       // what overlapping bounding boxes would look like).
       inner.innerHTML = `
@@ -10563,12 +10564,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     map.on('move', onMove)
     map.on('moveend', onMove)
-    // Hide only the blurred shadow while a zoom animation runs (see the
-    // badge markup comment): the silhouette itself keeps drawing.
-    const onZoomStart = () => { for (const { inner } of sized) inner.classList.add('aem-zooming') }
-    const onZoomEnd = () => { for (const { inner } of sized) inner.classList.remove('aem-zooming') }
-    map.on('zoomstart', onZoomStart)
-    map.on('zoomend', onZoomEnd)
 
     // Live-zoom opacity: drive fade via direct DOM style manipulation
     // on the inner badge element. No React setState — that would cause
@@ -10596,8 +10591,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       map.off('move', onMove)
       map.off('moveend', onMove)
-      map.off('zoomstart', onZoomStart)
-      map.off('zoomend', onZoomEnd)
       map.off('zoom', onZoomLive)
       fadeOutAndRemove(stateMarkersRef.current)
       stateMarkersRef.current = []
