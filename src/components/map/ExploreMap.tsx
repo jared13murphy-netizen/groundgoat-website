@@ -2581,7 +2581,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Both are now surfaced as tiles inside the Utilities panel (below)
   // rather than their own bottom-left button/popup.
   const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null>(null)
-  const [selectedCropYear, setSelectedCropYear] = useState<number>(2024)
+  const [selectedCropYear, setSelectedCropYear] = useState<number>(2025)  // newest CSB year (2025 edition, 11/2026)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
 
@@ -12056,7 +12056,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               }}>
                 {/* Year chip row — subordinate to Tillable Ground button */}
                 <div style={{ padding: '4px 0 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {[2017,2018,2019,2020,2021,2022,2023,2024].map(yr => {
+                  {[2018,2019,2020,2021,2022,2023,2024,2025].map(yr => {
                     const sel = selectedCropYear === yr
                     return (
                       <div
