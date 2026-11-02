@@ -20,6 +20,7 @@ import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, listProjects,
 } from '@/lib/configurableMapping'
 import type { TractEditor } from './useTractEditor'
+import { polygonAcres } from '@/lib/polygonGeometry'
 
 const PINK = '#F58CDE'
 const NEW_PROJECT = '__new__'
@@ -233,7 +234,7 @@ export default function MapItToolbar({
         <>
           <div style={stat}>
             {drawingTract
-              ? 'Click to add corners · double-click or Enter to finish · Esc to cancel'
+              ? `Click to add corners · Done, double-click or Enter to finish · Esc to cancel${e.draft.length >= 3 ? ` · drawing ${polygonAcres(e.draft).toFixed(2)} ac` : ''}`
               : choosing
               ? 'Zoom in until parcel lines show, then click a parcel'
               : startKind === 'empty' && !hasOutline
@@ -246,6 +247,10 @@ export default function MapItToolbar({
                 <Btn icon={drawingTract ? <X size={13} /> : <PenTool size={13} />} active={drawingTract}
                      text={drawingTract ? 'Cancel Drawing' : 'Draw a Tract'} disabled={busy || e.loading}
                      onClick={() => { if (choosing) onToggleChoose(); e.startDrawTract() }} />
+                {drawingTract && (
+                  <Btn icon={<Check size={13} />} text="Done" primary disabled={e.draft.length < 3}
+                       title="Finish the outline (same as Enter)" onClick={() => e.finishDraft()} />
+                )}
                 <Btn icon={<MapPin size={13} />} active={choosing} text="Choose Parcel"
                      disabled={busy || e.loading || e.drawing}
                      title="Then click a parcel on the map to use its outline."
@@ -278,7 +283,7 @@ export default function MapItToolbar({
           </div>
           <div style={stat}>
             {drawingPoly
-              ? 'Click inside the outline · double-click or Enter to finish · Esc to cancel'
+              ? `Click inside the outline · Done, double-click or Enter to finish · Esc to cancel${e.draft.length >= 3 ? ` · drawing ${polygonAcres(e.draft).toFixed(2)} ac` : ''}`
               : e.tool === 'cutpoly' ? 'Click once on each side of the polygon to cut it'
               : e.tool === 'erase' ? 'Drag a box over points to remove them'
               : 'Pick a type, then Add Polygon. Click a polygon to select it; picking a type recolors the selected one.'}
@@ -293,6 +298,10 @@ export default function MapItToolbar({
             <Btn icon={drawingPoly ? <X size={13} /> : <Plus size={13} />} active={drawingPoly}
                  text={drawingPoly ? 'Cancel Drawing' : 'Add Polygon'}
                  disabled={busy || !e.classified} onClick={e.startDrawPolygon} />
+            {drawingPoly && (
+              <Btn icon={<Check size={13} />} text="Done" primary disabled={e.draft.length < 3}
+                   title="Finish this polygon (same as Enter)" onClick={() => e.finishDraft()} />
+            )}
             <Btn icon={<Trash2 size={13} />} text="Delete" disabled={!e.selectedId} onClick={e.deleteSelected} />
             <Btn icon={e.tool === 'cutpoly' ? <X size={13} /> : <Scissors size={13} />} active={e.tool === 'cutpoly'}
                  text={e.tool === 'cutpoly' ? 'Cancel Cut' : 'Split'}
