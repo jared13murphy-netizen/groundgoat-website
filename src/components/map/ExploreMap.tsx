@@ -138,6 +138,10 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   // 'regrid-parcels-line', which is below this whole lifted marker group —
   // same pre-existing situation tract-pin-circles has. Not re-litigated.
   'town-labels',
+  // Owner 11/1: the subscriber's own saved-tract labels (boxed) must sit
+  // above the parcel owner labels, never under them.
+  'my-tracts-project-label',
+  'my-tracts-label',
   'tract-pin-circles',
   'tract-pin-labels',
   'tract-pin-plus',
