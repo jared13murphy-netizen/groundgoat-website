@@ -1,5 +1,6 @@
 'use client'
 
+import useSlide from '@/lib/useSlide'
 import { useRef, useEffect, useState, useCallback, useMemo, type MutableRefObject } from 'react'
 import Link from 'next/link'
 import maplibregl from 'maplibre-gl'
@@ -44,6 +45,10 @@ import Tract3DModal from '@/components/Tract3DModal'
 import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
+import MapItToolbar from '@/components/mapping/MapItToolbar'
+import { useTractEditor, type SavedInfo, type TractStart } from '@/components/mapping/useTractEditor'
+import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
+import { bboxOf } from '@/lib/cmShapes'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
 import { countyCentroids } from '@/data/countyCentroids'
 import { getCountiesForState } from '@/data/counties'
@@ -82,8 +87,7 @@ import {
   Trash as TrashIcon,
   Map as MapDrawIcon,
   Plus as PlusIcon,
-  FolderOpen as MapPortfolioIcon,
-  FolderPlus as NewMapProjectIcon,
+  Folder as SavedProjectsIcon,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -1727,6 +1731,8 @@ interface ExploreMapProps {
       active. The parent mirrors this into PortalNavBar's active styling
       since that state lives inside this component. */
   onUtilitiesActiveChange?: (active: boolean) => void
+  /** Map It entered/left: the page hides the Goat Search dock meanwhile. */
+  onMappingModeChange?: (active: boolean) => void
   /** /go Quick-Draw share: outlines this ring on the map and fits the
       camera to it. [lng, lat] pairs, same convention as
       zoomToBoundsSignal/pinnedTractPolygon's coords. Does not need to be
@@ -1897,7 +1903,7 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -2159,7 +2165,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // project-map tract fetch effect below lists it in its deps array, which
   // is evaluated at render time.
   const [canUseProjectMaps, setCanUseProjectMaps] = useState(false)
+  // "Map It" (sandbox): the user is drawing a tract on this map. Same
+  // gate as the saved-maps layer. Suspends normal map interaction below.
+  // start: parcel (from the parcel panel) | tract (edit a saved map) |
+  // empty (Add a New Tract). projectId/projectName lock the project the
+  // tract is saved into (null = the user picks, or the server names one).
+  const [mappingMode, setMappingMode] = useState<{
+    start: TractStart; projectId: string | null; projectName: string | null
+  } | null>(null)
+  // Saved Projects slide-out (replaces the separate portfolio screens).
+  const [savedPanelOpen, setSavedPanelOpen] = useState(false)
+  const [savedPanelNonce, setSavedPanelNonce] = useState(0)
+  const [savedPanelFocus, setSavedPanelFocus] = useState<{ projectId: string; n: number } | null>(null)
+  // Old /map-portfolio and /configure-map links arrive as /access?project=<id>:
+  // open the Saved Projects panel on that project, then drop the param.
+  useEffect(() => {
+    if (!portalMode || typeof window === 'undefined') return
+    const u = new URL(window.location.href)
+    const id = u.searchParams.get('project')
+    if (!id) return
+    u.searchParams.delete('project')
+    window.history.replaceState(null, '', u.pathname + (u.search ? u.search : '') + u.hash)
+    setSavedPanelFocus({ projectId: id, n: Date.now() })
+    setSavedPanelOpen(true)
+  }, [portalMode])
+  // "Choose Parcel" armed inside an Add-a-New-Tract session.
+  const [chooseArmed, setChooseArmed] = useState(false)
   const [myTractsOn, setMyTractsOn] = useState(true)
+  const toggleMyTracts = useCallback(() => {
+    setMyTractsOn(v => {
+      try { localStorage.setItem('gg_saved_maps_layer', v ? 'off' : 'on') } catch { /* private mode */ }
+      return !v
+    })
+  }, [])
   const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
   const [myTractsError, setMyTractsError] = useState<string | null>(null)
@@ -2790,7 +2828,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const drawModeActiveRef = useRef(false)
   useEffect(() => { drawModeActiveRef.current = drawMode }, [drawMode])
   const mapInteractionSuspendedRef = useRef(false)
-  useEffect(() => { mapInteractionSuspendedRef.current = pinMode || drawMode }, [pinMode, drawMode])
+  useEffect(() => { mapInteractionSuspendedRef.current = pinMode || drawMode || !!mappingMode }, [pinMode, drawMode, mappingMode])
 
   // Cursor + Escape-to-cancel while in placement mode. The hint pill
   // itself is rendered in JSX below (top-center, under the nav).
@@ -3258,6 +3296,146 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // don't have this ordering constraint.
   const [parcelDataStates, setParcelDataStates] = useState<string[] | undefined>(undefined)
 
+  // ── Map It: one tract's editing session on this map ──────────────
+  // Saving turns "Show My Saved Maps" on and refreshes its geometry so
+  // the new map is visible immediately; the user never leaves this page.
+  const onMapItSaved = useCallback((info: SavedInfo) => {
+    setMappingMode(null)
+    setMyTractsOn(true)
+    refreshMyTracts()
+    setSavedPanelNonce(n => n + 1)
+    showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
+  }, [])
+  const tractEditor = useTractEditor({
+    mapRef, enabled: !!mappingMode, start: mappingMode?.start ?? null,
+    projectId: mappingMode?.projectId ?? null, projectName: mappingMode?.projectName ?? null,
+    onSaved: onMapItSaved,
+  })
+
+  // Reload the saved-maps layer after a save / rename / move / delete.
+  function refreshMyTracts() {
+    allTractsGeometry(true)
+      .then(r => { setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null) })
+      .catch(() => { /* the layer refreshes on next load */ })
+  }
+
+  // Fly to a saved map and outline it for a moment. Turns the layer on
+  // and loads the geometry first when it is not there yet.
+  const showSavedTract = useCallback(async (tractId: string) => {
+    setMyTractsOn(true)
+    let list = myTractsRef.current
+    if (!list.some(t => t.id === tractId)) {
+      try {
+        const r = await allTractsGeometry(true)
+        list = r.tracts
+        setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null)
+      } catch { return }
+    }
+    const t = list.find(x => x.id === tractId)
+    const map = mapRef.current
+    const bb = t?.boundary ? bboxOf(t.boundary.coordinates) : null
+    if (!t || !map || !bb) return
+    const narrow = (containerRef.current?.clientWidth ?? 800) < 700
+    map.fitBounds(bb as any, {
+      padding: { top: 90, bottom: 90, left: 60, right: narrow ? 60 : 340 + 60 },
+      maxZoom: 17, duration: 800,
+    })
+    const SRC = 'saved-tract-highlight', LYR = 'saved-tract-highlight-line'
+    try {
+      if (!map.getSource(SRC)) {
+        map.addSource(SRC, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      }
+      if (!map.getLayer(LYR)) {
+        map.addLayer({ id: LYR, type: 'line', source: SRC,
+          paint: { 'line-color': '#F58CDE', 'line-width': 5, 'line-opacity': 0.95 } })
+      }
+      const src = map.getSource(SRC) as maplibregl.GeoJSONSource
+      src.setData({ type: 'Feature', properties: {}, geometry: t.boundary } as any)
+      setTimeout(() => {
+        try { (mapRef.current?.getSource(SRC) as maplibregl.GeoJSONSource | undefined)
+          ?.setData({ type: 'FeatureCollection', features: [] } as any) } catch { /* map gone */ }
+      }, 2600)
+    } catch { /* style reloading; the fly-to still happened */ }
+  }, [])
+
+  const filterSlide = useSlide(filterOpen, 240)
+  // Belt and braces for the sideways-scroll bug above: nothing on this
+  // page should ever be scrolled horizontally.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const root = containerRef.current?.parentElement
+    if (root && root.scrollLeft) root.scrollLeft = 0
+    if (window.scrollX) window.scrollTo(0, window.scrollY)
+    if (document.documentElement.scrollLeft) document.documentElement.scrollLeft = 0
+  }, [utilitiesOpen, savedPanelOpen, filterOpen])
+
+  useEffect(() => { onMappingModeChange?.(!!mappingMode) }, [!!mappingMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Saved Projects panel: clicking a project zooms to all of its maps
+  // (owner 10/30) and turns the saved-maps layer on.
+  const showSavedProject = useCallback(async (projectId: string) => {
+    setMyTractsOn(true)
+    let list = myTractsRef.current
+    if (!list.some(t => t.project_id === projectId)) {
+      try {
+        const r = await allTractsGeometry(true)
+        list = r.tracts
+        setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null)
+      } catch { return }
+    }
+    const map = mapRef.current
+    if (!map) return
+    let w = 180, so = 90, e = -180, n = -90, seen = false
+    for (const t of list) {
+      if (t.project_id !== projectId || !t.boundary) continue
+      const bb = bboxOf(t.boundary.coordinates)
+      if (!bb) continue
+      seen = true
+      w = Math.min(w, bb[0][0]); so = Math.min(so, bb[0][1]); e = Math.max(e, bb[1][0]); n = Math.max(n, bb[1][1])
+    }
+    if (!seen) { showZoomToast('No maps in this project yet.'); return }
+    const narrow = (containerRef.current?.clientWidth ?? 800) < 700
+    map.fitBounds([[w, so], [e, n]], {
+      padding: { top: 90, bottom: 90, left: 60, right: narrow ? 60 : 340 + 60 },
+      maxZoom: 16, duration: 800,
+    })
+  }, [])
+
+  // Choose Parcel: while armed, the next click on a parcel loads its
+  // outline as the tract. The normal parcel handler is suspended
+  // (mapInteractionSuspendedRef), so this one gets the click.
+  useEffect(() => { if (!mappingMode) setChooseArmed(false) }, [mappingMode])
+  useEffect(() => {
+    const map = mapRef.current
+    if (!chooseArmed || !map) return
+    const hint = 'Zoom in until parcel lines show, then click a parcel'
+    const onPick = (e: maplibregl.MapMouseEvent) => {
+      const feats = map.getLayer('regrid-parcels-fill')
+        ? map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] }) : []
+      const props: any = feats[0]?.properties
+      const id = props?.ll_uuid || props?.path
+      if (!id) { showZoomToast(hint); return }
+      setChooseArmed(false)
+      void tractEditorRef.current?.loadParcel(String(id), true)
+    }
+    map.on('click', onPick)
+    map.getCanvas().style.cursor = 'crosshair'
+    return () => {
+      try { map.off('click', onPick); map.getCanvas().style.cursor = '' } catch { /* map torn down */ }
+    }
+  }, [chooseArmed])
+  const tractEditorRef = useRef<typeof tractEditor | null>(null)
+  tractEditorRef.current = tractEditor
+  // While mapping, the other panels stay out of the way.
+  useEffect(() => {
+    if (!mappingMode) return
+    setSavedPanelOpen(false)
+    setLandDetail(null)
+    setMyTractChoice(null)
+    setUtilitiesOpen(false)
+    setFilterOpenInternal(false)
+  }, [mappingMode, utilitiesOpen, filterOpen])
+
   // Fetch today's auction tracts on mount and re-fetch every 10 minutes so
   // the dots roll over correctly when the user keeps the tab open past
   // midnight (Central Time). Today's green dots are currently ALWAYS-ON
@@ -3326,8 +3504,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Used to render the silhouette badges with bbox-projected sizing.
   useEffect(() => {
     let cancelled = false
-    fetch('/data/us-states.json')
-      .then(r => r.ok ? r.json() : null)
+    // Retry (owner 10/30): one failed fetch here left every badge
+    // without an outline for the whole session.
+    const load = async (): Promise<any> => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try { const r = await fetch('/data/us-states.json'); if (r.ok) return await r.json() } catch { /* retry */ }
+        await new Promise(res => setTimeout(res, 800 * (attempt + 1)))
+      }
+      return null
+    }
+    load()
       .then((geo: any) => {
         if (cancelled || !geo?.features) return
         const paths: Record<string, string> = {}
@@ -3524,8 +3710,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // the layer with no toggle left on screen to turn it off (the tiles
   // and the toggle row itself are also unmounted by the same
   // canUseProjectMaps check, above and below).
+  // Owner 11/1: the layer is ON by default for anyone who can use it. The
+  // access check resolves after mount, so the "off" branch below used to
+  // win first and the toggle never came back on; now it comes on when
+  // access resolves unless the user switched it off themselves (their
+  // choice is remembered in localStorage).
   useEffect(() => {
-    if (!canUseProjectMaps) setMyTractsOn(false)
+    if (!canUseProjectMaps) { setMyTractsOn(false); return }
+    let saved: string | null = null
+    try { saved = localStorage.getItem('gg_saved_maps_layer') } catch { /* private mode */ }
+    setMyTractsOn(saved !== 'off')
   }, [canUseProjectMaps])
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
@@ -10224,8 +10418,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     ) => {
       const tl = map.project([bbox[0][0], bbox[1][1]])
       const br = map.project([bbox[1][0], bbox[0][1]])
-      const w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x) * SHRINK_FACTOR)
-      const h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y) * SHRINK_FACTOR)
+      let w = Math.max(MIN_BADGE_PX, Math.abs(br.x - tl.x) * SHRINK_FACTOR)
+      let h = Math.max(MIN_BADGE_PX, Math.abs(br.y - tl.y) * SHRINK_FACTOR)
+      // Clamp (owner 10/30): a badge stretched past ~1000 px mid zoom-out
+      // is what made Chrome paint the shadow's blur region as a black
+      // rectangle. Badges are fading out at those zooms anyway.
+      const MAX_BADGE_PX = 1000
+      const over = Math.max(w, h) / MAX_BADGE_PX
+      if (over > 1) { w /= over; h /= over }
       inner.style.width = `${w}px`
       inner.style.height = `${h}px`
     }
@@ -10261,8 +10461,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
       const silhouettePath = stateSilhouettes[state]
       const bbox = stateBboxes[state]
+
       const maskId = `aem-cut-${state}`
-      const blurId = `aem-blur-${state}`
 
       const el = document.createElement('div')
       el.className = 'aem-marker-shell'
@@ -10274,6 +10474,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // 62%-opacity silhouette on top. Result: shadow appears only
       // along the bottom-right edge, silhouette stays see-through,
       // state appears to lift off the map.
+      // Owner 10/30: same look as before, WITHOUT the SVG blur filter —
+      // Chrome painted the filter's whole region as a dark rectangle
+      // when a badge was stretched large mid zoom-out (reproduced in a
+      // headless run after restoring feGaussianBlur). The soft edge is
+      // now three masked offset copies at fading opacity: no filter,
+      // nothing can paint outside the state outline, and the shadow stays
+      // on through zoom animations (owner 10/30). A state with no
+      // outline draws NO shape (the old rounded-rectangle fallback is
+      // what overlapping bounding boxes would look like).
       inner.innerHTML = `
         <svg class="aem-state-shape" viewBox="0 0 100 100"
              preserveAspectRatio="none">
@@ -10284,21 +10493,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 <rect x="-50" y="-50" width="200" height="200" fill="white"/>
                 <path d="${silhouettePath}" fill="black"/>
               </mask>
-              <filter id="${blurId}" x="-30%" y="-30%" width="160%" height="160%">
-                <feGaussianBlur stdDeviation="1.5"/>
-              </filter>
             </defs>
-            <g mask="url(#${maskId})" pointer-events="none">
-              <path d="${silhouettePath}"
-                    fill="rgba(0,0,0,0.92)"
-                    transform="translate(3 4)"
-                    filter="url(#${blurId})"
-                    stroke="none"/>
+            <g class="aem-shadow" mask="url(#${maskId})" pointer-events="none">
+              <path d="${silhouettePath}" fill="rgba(0,0,0,0.18)" transform="translate(4.5 6)" stroke="none"/>
+              <path d="${silhouettePath}" fill="rgba(0,0,0,0.30)" transform="translate(3.6 4.8)" stroke="none"/>
+              <path d="${silhouettePath}" fill="rgba(0,0,0,0.55)" transform="translate(2.6 3.5)" stroke="none"/>
             </g>
             <path d="${silhouettePath}"
                   fill="rgba(10,10,12,0.62)"
                   stroke="none" />
-          ` : '<rect x="2" y="2" width="96" height="96" rx="6" fill="rgba(10,10,12,0.62)"/>'}
+          ` : ''}
         </svg>
         <div class="aem-state-overlay">
           <img src="/goat-icon-white.png" alt="" class="aem-state-goat" />
@@ -10362,13 +10566,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // ONLY when zoom is below the fade threshold. Above FADE_START the
     // badges are fading/gone and re-stretching them every frame is what
     // causes the mid-zoom glitch — skip it entirely.
+    // Owner 10/30: resize on EVERY move while the badge is still visible
+    // (below FADE_END), not only below FADE_START — a zoom-out that
+    // settled in the fade band left badges stretched to the size they
+    // were created at, overlapping their neighbours.
     const onMove = () => {
       const z = map.getZoom()
-      if (z < FADE_START) {
+      if (z < FADE_END) {
         for (const { inner, bbox } of sized) sizeBadge(inner, bbox)
       }
     }
     map.on('move', onMove)
+    map.on('moveend', onMove)
 
     // Live-zoom opacity: drive fade via direct DOM style manipulation
     // on the inner badge element. No React setState — that would cause
@@ -10395,6 +10604,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     return () => {
       map.off('move', onMove)
+      map.off('moveend', onMove)
       map.off('zoom', onZoomLive)
       fadeOutAndRemove(stateMarkersRef.current)
       stateMarkersRef.current = []
@@ -10829,7 +11039,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   })
 
   return (
-    <div className="comparables-map-container" style={{ height }}>
+    <div className="comparables-map-container" style={{ height, overflow: 'clip' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       {/* Drag-to-report chip — follows the pointer; pink when over the panel */}
       {dragChip && (
@@ -10896,12 +11106,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               const c = myTractChoice
               setMyTractChoice(null)
               if (!c) return
-              window.location.href = `/map-portfolio?project=${encodeURIComponent(c.projectId)}&tract=${encodeURIComponent(c.tractId)}`
+              setMappingMode({ start: { kind: 'tract', id: c.tractId }, projectId: c.projectId, projectName: c.projectName })
             }}
             style={{ display: 'block', width: '100%', padding: '8px 10px', borderRadius: 8, border: 'none',
                      background: 'linear-gradient(135deg, #ff7ad9 0%, #f58cde 100%)',
                      color: '#1a0a14', cursor: 'pointer', fontWeight: 700 }}>
-            Show Configurable Map
+            Edit in Map It
+          </button>
+          <button
+            onClick={() => {
+              const c = myTractChoice
+              setMyTractChoice(null)
+              if (!c) return
+              setSavedPanelFocus({ projectId: c.projectId, n: Date.now() })
+              setSavedPanelOpen(true)
+            }}
+            style={{ display: 'block', width: '100%', marginTop: 6, padding: '4px 0', background: 'none',
+                     border: 'none', color: '#F58CDE', cursor: 'pointer', fontSize: 12, textDecoration: 'underline' }}>
+            Open in Saved Projects
           </button>
           <button onClick={() => setMyTractChoice(null)} aria-label="Close"
                   style={{ position: 'absolute', top: 4, right: 6, background: 'none', border: 'none',
@@ -11145,7 +11367,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           Regrid parcel popup + the soil/crop popup. Docked to the right
           edge so it never overlaps map content. */}
       <LandDetailPanel
-        clickData={landDetail}
+        clickData={mappingMode ? null : landDetail}
         onClose={() => setLandDetail(null)}
         onGeometryResolved={handleParcelGeometryResolved}
         onToggleReport={onToggleReport}
@@ -11160,11 +11382,48 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
            one panel. */
         compMode={Boolean(subjectTractId)}
         onShowOwnedGround={onShowOwnedGround}
+        onMapIt={canUseProjectMaps ? (llUuid) => { setLandDetail(null); setMappingMode({ start: { kind: 'parcel', ll_uuid: llUuid }, projectId: null, projectName: null }) } : undefined}
         onFindComparables={onFindParcelComparables ? (p) => {
           setLandDetail(null)
           onFindParcelComparables(p)
         } : undefined}
       />
+
+      {/* Map It: the in-map tract editor. Normal map interaction is
+          suspended while this is up (mapInteractionSuspendedRef). */}
+      {mappingMode && (
+        <MapItToolbar
+          editor={tractEditor} onExit={() => setMappingMode(null)}
+          startKind={mappingMode.start.kind}
+          lockedProject={mappingMode.projectId
+            ? { id: mappingMode.projectId, name: mappingMode.projectName || 'this project' } : null}
+          choosing={chooseArmed}
+          onToggleChoose={() => {
+            if (!chooseArmed) tractEditor.cancelDraft()
+            setChooseArmed(v => !v)
+          }} />
+      )}
+
+      {/* Saved Projects slide-out: opened from the My Maps menu tile
+          (owner 10/30: no floating button on the map). Hidden while mapping. */}
+      {canUseProjectMaps && !mappingMode && (
+        <SavedProjectsPanel
+          open={savedPanelOpen}
+          onClose={() => setSavedPanelOpen(false)}
+          reloadNonce={savedPanelNonce}
+          focus={savedPanelFocus}
+          onShowTract={(id) => { void showSavedTract(id) }}
+          onShowProject={(id) => { void showSavedProject(id) }}
+          onChanged={refreshMyTracts}
+          onEditTract={(t) => {
+            setSavedPanelOpen(false)
+            setMappingMode({ start: { kind: 'tract', id: t.id }, projectId: t.projectId, projectName: t.projectName })
+          }}
+          onAddTract={(p) => {
+            setSavedPanelOpen(false)
+            setMappingMode({ start: { kind: 'empty' }, projectId: p.id, projectName: p.name })
+          }} />
+      )}
 
       {/* Goat Search animation overlay — renders while a chat-driven
           search is in flight. Pure visual sugar; pointer-events:none so
@@ -11409,7 +11668,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           display: 'flex',
           flexDirection: 'column',
           transform: utilitiesOpen ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 220ms ease',
+          // Owner 10/30: the closed panel used to sit just off the right
+          // edge and the page could scroll sideways to it (My Maps "stuck"
+          // beside Saved Projects). Hidden once closed, so nothing can
+          // focus it or scroll it into view; the container also clips.
+          visibility: utilitiesOpen ? 'visible' : 'hidden',
+          transition: utilitiesOpen ? 'transform 220ms ease' : 'transform 220ms ease, visibility 0s linear 220ms',
           pointerEvents: utilitiesOpen ? 'auto' : 'none',
           boxShadow: '-4px 0 24px rgba(0,0,0,0.5)',
         }}
@@ -11513,23 +11777,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     nav-dropdown links; they now live here instead. Gated
                     by canUseProjectMaps — see its declaration above for
                     exactly what it checks. */}
-                {/* Owner 10/6 (reversing his 9/16 "only Map Portfolio
-                    here" ruling now that the menu is "My Maps"): a "New
-                    Map Project" tile opens Configurable Mapping — the
-                    same link as the pink "New Project" button on the
-                    Saved Maps screen. Same gate as Saved Maps. */}
+                {/* "New Map Project" tile removed 10/30 (owner): new maps
+                    start from Map It on a parcel or from a project in the
+                    Saved Projects slide-out. */}
+                {/* Owner 10/30: the Saved Projects slide-out opens from
+                    here, never from a floating map button. */}
                 {canUseProjectMaps && (
                   <UtilityTile
-                    icon={<NewMapProjectIcon size={20} />}
-                    label="New Map Project"
-                    onClick={() => { window.location.href = '/configure-map' }}
-                  />
-                )}
-                {canUseProjectMaps && (
-                  <UtilityTile
-                    icon={<MapPortfolioIcon size={20} />}
-                    label="Saved Maps"
-                    onClick={() => { window.location.href = '/map-portfolio' }}
+                    icon={<SavedProjectsIcon size={20} />}
+                    label="Saved Projects"
+                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true) }}
                   />
                 )}
               </div>
@@ -11547,7 +11804,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {canUseProjectMaps && (
                 <>
                   <div
-                    onClick={() => setMyTractsOn(v => !v)}
+                    onClick={() => toggleMyTracts()}
                     style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
                   >
                     <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#2563eb', border: '1px solid rgba(255,255,255,0.2)' }} />
@@ -11556,7 +11813,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       role="switch"
                       aria-checked={myTractsOn}
                       aria-label="Show My Saved Maps"
-                      onClick={e => { e.stopPropagation(); setMyTractsOn(v => !v) }}
+                      onClick={e => { e.stopPropagation(); toggleMyTracts() }}
                       style={{
                         width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
                         background: myTractsOn ? '#F58CDE' : 'rgba(255,255,255,0.18)',
@@ -12129,7 +12386,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       </button>
 
       {/* Filter Panel */}
-      {filterOpen && (
+      {filterSlide.mounted && (
         <div style={{
           position: portalMode ? 'fixed' : 'absolute',
           top: 0,
@@ -12142,6 +12399,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
           display: 'flex',
           flexDirection: 'column',
+          // Owner 10/30: slide in/out like the Utilities panel, never pop.
+          transform: filterSlide.shown ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 240ms ease',
         }}>
           {/* Header */}
           <div style={{

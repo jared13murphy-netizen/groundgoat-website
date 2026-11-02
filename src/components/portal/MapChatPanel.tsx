@@ -29,6 +29,10 @@ const TOAST_ACCENT: Record<ToastKind, string> = {
 }
 
 interface MapChatPanelProps {
+  /** True while Map It is editing a tract: the bottom dock (search pill,
+   *  result chip, toast) stays out of the way so the Map It bar can sit
+   *  at the bottom of the map (owner 10/30). State is kept. */
+  hidden?: boolean
   /** Item 18 (owner 9/16): a state-restricted user's placeholder names
       their own state — "Iowa CSR2 75+" read as a dead end to an
       Illinois-only subscriber on the sandbox. null/undefined = unlimited. */
@@ -206,7 +210,7 @@ function SearchSpinner({ dotClassName = 'bg-white' }: { dotClassName?: string })
   )
 }
 
-export default function MapChatPanel({ allowedStates, onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch, openSignal }: MapChatPanelProps) {
+export default function MapChatPanel({ allowedStates, onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch, openSignal, hidden = false }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -629,7 +633,8 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
   }
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2"
+         style={hidden ? { opacity: 0, pointerEvents: 'none', transform: 'translate(-50%, 24px)', transition: 'opacity 180ms ease, transform 180ms ease' } : { transition: 'opacity 180ms ease, transform 180ms ease' }}>
       {/* Toast + optional Clear-search link */}
       <AnimatePresence>
         {toast && (
