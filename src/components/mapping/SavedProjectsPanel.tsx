@@ -54,7 +54,7 @@ interface Props {
 const panel: CSSProperties = {
   position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 540,
   width: 'min(340px, calc(100% - 24px))', boxSizing: 'border-box',
-  background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(8px)', color: '#fff',
+  background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)', color: '#fff',  // owner 11/1: less see-through
   boxShadow: '-4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
   transition: 'transform 240ms ease',
   fontSize: 13,
