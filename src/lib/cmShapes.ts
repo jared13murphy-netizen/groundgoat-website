@@ -183,6 +183,43 @@ export function simplifyShapes(shapes: Shape[]): Shape[] {
   }))
 }
 
+/** After the server's overlap clean-up, drop ONLY the vertices PostGIS
+ *  inserted along shared edges (points that were not in `original` and
+ *  sit on a straight line between their neighbours). A dot the user placed
+ *  is never removed (owner 11/2: only a right-click deletes a dot). */
+export function stripInsertedVertices(shapes: Shape[], original: Shape[]): Shape[] {
+  const keep = new Set<string>()
+  for (const sh of original) for (const rings of sh.polys) for (const ring of rings)
+    for (const pt of ring) keep.add(`${pt[0].toFixed(9)},${pt[1].toFixed(9)}`)
+  const perp = (p: Pt, a: Pt, b: Pt) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1]
+    const len2 = dx * dx + dy * dy
+    if (len2 === 0) return Math.hypot(p[0] - a[0], p[1] - a[1])
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2))
+    return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
+  }
+  return shapes.map((sh) => ({
+    ...sh,
+    polys: sh.polys.map((rings) => rings.map((ring) => {
+      if (ring.length < 4) return ring
+      const lngs = ring.map((pt) => pt[0]), lats = ring.map((pt) => pt[1])
+      const tol = Math.hypot(Math.max(...lngs) - Math.min(...lngs), Math.max(...lats) - Math.min(...lats)) * 0.005
+      let out = ring
+      // repeat: dropping one inserted point can make the next one collinear
+      for (let pass = 0; pass < 3; pass++) {
+        const next = out.filter((pt, i) => {
+          if (keep.has(`${pt[0].toFixed(9)},${pt[1].toFixed(9)}`)) return true
+          const a = out[(i - 1 + out.length) % out.length], b = out[(i + 1) % out.length]
+          return perp(pt, a, b) > tol
+        })
+        if (next.length === out.length || next.length < 3) break
+        out = next
+      }
+      return out
+    })),
+  }))
+}
+
 /** Ray cast. Rings here are open — first point is not repeated. */
 export function pointInRing(pt: Pt, ring: Pt[]): boolean {
   let inside = false
