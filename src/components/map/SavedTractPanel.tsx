@@ -180,7 +180,7 @@ export default function SavedTractPanel({
   const place = [detail?.county ? `${detail.county} County` : '', detail?.state || ''].filter(Boolean).join(', ')
   const multi = (detail?.project_tract_count ?? 0) > 1
   const landRows: [string, number | null | undefined][] = [
-    ['Tillable', detail?.tillable_acres], ['Pasture', detail?.pasture_acres], ['Timber', detail?.timber_acres],
+    ['Tillable', detail?.tillable_acres], ['Timber', detail?.timber_acres],
     ['Water', detail?.water_acres], ['Other', detail?.other_acres],
   ]
   const soils = detail?.soil?.breakdown || []

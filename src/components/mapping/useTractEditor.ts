@@ -140,6 +140,8 @@ export function useTractEditor({
   const redoRef = useRef<Hist[]>([])
   const cleanRef = useRef('')
   const savedIdRef = useRef<string | null>(null)
+  // Mirror for the UI (owner 11/2: a Reports button once the tract exists).
+  const [savedId, setSavedId] = useState<string | null>(null)
   const savingRef = useRef(false)
   const classifyingRef = useRef<Promise<void> | null>(null)
   const loadSeq = useRef(0)
@@ -249,7 +251,7 @@ export function useTractEditor({
   const resetSession = useCallback(() => {
     loadSeq.current++
     histRef.current = []; redoRef.current = []
-    savedIdRef.current = null; classifyingRef.current = null; sourceRef.current = []
+    savedIdRef.current = null; setSavedId(null); classifyingRef.current = null; sourceRef.current = []
     setDetail(null); setBoundaryState([]); setShapesState([]); setClassified(false)
     setDefaultNameSaved('')
     setModeState('outline'); setTool(null); setDrawing(false); setDraft([]); setCutPts([])
@@ -304,7 +306,7 @@ export function useTractEditor({
         if (seq !== loadSeq.current) return
         const rings = geometryToPolys(t.boundary)
         const loaded = simplifyShapes(explodeShapes(t.polygons as any))
-        savedIdRef.current = t.id
+        savedIdRef.current = t.id; setSavedId(t.id)
         sourceRef.current = t.source_ll_uuids || []
         boundaryRef.current = rings; shapesRef.current = loaded; classifiedRef.current = true
         setBoundaryState(rings)
@@ -730,7 +732,7 @@ export function useTractEditor({
       const res = savedIdRef.current
         ? await updateParcel(savedIdRef.current, payload)
         : await saveParcel(payload)
-      savedIdRef.current = res.id
+      savedIdRef.current = res.id; setSavedId(res.id)
       markClean(shapesRef.current, boundaryRef.current)
       onSavedRef.current?.({
         id: res.id,
@@ -1259,7 +1261,7 @@ export function useTractEditor({
 
   return {
     // state
-    loading, busy, error, notice, dirty,
+    loading, busy, error, notice, dirty, savedId,
     mode, tool, drawing, draft, selectedId, drawClass,
     shapes, boundary, detail, classified,
     totals, boundaryAcres, soil, soilBusy, holesOnSelected, defaultName,
