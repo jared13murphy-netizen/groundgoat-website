@@ -178,7 +178,12 @@ export function simplifyShapes(shapes: Shape[]): Shape[] {
         Math.max(...lngs) - Math.min(...lngs),
         Math.max(...lats) - Math.min(...lats),
       )
-      return simplifyRing(ring, diag * 0.005)
+      // Owner 11/2: 0.5% of the diagonal (~8 m on a quarter section) was
+      // moving the engine's tillable edge enough to add ~3% of acres over
+      // what the server measures (153.1 vs 148.3 on one parcel). Keep the
+      // vertex thinning for the editor, but at a tolerance the acres do not
+      // notice (~0.03% of the diagonal, under half a metre on a field).
+      return simplifyRing(ring, diag * 0.0003)
     })),
   }))
 }
