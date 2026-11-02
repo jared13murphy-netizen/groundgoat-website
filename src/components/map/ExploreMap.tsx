@@ -2176,6 +2176,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [mappingMode, setMappingMode] = useState<{
     start: TractStart; projectId: string | null; projectName: string | null
   } | null>(null)
+  // The tract saved from Map It this session (id + project). The project
+  // feeds the bar's report buttons when the server made it; the id keeps
+  // the saved copy off the saved-maps layer while it is still being edited.
+  const [mapItSaved, setMapItSaved] = useState<{ id: string; project: { id: string; name: string } | null } | null>(null)
+  useEffect(() => { setMapItSaved(null) }, [mappingMode])
+  // Saved tract currently open in Map It: hidden from the saved-maps layer
+  // so the editor's own rendering is not drawn over (owner 11/2: stay in
+  // Map It after Save).
+  const editingTractId = mappingMode
+    ? (mappingMode.start.kind === 'tract' ? mappingMode.start.id : mapItSaved?.id ?? null) : null
   // Saved Projects slide-out (replaces the separate portfolio screens).
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
@@ -2244,7 +2254,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     if (!map.getSource('my-tracts')) return
-    const feats = myTracts.filter(t => t.boundary).map(t => ({
+    const shownTracts = editingTractId ? myTracts.filter(t => t.id !== editingTractId) : myTracts
+    const feats = shownTracts.filter(t => t.boundary).map(t => ({
       type: 'Feature' as const,
       geometry: t.boundary,
       properties: {
@@ -2268,7 +2279,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // project shows the tract name alone.
     const tractsPerProject = new Map<string, number>()
     for (const t of myTracts) tractsPerProject.set(t.project_id, (tractsPerProject.get(t.project_id) ?? 0) + 1)
-    const labelFeats: any[] = myTracts.filter(t => t.label_point).map(t => ({
+    const labelFeats: any[] = shownTracts.filter(t => t.label_point).map(t => ({
       type: 'Feature', geometry: t.label_point,
       properties: {
         kind: 'tract', tractId: t.id, projectId: t.project_id, name: t.name || 'Untitled',
@@ -2282,7 +2293,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // The land types inside each tract, coloured exactly as Configure Map
     // colours them: tillable green, timber red, pasture orange, water
     // blue, other grey.
-    const shapeFeats = myTracts.flatMap(t => (t.polygons || [])
+    const shapeFeats = shownTracts.flatMap(t => (t.polygons || [])
       .filter(sh => sh.geometry)
       .map(sh => ({
         type: 'Feature' as const,
@@ -2301,7 +2312,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       'my-tract-shapes-line', 'my-tracts-line', 'my-tracts-label']) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
     }
-  }, [myTracts, myTractsOn, mapLoaded, reportIds])
+  }, [myTracts, myTractsOn, mapLoaded, reportIds, editingTractId])
 
   // Owner "show on map" chat search: push dots into the owner-parcels
   // source (added once in the map-init block) and zoom to their bbox.
@@ -3314,9 +3325,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ── Map It: one tract's editing session on this map ──────────────
   // Saving turns "Show My Saved Maps" on and refreshes its geometry so
   // the new map is visible immediately; the user never leaves this page.
-  // Project the Map It tract was saved into this session (for the bar's
-  // report buttons when the server made the project). Reset per session.
-  const [mapItSavedProject, setMapItSavedProject] = useState<{ id: string; name: string } | null>(null)
   const onMapItSaved = useCallback((info: SavedInfo) => {
     // Owner 11/2: stay in Map It after Save — the bar shows the report
     // buttons so the reports can be built right after saving. "Done"
@@ -3325,9 +3333,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     refreshMyTracts()
     setSavedPanelNonce(n => n + 1)
     showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
-    if (info.projectId) setMapItSavedProject({ id: info.projectId, name: info.projectName || 'your maps' })
+    setMapItSaved({ id: info.id, project: info.projectId ? { id: info.projectId, name: info.projectName || 'your maps' } : null })
   }, [])
-  useEffect(() => { setMapItSavedProject(null) }, [mappingMode])
   const tractEditor = useTractEditor({
     mapRef, enabled: !!mappingMode, start: mappingMode?.start ?? null,
     projectId: mappingMode?.projectId ?? null, projectName: mappingMode?.projectName ?? null,
@@ -11441,7 +11448,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           startKind={mappingMode.start.kind}
           lockedProject={mappingMode.projectId
             ? { id: mappingMode.projectId, name: mappingMode.projectName || 'this project' } : null}
-          savedProject={mapItSavedProject}
+          savedProject={mapItSaved?.project ?? null}
           canUseReports={Boolean(canUseReports)}
           choosing={chooseArmed}
           onToggleChoose={() => {
