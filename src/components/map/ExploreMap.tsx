@@ -68,7 +68,6 @@ import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract
 // Zoom split for the user's project tracts (owner 9/22): below this the
 // map shows one badge per PROJECT, above it the individual tract names.
 // Same value the Map Portfolio uses.
-const MY_TRACTS_PROJECT_BADGE_MAX_ZOOM = 13
 // Utilities panel icons (2026-09-08). The map-outline + wrench trigger
 // icon itself now lives in PortalNavBar (top pill nav, owner ruling
 // 2026-09-08 moved it out of this file) — only the panel's own tile/action
@@ -140,7 +139,6 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'town-labels',
   // Owner 11/1: the subscriber's own saved-tract labels (boxed) must sit
   // above the parcel owner labels, never under them.
-  'my-tracts-project-label',
   'my-tracts-label',
   'tract-pin-circles',
   'tract-pin-labels',
@@ -2276,18 +2274,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         projectName: t.project_name || '', projectCount: tractsPerProject.get(t.project_id) ?? 1,
       },
     }))
-    const largestByProject = new Map<string, PortfolioTract>()
-    for (const t of myTracts) {
-      if (!t.label_point) continue
-      const cur = largestByProject.get(t.project_id)
-      if (!cur || (t.acres ?? 0) > (cur.acres ?? 0)) largestByProject.set(t.project_id, t)
-    }
-    for (const t of Array.from(largestByProject.values())) {
-      labelFeats.push({
-        type: 'Feature', geometry: t.label_point,
-        properties: { kind: 'project', tractId: t.id, projectId: t.project_id, name: t.project_name || 'Untitled project' },
-      })
-    }
     ;(map.getSource('my-tracts-labels') as maplibregl.GeoJSONSource)?.setData(
       { type: 'FeatureCollection', features: labelFeats } as any)
 
@@ -2310,7 +2296,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     const vis = myTractsOn ? 'visible' : 'none'
     for (const id of ['my-tracts-fill', 'my-tract-shapes-fill',
-                      'my-tract-shapes-line', 'my-tracts-line', 'my-tracts-label', 'my-tracts-project-label']) {
+                      'my-tract-shapes-line', 'my-tracts-line', 'my-tracts-label']) {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
     }
   }, [myTracts, myTractsOn, mapLoaded, reportIds])
@@ -5405,45 +5391,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       }
       map.addLayer({
-        id: 'my-tracts-project-label',
-        type: 'symbol',
-        source: 'my-tracts-labels',
-        maxzoom: MY_TRACTS_PROJECT_BADGE_MAX_ZOOM,
-        filter: ['==', ['get', 'kind'], 'project'],
-        layout: {
-          visibility: 'none',
-          'text-field': ['get', 'name'],
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-          'text-size': 13,
-          'text-max-width': 14,
-          'text-justify': 'center',
-          // The subscriber's own project name must never lose the
-          // collision fight to the parcel owner labels around it (at z12
-          // in Hancock IL the badge was silently dropped every time).
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-          // Owner 11/1: same black rounded box as the tract labels.
-          'icon-image': 'gg-label-box',
-          'icon-text-fit': 'both',
-          'icon-text-fit-padding': [5, 9, 5, 9],
-          'icon-allow-overlap': true,
-          'icon-ignore-placement': true,
-        },
-        paint: {
-          'text-color': '#ffffff',
-        },
-      })
-      map.addLayer({
         id: 'my-tracts-label',
         type: 'symbol',
         source: 'my-tracts-labels',
-        minzoom: MY_TRACTS_PROJECT_BADGE_MAX_ZOOM,
+        // Owner 11/1: ONE label style at every zoom (no separate
+        // zoomed-out project badge): bold project name over the regular
+        // tract name when the project has several tracts, else the tract
+        // name alone.
         filter: ['==', ['get', 'kind'], 'tract'],
         layout: {
           visibility: 'none',
           'text-field': ['case', ['>', ['get', 'projectCount'], 1],
-            ['concat', ['get', 'projectName'], '\n', ['get', 'name']],
-            ['get', 'name']],
+            ['format',
+              ['get', 'projectName'], { 'text-font': ['literal', ['Open Sans Bold', 'Arial Unicode MS Bold']] },
+              '\n', {},
+              ['get', 'name'], { 'text-font': ['literal', ['Open Sans Regular', 'Arial Unicode MS Regular']] }],
+            ['format', ['get', 'name'], { 'text-font': ['literal', ['Open Sans Regular', 'Arial Unicode MS Regular']] }]],
           'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
           'text-size': 12,
           'text-max-width': 12,
