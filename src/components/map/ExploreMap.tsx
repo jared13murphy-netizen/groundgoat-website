@@ -2184,8 +2184,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Saved tract currently open in Map It: hidden from the saved-maps layer
   // so the editor's own rendering is not drawn over (owner 11/2: stay in
   // Map It after Save).
-  const editingTractId = mappingMode
-    ? (mappingMode.start.kind === 'tract' ? mappingMode.start.id : mapItSaved?.id ?? null) : null
+  const [editingTractId, setEditingTractId] = useState<string | null>(null)
   // Saved Projects slide-out (replaces the separate portfolio screens).
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
@@ -3335,11 +3334,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
     setMapItSaved({ id: info.id, project: info.projectId ? { id: info.projectId, name: info.projectName || 'your maps' } : null })
   }, [])
+  // (mirrors the editor's savedId: set on load of a saved tract, on a
+  // parcel that already has one, and after the first save)
   const tractEditor = useTractEditor({
     mapRef, enabled: !!mappingMode, start: mappingMode?.start ?? null,
     projectId: mappingMode?.projectId ?? null, projectName: mappingMode?.projectName ?? null,
     onSaved: onMapItSaved,
   })
+  useEffect(() => { setEditingTractId(mappingMode ? tractEditor.savedId : null) }, [mappingMode, tractEditor.savedId])
 
   // Reload the saved-maps layer after a save / rename / move / delete.
   function refreshMyTracts() {
