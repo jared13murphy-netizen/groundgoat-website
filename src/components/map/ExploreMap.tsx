@@ -5386,30 +5386,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Owner 9/22: zoomed out, the PROJECT name (one badge per project,
       // on its largest tract); zoomed in past 13, the tract names — the
       // same split the Map Portfolio uses.
-      map.addLayer({
-        id: 'my-tracts-project-label',
-        type: 'symbol',
-        source: 'my-tracts-labels',
-        maxzoom: MY_TRACTS_PROJECT_BADGE_MAX_ZOOM,
-        filter: ['==', ['get', 'kind'], 'project'],
-        layout: {
-          visibility: 'none',
-          'text-field': ['get', 'name'],
-          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-          'text-size': 13,
-          'text-max-width': 14,
-          // The subscriber's own project name must never lose the
-          // collision fight to the parcel owner labels around it (at z12
-          // in Hancock IL the badge was silently dropped every time).
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-        },
-        paint: {
-          'text-color': '#f58cde',
-          'text-halo-color': 'rgba(0,0,0,0.85)',
-          'text-halo-width': 1.6,
-        },
-      })
       // Owner 11/1: the tract label sits in a black rounded box at the
       // same opacity as the Saved Projects panel (0.92). The box is a
       // stretchable image fitted to the text (icon-text-fit).
@@ -5428,6 +5404,35 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             { pixelRatio: 2, stretchX: [[12, 36]], stretchY: [[12, 36]], content: [12, 12, 36, 36] })
         }
       }
+      map.addLayer({
+        id: 'my-tracts-project-label',
+        type: 'symbol',
+        source: 'my-tracts-labels',
+        maxzoom: MY_TRACTS_PROJECT_BADGE_MAX_ZOOM,
+        filter: ['==', ['get', 'kind'], 'project'],
+        layout: {
+          visibility: 'none',
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-size': 13,
+          'text-max-width': 14,
+          'text-justify': 'center',
+          // The subscriber's own project name must never lose the
+          // collision fight to the parcel owner labels around it (at z12
+          // in Hancock IL the badge was silently dropped every time).
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+          // Owner 11/1: same black rounded box as the tract labels.
+          'icon-image': 'gg-label-box',
+          'icon-text-fit': 'both',
+          'icon-text-fit-padding': [5, 9, 5, 9],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+        },
+        paint: {
+          'text-color': '#ffffff',
+        },
+      })
       map.addLayer({
         id: 'my-tracts-label',
         type: 'symbol',
