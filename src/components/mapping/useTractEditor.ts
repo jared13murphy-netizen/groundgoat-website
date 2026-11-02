@@ -387,11 +387,19 @@ export function useTractEditor({
     // fingerprint of the shape being edited and re-select its replacement.
     const keep = keepId ? next.find((sh) => sh.id === keepId) : undefined
     const mark = keep ? ringCentre(keep.polys) : null
+    // Owner 11/2: the shape the user just edited must WIN the overlap
+    // (the server lets the last shape in the list win), otherwise its
+    // neighbour trims it back along the old shared edge and the corner the
+    // user removed comes straight back.
+    const ordered = keep ? [...next.filter((sh) => sh.id !== keepId), keep] : next
     try {
-      const res = await normalizeGeometry(bGeom, next
+      const res = await normalizeGeometry(bGeom, ordered
         .map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) }))
         .filter((x) => x.geometry) as any)
-      const rebuilt = explodeShapes(res.polygons as any)
+      // Simplify like every other load path does: PostGIS's intersection /
+      // difference adds vertices along the shared edges, which showed up as
+      // new dots in odd places after a delete (owner 11/2).
+      const rebuilt = simplifyShapes(explodeShapes(res.polygons as any))
       setShapesState(rebuilt)
       let again: string | null = null
       if (keep && mark) {
