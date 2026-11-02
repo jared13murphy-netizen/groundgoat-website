@@ -23,6 +23,7 @@ import { canUseReportsFor } from '@/lib/reportAccess'
 import { decodeArea } from '@/lib/shareLink'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
+import { buildParcelReportRow } from '@/lib/parcelReportRow'
 import MapChatPanel from '@/components/portal/MapChatPanel'
 import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
@@ -335,6 +336,37 @@ function AccessPortalPageInner() {
   const handleOwnerParcels = (data: OwnerParcelsResponse, reply: string) => {
     setOwnerParcelsResult({ data, reply, nonce: Date.now() })
   }
+  // Owner 11/2: "Add All to Report" after Show Owned Ground — every dot
+  // becomes a report row through the SAME builder the drag/one-by-one
+  // path uses (one data path, owner 10/13), four at a time, then the
+  // report slide-out opens.
+  const [addingAllOwned, setAddingAllOwned] = useState<{ done: number; total: number } | null>(null)
+  const addAllOwnedToReport = async () => {
+    const dots = ownerParcelsResult?.data?.dots || []
+    if (!dots.length || addingAllOwned) return
+    setAddingAllOwned({ done: 0, total: dots.length })
+    const queue = [...dots]
+    const added: TractSaleData[] = []
+    const worker = async () => {
+      for (;;) {
+        const d = queue.shift()
+        if (!d) return
+        try {
+          const row = await buildParcelReportRow({ ll_uuid: null, lat: d.lat, lng: d.lng, tileProps: null })
+          if (row) added.push(row as TractSaleData)
+        } catch { /* skip that one */ }
+        setAddingAllOwned(prev => prev ? { ...prev, done: prev.done + 1 } : prev)
+      }
+    }
+    await Promise.all([worker(), worker(), worker(), worker()])
+    setReportIds(prev => { const next = new Set(prev); added.forEach(r => next.add(r.id)); return next })
+    setReportTracts(prev => {
+      const have = new Set(prev.map(t => t.id))
+      return [...prev, ...added.filter(r => !have.has(r.id))]
+    })
+    setAddingAllOwned(null)
+    if (added.length) setShowMainReportPanel(true)
+  }
   // "Show Owned Ground" (owner spec 2026-08-18) — the parcel panel's
   // button. Deterministic REST call (no LLM), then the result flows into
   // the exact same owner-dots pipeline a Goat Search owner lookup uses.
@@ -405,6 +437,8 @@ function AccessPortalPageInner() {
   // True in either comp mode. ExploreMap keys comp mode off `subjectTractId`,
   // so a parcel subject hands it a non-tract sentinel (never a real tract id).
   const compModeOn = Boolean(subjectTractId || subjectParcel)
+  const addAllOwnedLabel = addingAllOwned ? `Adding ${addingAllOwned.done}/${addingAllOwned.total}…` : 'Add All to Report'
+  const canAddAllOwned = !!ownerParcelsResult?.data?.dots?.length && !compModeOn
   const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [comparablesSubjectInfo, setComparablesSubjectInfo] = useState<any>(null)
   const [showComparablesReportPanel, setShowComparablesReportPanel] = useState(false)
@@ -991,7 +1025,7 @@ function AccessPortalPageInner() {
           tract_id: null,
           listing_id: null,
           subject_kind: p.saved_id ? 'saved' : 'parcel',
-          subject_cm_id: p.saved_id || null,
+          subject_cm_id: p.saved_id || null, subject_ll_uuid: p.saved_id ? null : (p.ll_uuid || null),
         })
         const subLat = sc.subject_latitude ?? p.lat
         const subLng = sc.subject_longitude ?? p.lng
@@ -1004,11 +1038,11 @@ function AccessPortalPageInner() {
           }, 100)
         }
       } else {
-        setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: p.saved_id ? 'saved' : 'parcel', subject_cm_id: p.saved_id || null })
+        setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: p.saved_id ? 'saved' : 'parcel', subject_cm_id: p.saved_id || null, subject_ll_uuid: p.saved_id ? null : (p.ll_uuid || null) })
       }
     } catch (err) {
       console.error('Failed to fetch subject parcel info:', err)
-      setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: p.saved_id ? 'saved' : 'parcel', subject_cm_id: p.saved_id || null })
+      setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: p.saved_id ? 'saved' : 'parcel', subject_cm_id: p.saved_id || null, subject_ll_uuid: p.saved_id ? null : (p.ll_uuid || null) })
     }
     setReportIds(new Set())
     setReportTracts([])
@@ -1572,6 +1606,12 @@ function AccessPortalPageInner() {
             style={{ maxWidth: 'min(520px, calc(100vw - 96px))', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
           >
             <span className="truncate">{activeSearchQuery}</span>
+            {canAddAllOwned && (
+              <button onClick={() => void addAllOwnedToReport()} disabled={!!addingAllOwned}
+                className="flex-shrink-0 px-3 py-1 rounded-full bg-gg-pink text-black text-[12px] font-semibold disabled:opacity-60">
+                {addAllOwnedLabel}
+              </button>
+            )}
             <button onClick={() => clearActiveSearch()} aria-label="Clear owned ground"
               className="flex-shrink-0 w-6 h-6 rounded-full bg-white/12 hover:bg-white/20 flex items-center justify-center transition-colors">
               <X size={12} />
@@ -1593,6 +1633,7 @@ function AccessPortalPageInner() {
           onOwnerParcels={handleOwnerParcels}
           onSearchQueryStart={setActiveSearchQuery}
           activeSearchQuery={activeSearchQuery}
+          addAllToReport={canAddAllOwned ? { label: addAllOwnedLabel, busy: !!addingAllOwned, run: () => void addAllOwnedToReport() } : null}
           clearActiveSearch={() => clearActiveSearch(true)}  /* owner 10/30: clearing a search must not move the camera */
           hasActiveFilters={
             !!chatAppliedFilters?.filters &&
