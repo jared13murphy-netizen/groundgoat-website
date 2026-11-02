@@ -2272,6 +2272,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       properties: {
         kind: 'tract', tractId: t.id, projectId: t.project_id, name: t.name || 'Untitled',
         projectName: t.project_name || '', projectCount: tractsPerProject.get(t.project_id) ?? 1,
+        acres: t.acres ?? 0,
       },
     }))
     ;(map.getSource('my-tracts-labels') as maplibregl.GeoJSONSource)?.setData(
@@ -5412,13 +5413,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-max-width': 12,
           'text-justify': 'center',
           'text-line-height': 1.25,
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
+          // Owner 11/1: boxes must never pile up. Collisions are resolved
+          // by the map: the larger tract's label is placed first and wins;
+          // a label that would overlap it hides until the user zooms in.
+          // This layer is lifted above the parcel labels, so it also wins
+          // against them (see MARKER_LAYERS_BOTTOM_TO_TOP).
+          'text-allow-overlap': false,
+          'text-ignore-placement': false,
+          'symbol-sort-key': ['-', 0, ['get', 'acres']],
           'icon-image': 'gg-label-box',
           'icon-text-fit': 'both',
           'icon-text-fit-padding': [5, 9, 5, 9],
-          'icon-allow-overlap': true,
-          'icon-ignore-placement': true,
+          'icon-allow-overlap': false,
+          'icon-ignore-placement': false,
         },
         paint: {
           'text-color': '#ffffff',
