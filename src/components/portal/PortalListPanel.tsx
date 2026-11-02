@@ -498,7 +498,11 @@ export default function PortalListPanel({ listings, loading, activeTab, onClose,
             )}
           </div>
         )}
-        {!selectedListingId && !loading && (searching || (typeof total === 'number' && total > 0)) && (
+        {/* Owner 11/2: the "x of y" count only while a search or a map
+            filter is narrowing the list; never on the plain list. */}
+        {!selectedListingId && !loading
+          && (searchQuery.trim() !== '' || !!activeFilters?.stateFilter || (activeFilters?.countyFilters?.length ?? 0) > 0)
+          && (searching || (typeof total === 'number' && total > 0)) && (
           <p className="text-[11px] text-gg-gray-500 mt-2">
             {searching
               ? 'Searching…'
