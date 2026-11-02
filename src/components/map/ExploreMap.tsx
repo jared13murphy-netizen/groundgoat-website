@@ -2260,9 +2260,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       { type: 'FeatureCollection', features: feats } as any)
     // Label points: every tract (shown zoomed in) + one project badge on
     // the project's largest tract (shown zoomed out). Owner 9/22.
+    // Owner 11/1: a tract label carries the PROJECT name above the tract
+    // name when the project holds more than one tract; a one-tract
+    // project shows the tract name alone.
+    const tractsPerProject = new Map<string, number>()
+    for (const t of myTracts) tractsPerProject.set(t.project_id, (tractsPerProject.get(t.project_id) ?? 0) + 1)
     const labelFeats: any[] = myTracts.filter(t => t.label_point).map(t => ({
       type: 'Feature', geometry: t.label_point,
-      properties: { kind: 'tract', tractId: t.id, projectId: t.project_id, name: t.name || 'Untitled' },
+      properties: {
+        kind: 'tract', tractId: t.id, projectId: t.project_id, name: t.name || 'Untitled',
+        projectName: t.project_name || '', projectCount: tractsPerProject.get(t.project_id) ?? 1,
+      },
     }))
     const largestByProject = new Map<string, PortfolioTract>()
     for (const t of myTracts) {
@@ -5398,6 +5406,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-halo-width': 1.6,
         },
       })
+      // Owner 11/1: the tract label sits in a black rounded box at the
+      // same opacity as the Saved Projects panel (0.92). The box is a
+      // stretchable image fitted to the text (icon-text-fit).
+      if (!map.hasImage('gg-label-box')) {
+        const c = document.createElement('canvas'); c.width = 48; c.height = 48
+        const ctx = c.getContext('2d')
+        if (ctx) {
+          const r = 12, w = 48, h = 48
+          ctx.fillStyle = 'rgba(0,0,0,0.92)'
+          ctx.beginPath()
+          ctx.moveTo(r, 0); ctx.lineTo(w - r, 0); ctx.quadraticCurveTo(w, 0, w, r)
+          ctx.lineTo(w, h - r); ctx.quadraticCurveTo(w, h, w - r, h)
+          ctx.lineTo(r, h); ctx.quadraticCurveTo(0, h, 0, h - r)
+          ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0); ctx.closePath(); ctx.fill()
+          map.addImage('gg-label-box', ctx.getImageData(0, 0, 48, 48),
+            { pixelRatio: 2, stretchX: [[12, 36]], stretchY: [[12, 36]], content: [12, 12, 36, 36] })
+        }
+      }
       map.addLayer({
         id: 'my-tracts-label',
         type: 'symbol',
@@ -5406,17 +5432,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         filter: ['==', ['get', 'kind'], 'tract'],
         layout: {
           visibility: 'none',
-          'text-field': ['get', 'name'],
+          'text-field': ['case', ['>', ['get', 'projectCount'], 1],
+            ['concat', ['get', 'projectName'], '\n', ['get', 'name']],
+            ['get', 'name']],
           'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
           'text-size': 12,
           'text-max-width': 12,
+          'text-justify': 'center',
+          'text-line-height': 1.25,
           'text-allow-overlap': true,
           'text-ignore-placement': true,
+          'icon-image': 'gg-label-box',
+          'icon-text-fit': 'both',
+          'icon-text-fit-padding': [5, 9, 5, 9],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
         },
         paint: {
           'text-color': '#ffffff',
-          'text-halo-color': 'rgba(0,0,0,0.85)',
-          'text-halo-width': 1.6,
         },
       })
 
