@@ -964,7 +964,7 @@ export function useTractEditor({
         return true
       }
       if (owner !== '__boundary__' && modeRef.current === 'landtypes') {
-        mutate((prev) => prev.map((sh) => sh.id !== owner ? sh : {
+        const next = shapesRef.current.map((sh) => sh.id !== owner ? sh : {
           ...sh,
           polys: sh.polys.map((rings, p2) => p2 !== pi ? rings
             : dropDegenerateHoles(rings.map((ring, i) => {
@@ -972,7 +972,12 @@ export function useTractEditor({
               if (ring.length <= 3) return ri === 0 ? ring : []
               return ring.filter((_, v) => v !== vi)
             }))),
-        }))
+        })
+        mutate(() => next)
+        // Owner 11/1: removing a corner reshapes the polygon exactly like
+        // dragging one does, so the neighbours must give way the same way
+        // (dragging already re-checks overlap on drag end).
+        void enforceRef.current(next, owner)
         return true
       }
       return false
