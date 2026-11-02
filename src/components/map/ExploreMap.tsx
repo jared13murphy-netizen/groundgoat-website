@@ -48,6 +48,7 @@ import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } fr
 import MapItToolbar from '@/components/mapping/MapItToolbar'
 import { useTractEditor, type SavedInfo, type TractStart } from '@/components/mapping/useTractEditor'
 import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
+import SavedTractPanel from './SavedTractPanel'
 import { bboxOf } from '@/lib/cmShapes'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
 import { countyCentroids } from '@/data/countyCentroids'
@@ -1644,7 +1645,7 @@ interface ExploreMapProps {
   pinnedTractPolygon?: { id: string; coords: [number, number][] | [number, number][][] } | null
   /** Parcel slide-out "Find Comps": hands the parcel up to the page, which
       enters parcel-subject comp mode. Absent = no button. */
-  onFindParcelComparables?: (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null }) => void
+  onFindParcelComparables?: (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null; saved_id?: string }) => void
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
@@ -2473,15 +2474,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [])
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
-  // Owner 9/22: a click on one of the user's OWN project tracts asks
-  // what they want — the parcel data under the click, or the tract in
-  // the Map Portfolio (selected and zoomed in).
-  const [myTractChoice, setMyTractChoice] = useState<{
-    tractId: string; projectId: string; name: string; projectName: string
-    lng: number; lat: number; x: number; y: number
-  } | null>(null)
-  // The regular parcel-click handler, so "Show Parcel Data" can open the
-  // parcel panel exactly as a click on bare ground would.
+  // Owner 11/2: a click on one of the user's OWN saved tracts opens the
+  // Saved Tract slide-out (all details + reports), like Tract Details.
+  const [savedTractOpen, setSavedTractOpen] = useState<{ id: string } | null>(null)
   const parcelClickRef = useRef<((e: any) => void) | null>(null)
   // The PortalTractDetail deed refresh below replaced a matching one for
   // the comp-mode inline popup, which is gone (2026-08-18): comp mode now
@@ -2648,6 +2643,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     setUtilitiesOpen(v => !v)
   }, [utilitiesToggleSignal])
 
+  const drawModeRef = useRef(false)
+  const pinModeRef = useRef(false)
+
   // Escape closes the panel. Owner 11/1: so does ANY click outside it —
   // a parcel, the map, a nav item — the panel must never stay out. The
   // nav's own My Maps trigger is skipped (it toggles the panel itself).
@@ -2657,6 +2655,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (e.key === 'Escape') setUtilitiesOpen(false)
     }
     const handlePointerDown = (e: PointerEvent) => {
+      // Owner 11/2: while Quick Draw or Set Pin is placing points on the
+      // map, the panel must STAY — it shows the figures for what is being
+      // drawn. Clicks on the map are the drawing itself, not "outside".
+      if (drawModeRef.current || pinModeRef.current) return
       const t = e.target as Element | null
       if (!t) return
       if (t.closest('.gg-utilities-panel')) return
@@ -2772,6 +2774,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // / mapInteractionSuspendedRef below, and the cursor/click effects
   // further down modeled directly on the pin ones).
   const [drawMode, setDrawMode] = useState(false)
+  drawModeRef.current = drawMode
+  pinModeRef.current = pinMode
   const [drawPoints, setDrawPoints] = useState<{ lat: number; lng: number }[]>([])
   // Quick Draw history (owner 2026-10-08: "it does not allow deleting dots,
   // moving already-created dots, and Ctrl-Z / Cmd-Z doesn't work"). Every
@@ -3316,6 +3320,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     refreshMyTracts()
     setSavedPanelNonce(n => n + 1)
     showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
+    // Owner 11/2: after Save the saved tract's panel opens, so the Reports
+    // (and everything else) are one step away, not four.
+    setSavedTractOpen({ id: info.id })
   }, [])
   const tractEditor = useTractEditor({
     mapRef, enabled: !!mappingMode, start: mappingMode?.start ?? null,
@@ -3456,10 +3463,36 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!mappingMode) return
     setSavedPanelOpen(false)
     setLandDetail(null)
-    setMyTractChoice(null)
+    setSavedTractOpen(null)
     setUtilitiesOpen(false)
     setFilterOpenInternal(false)
   }, [mappingMode, utilitiesOpen, filterOpen])
+
+  // The saved-tract panel and the other right-hand panels never stack: it
+  // closes when the parcel panel, Saved Projects or the My Maps menu opens.
+  useEffect(() => { if (landDetail || savedPanelOpen || utilitiesOpen) setSavedTractOpen(null) },
+    [landDetail, savedPanelOpen, utilitiesOpen])
+  // ...and on any click outside it (same rule as the Saved Projects panel).
+  useEffect(() => {
+    if (!savedTractOpen) return
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null
+      if (!t) return
+      if (t.closest('[data-gg-saved-tract-panel]')) return
+      // A click on a saved tract is handled by the map's own click handler,
+      // which swaps the panel to that tract.
+      if (t.closest('canvas.maplibregl-canvas') && mapRef.current) {
+        const map = mapRef.current
+        const rect = (map.getCanvas() as HTMLCanvasElement).getBoundingClientRect()
+        const pt: [number, number] = [e.clientX - rect.left, e.clientY - rect.top]
+        const layers = ['my-tracts-fill', 'my-tract-shapes-fill'].filter(l => map.getLayer(l))
+        if (layers.length && map.queryRenderedFeatures(pt, { layers }).length) return
+      }
+      setSavedTractOpen(null)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [savedTractOpen])
 
   // Fetch today's auction tracts on mount and re-fetch every 10 minutes so
   // the dots roll over correctly when the user keeps the tab open past
@@ -9986,15 +10019,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const hitId = f.properties?.tractId
       const t = myTractsRef.current.find(x => x.id === hitId)
       if (!t) return
-      // Owner 9/22: ask, don't guess — a small two-choice popup at the
-      // click: the parcel data under it, or this tract in the Portfolio.
+      // Owner 11/2: open the Saved Tract slide-out (details + reports).
       setLandDetail(null)
       setUtilitiesOpen(false)
-      setMyTractChoice({
-        tractId: t.id, projectId: t.project_id, name: t.name || 'Untitled',
-        projectName: t.project_name || 'Untitled project',
-        lng: e.lngLat.lng, lat: e.lngLat.lat, x: e.point.x, y: e.point.y,
-      })
+      setSavedPanelOpen(false)
+      setSavedTractOpen({ id: t.id })
     }
     for (const lyr of ['my-tracts-fill', 'my-tract-shapes-fill']) {
       map.on('click', lyr, onMyTractClick)
@@ -11102,76 +11131,43 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Owner 9/22: two-choice popup for a click on one of the user's own
-          project tracts. */}
-      {myTractChoice && (
-        <div
-          style={{
-            position: 'absolute', zIndex: 40,
-            left: Math.max(8, Math.min(myTractChoice.x - 110, (containerRef.current?.clientWidth ?? 400) - 228)),
-            top: Math.max(8, myTractChoice.y - 118),
-            width: 220, padding: 10, borderRadius: 12,
-            background: 'rgba(8,8,10,0.92)', border: '1px solid rgba(255,255,255,0.14)',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.55)', color: '#fff', fontSize: 13,
+      {/* Owner 11/2: Saved Tract slide-out — a click on one of the user's own
+          saved tracts. Same gate as the parcel panel (canUseReports); the
+          saved-maps layer itself only exists for canUseProjectMaps users. */}
+      {canUseProjectMaps && !mappingMode && (
+        <SavedTractPanel
+          tractId={savedTractOpen?.id ?? null}
+          onClose={() => setSavedTractOpen(null)}
+          canUseReports={Boolean(canUseReports)}
+          compMode={Boolean(subjectTractId)}
+          reportIds={reportIds}
+          onToggleReport={onToggleReport}
+          onEditInMapIt={(d) => {
+            setSavedTractOpen(null)
+            setMappingMode({
+              start: { kind: 'tract', id: d.id },
+              projectId: d.project?.id ?? null,
+              projectName: d.project?.name ?? null,
+            })
           }}
-          onClick={(ev) => ev.stopPropagation()}>
-          <div style={{ fontWeight: 700, marginBottom: 2 }}>{myTractChoice.name}</div>
-          <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 8 }}>{myTractChoice.projectName}</div>
-          <button
-            onClick={() => {
-              const c = myTractChoice
-              const map = mapRef.current
-              setMyTractChoice(null)
-              if (!map || !c) return
-              const fire = () => {
-                const point = map.project([c.lng, c.lat])
-                const feats = map.getLayer('regrid-parcels-fill')
-                  ? map.queryRenderedFeatures(point, { layers: ['regrid-parcels-fill'] }) : []
-                if (feats.length && parcelClickRef.current) {
-                  parcelClickRef.current({ features: feats, point, lngLat: { lng: c.lng, lat: c.lat }, originalEvent: {} })
-                  return true
-                }
-                return false
-              }
-              // Parcel lines only render zoomed in; if they are not on screen
-              // yet, zoom to the spot first and open the parcel once drawn.
-              if (fire()) return
-              map.once('idle', () => { fire() })
-              map.flyTo({ center: [c.lng, c.lat], zoom: Math.max(map.getZoom(), 15), duration: 600 })
-            }}
-            style={{ display: 'block', width: '100%', padding: '8px 10px', marginBottom: 6, borderRadius: 8,
-                     border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.08)',
-                     color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
-            Show Parcel Data
-          </button>
-          <button
-            onClick={() => {
-              const c = myTractChoice
-              setMyTractChoice(null)
-              if (!c) return
-              setMappingMode({ start: { kind: 'tract', id: c.tractId }, projectId: c.projectId, projectName: c.projectName })
-            }}
-            style={{ display: 'block', width: '100%', padding: '8px 10px', borderRadius: 8, border: 'none',
-                     background: 'linear-gradient(135deg, #ff7ad9 0%, #f58cde 100%)',
-                     color: '#1a0a14', cursor: 'pointer', fontWeight: 700 }}>
-            Edit in Map It
-          </button>
-          <button
-            onClick={() => {
-              const c = myTractChoice
-              setMyTractChoice(null)
-              if (!c) return
-              setSavedPanelFocus({ projectId: c.projectId, n: Date.now() })
-              setSavedPanelOpen(true)
-            }}
-            style={{ display: 'block', width: '100%', marginTop: 6, padding: '4px 0', background: 'none',
-                     border: 'none', color: '#F58CDE', cursor: 'pointer', fontSize: 12, textDecoration: 'underline' }}>
-            Open in Saved Projects
-          </button>
-          <button onClick={() => setMyTractChoice(null)} aria-label="Close"
-                  style={{ position: 'absolute', top: 4, right: 6, background: 'none', border: 'none',
-                           color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: 14 }}>×</button>
-        </div>
+          onOpenProjects={(projectId) => {
+            setSavedTractOpen(null)
+            setSavedPanelFocus({ projectId, n: Date.now() })
+            setSavedPanelOpen(true)
+          }}
+          onFindComparables={onFindParcelComparables ? (p) => {
+            setSavedTractOpen(null)
+            onFindParcelComparables({ ll_uuid: `cm:${p.saved_id}`, county: p.county, state: p.state, lat: p.lat, lng: p.lng, saved_id: p.saved_id })
+          } : undefined}
+          onShowParcel={(llUuid, at) => {
+            setSavedTractOpen(null)
+            setUtilitiesOpen(false)
+            setLandDetail({
+              parcelProps: null, soilProps: null, csbProps: null, ll_uuid: llUuid,
+              clickLng: at?.lng ?? null, clickLat: at?.lat ?? null,
+              activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null,
+            })
+          }} />
       )}
 
       {/* State-gate banner (spec §2, owner 2026-09-15 item 18): always
@@ -11437,6 +11433,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {mappingMode && (
         <MapItToolbar
           editor={tractEditor} onExit={() => setMappingMode(null)}
+          onReports={(id) => { setMappingMode(null); setSavedTractOpen({ id }) }}
           startKind={mappingMode.start.kind}
           lockedProject={mappingMode.projectId
             ? { id: mappingMode.projectId, name: mappingMode.projectName || 'this project' } : null}
