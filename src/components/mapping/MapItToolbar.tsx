@@ -275,7 +275,7 @@ export default function MapItToolbar({
                 && (projectLevel ? !r.parcel_id : r.parcel_id === e.savedId)
                 && (r.status === 'queued' || r.status === 'running'))
             return (
-              <Btn key={kind} text={working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
+              <Btn key={kind} primary text={working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
                    disabled={working || !!reports.queuing || e.dirty || busy}
                    title={e.dirty ? 'Save your changes first' : `Build the ${REPORT_LABEL[kind] || kind} for this saved tract`}
                    onClick={() => void reports.queue(kind, projectLevel)} />
