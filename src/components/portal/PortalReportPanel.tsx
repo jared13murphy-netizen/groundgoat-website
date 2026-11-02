@@ -102,8 +102,9 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       sale_price: t.salePrice,
       auction_date: t.auctionDate,
       company_name: t.companyName,
-      source: t.tractId ? 'tract' : 'parcel',
-      ll_uuid: t.tractId ? null : asRealUuid(t.id),
+      source: t.savedId ? 'saved' : t.tractId ? 'tract' : 'parcel',
+      cm_id: t.savedId || null,
+      ll_uuid: t.tractId || t.savedId ? null : asRealUuid(t.id),
       owner: t.owner ?? null,
       latitude: t.latitude ?? null,
       longitude: t.longitude ?? null,
@@ -267,7 +268,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                   {/* Saved/inline-rendered thumbnail (owner 2026-10-29): parcel rows key
                       on their ll_uuid, tract rows on tractId; hidden until loaded. */}
                   <div className="flex gap-3 px-4 pb-2 items-start">
-                    <CardThumb kind={t.tractId ? 'tract' : 'parcel'} id={t.tractId || t.llUuid || asRealUuid(t.id)} size={64} />
+                    <CardThumb kind={t.savedId ? 'saved' : t.tractId ? 'tract' : 'parcel'} id={t.savedId || t.tractId || t.llUuid || asRealUuid(t.id)} size={64} />
                     <div className="grid grid-cols-4 gap-2 flex-1 min-w-0">
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Acres</div>
