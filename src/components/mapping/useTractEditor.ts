@@ -24,7 +24,7 @@ import {
   type LandClass, type ParcelDetail,
 } from '@/lib/configurableMapping'
 import {
-  SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes,
+  SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, stripInsertedVertices,
   pointInRing, dropDegenerateHoles, pointInBoundary, ringCentre, polysToGeometry,
   shapeAcres, boundaryAcresOf, bboxOf, snapTargetsNear, type Shape,
 } from '@/lib/cmShapes'
@@ -396,10 +396,11 @@ export function useTractEditor({
       const res = await normalizeGeometry(bGeom, ordered
         .map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) }))
         .filter((x) => x.geometry) as any)
-      // Simplify like every other load path does: PostGIS's intersection /
-      // difference adds vertices along the shared edges, which showed up as
-      // new dots in odd places after a delete (owner 11/2).
-      const rebuilt = simplifyShapes(explodeShapes(res.polygons as any))
+      // PostGIS's intersection / difference adds vertices along the shared
+      // edges, which showed up as new dots after a delete (owner 11/2).
+      // Strip only THOSE — a blanket simplify here deleted the user's own
+      // dots after a drag (owner 11/2: only a right-click deletes a dot).
+      const rebuilt = stripInsertedVertices(explodeShapes(res.polygons as any), next)
       setShapesState(rebuilt)
       let again: string | null = null
       if (keep && mark) {
