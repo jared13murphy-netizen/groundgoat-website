@@ -9,18 +9,31 @@
  *                  Parcel, Undo, Redo, Land Types, Save ->
  * Land Types step: class chips, Add Polygon, Delete, Split, Erase,
  *                  Fill Holes, Clear, Start Over, Undo, Redo, Save.
- * Save opens a small panel: name, optional project, Save / Cancel.
+ * Save opens a small panel the first time: name, optional project, Save /
+ * Cancel. Later saves just save. Once saved, report buttons sit in the bar.
  */
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus,
+  ArrowLeft, ArrowRight, Check, Download, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus,
   RotateCcw, RotateCw, Save, Scissors, Trash2, X,
 } from 'lucide-react'
 import {
-  CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, listProjects,
+  CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, listProjects, REPORT_BUSY_LABEL, REPORT_LABEL,
+  type ReportKind,
 } from '@/lib/configurableMapping'
 import type { TractEditor } from './useTractEditor'
 import { polygonAcres } from '@/lib/polygonGeometry'
+import useMapReports from '@/lib/useMapReports'
+
+/** Report buttons in the bar once the tract is saved (owner 11/2: "the
+ *  report options need to appear on this screen so I can generate the
+ *  reports right after I save it"). Aerial is a project-level report. */
+const BAR_REPORTS: { kind: ReportKind; projectLevel: boolean }[] = [
+  { kind: 'aerial', projectLevel: true },
+  { kind: 'soil_map', projectLevel: false },
+  { kind: 'ground_goat', projectLevel: false },
+  { kind: 'elevation_3d', projectLevel: false },
+]
 
 const PINK = '#F58CDE'
 const NEW_PROJECT = '__new__'
@@ -77,14 +90,19 @@ function Btn({ icon, dot, text, onClick, active, disabled, primary, title }: {
 }
 
 export default function MapItToolbar({
-  editor, onExit, onReports, startKind, lockedProject, choosing, onToggleChoose,
+  editor, onExit, onDone, startKind, lockedProject, savedProject, canUseReports, choosing, onToggleChoose,
 }: {
   editor: TractEditor
   /** Leave Map It without saving. */
   onExit: () => void
-  /** Owner 11/2: Reports must be reachable from the Map It screen. Opens
-   *  the saved tract's panel (Reports section) once the tract exists. */
-  onReports?: (savedId: string) => void
+  /** "Done" once the tract is saved: leave Map It and open its panel. */
+  onDone?: (savedId: string) => void
+  /** Project the tract landed in on its first save this session (the
+   *  host learns it from onSaved). Lets the bar's reports work when the
+   *  user let the server make the project. */
+  savedProject: { id: string; name: string } | null
+  /** Reports gate (basic plan has none). */
+  canUseReports: boolean
   /** How this session started: a parcel, a saved tract, or empty. */
   startKind: 'parcel' | 'tract' | 'empty'
   /** Project the tract is saved into, fixed for this session (Add a New
@@ -117,17 +135,37 @@ export default function MapItToolbar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!lockedProject])
 
+  // Reports for the saved tract, in the bar. The project is the locked one
+  // (editing a saved map / Add a New Tract) or the one the first save
+  // created. Every save purges the tract's old PDFs, so reload after.
+  const project = lockedProject ?? savedProject
+  const reportsOn = canUseReports && !!e.savedId && !!project
+  const reports = useMapReports(reportsOn, project?.id ?? null, e.savedId, project?.name ?? null)
+  const reloadRef = useRef(reports.reload); reloadRef.current = reports.reload
+  const savedNameRef = useRef('')
+
+  const runSave = async (opts: Parameters<typeof e.save>[0]) => {
+    const ok = await e.save(opts)
+    if (ok) { savedNameRef.current = opts.name.trim(); setSavePanel(false); void reloadRef.current() }
+    return ok
+  }
   const openSave = () => {
     setName((n) => n || e.defaultName)
     setSavePanel(true)
   }
+  // Owner 11/2: the name/project panel only the FIRST time a tract is
+  // saved. After that Save just saves (the server keeps its project).
+  const saveClick = () => {
+    if (!e.savedId) { openSave(); return }
+    void runSave({ name: savedNameRef.current || e.defaultName || name, projectId: null, projectName: null })
+  }
   const doSave = () => {
     if (lockedProject) {
-      void e.save({ name, projectId: lockedProject.id, projectName: null, projectLabel: lockedProject.name })
+      void runSave({ name, projectId: lockedProject.id, projectName: null, projectLabel: lockedProject.name })
       return
     }
     const picked = projects.find((p) => p.id === pick)
-    void e.save({
+    void runSave({
       name,
       projectId: pick && pick !== NEW_PROJECT ? pick : null,
       projectName: pick === NEW_PROJECT ? newName : null,
@@ -138,11 +176,9 @@ export default function MapItToolbar({
     if (e.dirty && !window.confirm('Discard this map? Your drawing has not been saved.')) return
     onExit()
   }
-  const reports = () => {
-    if (!e.savedId || !onReports) return
-    if (e.dirty && !window.confirm('Save your changes first? Reports are built from the saved map.')) return
-    if (e.dirty) { openSave(); return }
-    onReports(e.savedId)
+  const done = () => {
+    if (e.savedId && !e.dirty && onDone) onDone(e.savedId)
+    else exit()
   }
 
   const busy = !!e.busy
@@ -223,12 +259,59 @@ export default function MapItToolbar({
           <span style={stat}>{landTypes ? 'Step 2 · Land types' : 'Step 1 · Outline'}</span>
           <span style={stat}>Boundary {e.boundaryAcres.toFixed(2)} ac</span>
         </div>
-        {e.savedId && onReports && (
-          <Btn icon={<FileText size={13} />} text="Reports" onClick={reports}
-               title="Aerial, Soil, Ground Goat and 3D reports for this saved map" />
-        )}
-        <Btn icon={<X size={13} />} text="Cancel mapping" onClick={exit} />
+        {e.savedId && !e.dirty && onDone
+          ? <Btn icon={<Check size={13} />} text="Done" onClick={done} title="Leave Map It and open this saved tract" />
+          : <Btn icon={<X size={13} />} text="Cancel mapping" onClick={exit} />}
       </div>
+
+      {reportsOn && (
+        <div data-gg-mapit-reports style={{ ...row, gap: 6 }}>
+          <span style={{ ...stat, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <FileText size={13} /> Reports
+          </span>
+          {BAR_REPORTS.map(({ kind, projectLevel }) => {
+            const working = reports.queuing === `${kind}:${projectLevel ? '' : e.savedId || ''}`
+              || reports.rows.some((r) => r.kind === kind
+                && (projectLevel ? !r.parcel_id : r.parcel_id === e.savedId)
+                && (r.status === 'queued' || r.status === 'running'))
+            return (
+              <Btn key={kind} text={working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
+                   disabled={working || !!reports.queuing || e.dirty || busy}
+                   title={e.dirty ? 'Save your changes first' : `Build the ${REPORT_LABEL[kind] || kind} for this saved tract`}
+                   onClick={() => void reports.queue(kind, projectLevel)} />
+            )
+          })}
+          {reports.rows.filter((r) => r.status === 'done' || r.status === 'failed').map((r) => (
+            <span key={r.id} style={{ ...stat, display: 'inline-flex', alignItems: 'center', gap: 4,
+                                       padding: '4px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>
+              {REPORT_LABEL[r.kind] || r.kind}
+              {r.status === 'failed' ? <span style={{ color: '#fca5a5' }}> · failed</span> : null}
+              {r.status === 'done' && r.ready && (
+                <button type="button" aria-label={`Download ${REPORT_LABEL[r.kind] || r.kind}`}
+                        title={`Download ${REPORT_LABEL[r.kind] || r.kind}`}
+                        onClick={() => void reports.download(r)}
+                        style={{ background: 'none', border: 'none', color: PINK, cursor: 'pointer', padding: 0, display: 'inline-flex' }}>
+                  <Download size={13} />
+                </button>
+              )}
+              <button type="button" aria-label={`Delete ${REPORT_LABEL[r.kind] || r.kind}`}
+                      title="Delete this report" disabled={reports.deleting === r.id}
+                      onClick={() => void reports.remove(r, REPORT_LABEL[r.kind] || r.kind)}
+                      style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: 0, display: 'inline-flex' }}>
+                <Trash2 size={13} />
+              </button>
+            </span>
+          ))}
+          {reports.pending && <span style={stat}>Building… this updates on its own.</span>}
+          {reports.msg && (
+            <span style={{ ...stat, color: '#fca5a5' }}>
+              {reports.msg}{' '}
+              <button type="button" aria-label="Dismiss" onClick={() => reports.setMsg(null)}
+                      style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, verticalAlign: 'middle' }}><X size={11} /></button>
+            </span>
+          )}
+        </div>
+      )}
 
       {!landTypes ? (
         <>
@@ -264,7 +347,7 @@ export default function MapItToolbar({
                  onClick={() => e.setMode('landtypes')} />
             <Btn icon={<Save size={13} />} text="Save" disabled={busy || !hasOutline || e.drawing}
                  title="Save with the engine's land types"
-                 onClick={openSave} />
+                 onClick={saveClick} />
           </div>
         </>
       ) : (
@@ -319,7 +402,7 @@ export default function MapItToolbar({
                  onClick={() => { if (window.confirm('Throw away your edits and go back to the engine land types?')) e.startOver() }} />
             {undoBtns}
             <Btn icon={<Save size={13} />} text="Save" primary
-                 disabled={busy || !hasOutline} onClick={openSave} />
+                 disabled={busy || !hasOutline} onClick={saveClick} />
           </div>
         </>
       )}

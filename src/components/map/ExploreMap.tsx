@@ -3314,16 +3314,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // ── Map It: one tract's editing session on this map ──────────────
   // Saving turns "Show My Saved Maps" on and refreshes its geometry so
   // the new map is visible immediately; the user never leaves this page.
+  // Project the Map It tract was saved into this session (for the bar's
+  // report buttons when the server made the project). Reset per session.
+  const [mapItSavedProject, setMapItSavedProject] = useState<{ id: string; name: string } | null>(null)
   const onMapItSaved = useCallback((info: SavedInfo) => {
-    setMappingMode(null)
+    // Owner 11/2: stay in Map It after Save — the bar shows the report
+    // buttons so the reports can be built right after saving. "Done"
+    // leaves and opens the saved tract's panel.
     setMyTractsOn(true)
     refreshMyTracts()
     setSavedPanelNonce(n => n + 1)
     showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
-    // Owner 11/2: after Save the saved tract's panel opens, so the Reports
-    // (and everything else) are one step away, not four.
-    setSavedTractOpen({ id: info.id })
+    if (info.projectId) setMapItSavedProject({ id: info.projectId, name: info.projectName || 'your maps' })
   }, [])
+  useEffect(() => { setMapItSavedProject(null) }, [mappingMode])
   const tractEditor = useTractEditor({
     mapRef, enabled: !!mappingMode, start: mappingMode?.start ?? null,
     projectId: mappingMode?.projectId ?? null, projectName: mappingMode?.projectName ?? null,
@@ -11433,10 +11437,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {mappingMode && (
         <MapItToolbar
           editor={tractEditor} onExit={() => setMappingMode(null)}
-          onReports={(id) => { setMappingMode(null); setSavedTractOpen({ id }) }}
+          onDone={(id) => { setMappingMode(null); setSavedTractOpen({ id }) }}
           startKind={mappingMode.start.kind}
           lockedProject={mappingMode.projectId
             ? { id: mappingMode.projectId, name: mappingMode.projectName || 'this project' } : null}
+          savedProject={mapItSavedProject}
+          canUseReports={Boolean(canUseReports)}
           choosing={chooseArmed}
           onToggleChoose={() => {
             if (!chooseArmed) tractEditor.cancelDraft()
