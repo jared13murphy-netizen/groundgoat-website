@@ -348,7 +348,7 @@ export default function SavedProjectsPanel({
   const ownProjects = projects.filter((p) => !p.shared)
 
   return (
-    <div style={{ ...panel, transform: slide.shown ? 'translateX(0)' : 'translateX(100%)' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+    <div data-gg-saved-panel="" style={{ ...panel, transform: slide.shown ? 'translateX(0)' : 'translateX(100%)' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
       <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>Saved Projects</span>
