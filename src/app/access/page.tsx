@@ -401,7 +401,7 @@ function AccessPortalPageInner() {
   // Parcel-subject comp mode (owner 10/2): a Regrid parcel instead of a
   // tract is the subject. The map has no subject tract, so it shows the
   // sold comps in the bbox around the parcel.
-  const [subjectParcel, setSubjectParcel] = useState<{ ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null } | null>(null)
+  const [subjectParcel, setSubjectParcel] = useState<{ ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null; saved_id?: string } | null>(null)
   // True in either comp mode. ExploreMap keys comp mode off `subjectTractId`,
   // so a parcel subject hands it a non-tract sentinel (never a real tract id).
   const compModeOn = Boolean(subjectTractId || subjectParcel)
@@ -969,12 +969,18 @@ function AccessPortalPageInner() {
 
   // Parcel as the comp subject: same teardown as a tract, then the parcel
   // endpoint (same response shape as the tract one) for the subject card.
-  const handleFindParcelComparables = async (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null }) => {
+  // A saved tract (Map It) can be the subject too (owner 11/2): p.saved_id is its
+  // id, p.ll_uuid is its report row id `cm:<id>` (so it is never its own comp),
+  // and the subject card comes from /api/comparables/saved/{id}.
+  const handleFindParcelComparables = async (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null; saved_id?: string }) => {
     beginCompMode()
     setSubjectTractId(null)
     setSubjectParcel(p)
     try {
-      const compResponse = await fetchWithAuth(`${API_URL}/api/comparables/parcel/${p.ll_uuid}?months_back=24&include_neighboring=true&limit=1`)
+      const compUrl = p.saved_id
+        ? `${API_URL}/api/comparables/saved/${encodeURIComponent(p.saved_id)}?months_back=24&include_neighboring=true&limit=1`
+        : `${API_URL}/api/comparables/parcel/${p.ll_uuid}?months_back=24&include_neighboring=true&limit=1`
+      const compResponse = await fetchWithAuth(compUrl)
       if (compResponse.ok) {
         const compData = await compResponse.json()
         const sc = compData.search_criteria || {}
@@ -984,7 +990,8 @@ function AccessPortalPageInner() {
           state: sc.state || p.state,
           tract_id: null,
           listing_id: null,
-          subject_kind: 'parcel',
+          subject_kind: p.saved_id ? 'saved' : 'parcel',
+          subject_cm_id: p.saved_id || null,
         })
         const subLat = sc.subject_latitude ?? p.lat
         const subLng = sc.subject_longitude ?? p.lng
@@ -997,11 +1004,11 @@ function AccessPortalPageInner() {
           }, 100)
         }
       } else {
-        setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: 'parcel' })
+        setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: p.saved_id ? 'saved' : 'parcel', subject_cm_id: p.saved_id || null })
       }
     } catch (err) {
       console.error('Failed to fetch subject parcel info:', err)
-      setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: 'parcel' })
+      setComparablesSubjectInfo({ county: p.county, state: p.state, tract_id: null, subject_kind: p.saved_id ? 'saved' : 'parcel', subject_cm_id: p.saved_id || null })
     }
     setReportIds(new Set())
     setReportTracts([])

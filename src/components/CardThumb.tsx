@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 interface Props {
-  kind: 'tract' | 'parcel'
+  kind: 'tract' | 'parcel' | 'saved'
   id: string | null | undefined
   size?: number
   className?: string

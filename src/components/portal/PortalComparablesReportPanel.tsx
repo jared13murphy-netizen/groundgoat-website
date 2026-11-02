@@ -61,6 +61,8 @@ interface SubjectInfo {
   subject_company?: string | null
   /** 'parcel' when a Regrid parcel (not a tract) is the subject. */
   subject_kind?: string | null
+  /** The saved tract (Map It) behind a saved-tract subject. */
+  subject_cm_id?: string | null
 }
 
 interface PortalComparablesReportPanelProps {
@@ -101,6 +103,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
     // The parcel behind a parcel subject — the server re-reads its tillable /
     // soil rating from the one parcel source at enqueue time (owner 10/13).
     subject_ll_uuid: subjectInfo?.subject_ll_uuid || null,
+    subject_cm_id: subjectInfo?.subject_cm_id || null,
     subject_acres: subjectInfo?.subject_acres ? String(subjectInfo.subject_acres) : null,
     subject_tillable_pct: subjectInfo?.subject_pct_tillable
       ? String(Math.round(subjectInfo.subject_pct_tillable)) + '%' : null,
@@ -126,8 +129,9 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       // A comparable is either one of our tracts (tractId set) or a raw
       // Regrid parcel (tractId null) — see the "either OUR TRACTS or a
       // raw Regrid PARCEL" comment on CompInlinePopup in ExploreMap.tsx.
-      source: t.tractId ? 'tract' : 'parcel',
-      ll_uuid: t.tractId ? null : asRealUuid(t.id),
+      source: t.savedId ? 'saved' : t.tractId ? 'tract' : 'parcel',
+      cm_id: t.savedId || null,
+      ll_uuid: t.tractId || t.savedId ? null : asRealUuid(t.id),
       owner: t.owner ?? null,
       latitude: t.latitude ?? null,
       longitude: t.longitude ?? null,
@@ -275,7 +279,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                   {/* Saved/inline-rendered thumbnail (owner 2026-10-29): parcel rows key
                       on their ll_uuid, tract rows on tractId; hidden until loaded. */}
                   <div className="flex gap-3 px-4 pb-2 items-start">
-                    <CardThumb kind={t.tractId ? 'tract' : 'parcel'} id={t.tractId || t.llUuid || asRealUuid(t.id)} size={64} />
+                    <CardThumb kind={t.savedId ? 'saved' : t.tractId ? 'tract' : 'parcel'} id={t.savedId || t.tractId || t.llUuid || asRealUuid(t.id)} size={64} />
                     <div className="grid grid-cols-4 gap-2 flex-1 min-w-0">
                     <div>
                       <div className="text-[10px] text-gg-gray-500">Acres</div>

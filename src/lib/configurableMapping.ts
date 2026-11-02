@@ -866,3 +866,72 @@ export function setSeat(userId: string, enabled: boolean, firmId?: string) {
     body: JSON.stringify({ enabled }),
   })
 }
+
+// ── Saved tract detail (slide-out panel on the Explore map) ────────
+// Owner 11/2: tapping a saved tract opens a panel like Tract Details.
+// Every field is optional on the client: the panel renders whatever the
+// API sent and leaves the rest out.
+
+export interface SavedTractSoil {
+  name: string
+  acres: number | null
+  rating: number | null
+  pct_of_tillable: number | null
+}
+
+export interface SavedTractDetail {
+  id: string
+  name: string | null
+  project?: { id: string; name: string | null } | null
+  project_tract_count?: number | null
+  county?: string | null
+  state?: string | null
+  acres?: number | null
+  tillable_acres?: number | null
+  pasture_acres?: number | null
+  timber_acres?: number | null
+  water_acres?: number | null
+  other_acres?: number | null
+  soil?: {
+    rating: number | null
+    rating_type: string | null
+    breakdown?: SavedTractSoil[] | null
+  } | null
+  centroid?: { lat: number; lng: number } | null
+  bbox?: [[number, number], [number, number]] | null
+  boundary?: any
+  tillable_polygon?: any
+  source_parcels?: { ll_uuid: string; owner: string | null; acres: number | null; parcelnumb: string | null }[] | null
+  created_at?: string
+  updated_at?: string
+}
+
+export function getSavedTractDetail(id: string) {
+  return j<SavedTractDetail>(`/api/mapping/parcels/${encodeURIComponent(id)}/detail`)
+}
+
+/** Queue one report, wait for the worker, then download it. Lives outside
+ *  any component so a download the user asked for still lands if they
+ *  close the panel while it builds (~5 min cap, polled every 3 s). */
+export async function queueAndDownloadReport(
+  target: { parcelId?: string; projectId?: string },
+  kind: ReportKind,
+  projectName: string | null | undefined,
+  params: Record<string, any> = {},
+): Promise<void> {
+  const q = await queueReport(target, kind, params)
+  const started = Date.now()
+  while (Date.now() - started < 5 * 60 * 1000) {
+    await new Promise((r) => setTimeout(r, 3000))
+    const { reports } = await listReports(
+      target.parcelId ? { parcelId: target.parcelId } : { projectId: target.projectId })
+    const row = (reports || []).find((r) => r.id === q.id)
+    if (!row) throw new Error('That report went missing.')
+    if (row.status === 'failed') throw new Error(row.error || 'The report failed to build.')
+    if (row.status === 'done' && row.ready) {
+      await downloadReport(row.id, reportFilename(projectName, kind))
+      return
+    }
+  }
+  throw new Error('The report is taking too long — check Reports in Saved Projects.')
+}

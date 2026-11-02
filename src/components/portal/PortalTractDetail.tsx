@@ -24,6 +24,9 @@ export interface TractSaleData {
       `id` may be a tile path or click point instead) — used for the saved
       card thumbnail and nothing else. */
   llUuid?: string | null
+  /** A saved tract (Map It) on the report: its saved-map id. The row's `id`
+      is `cm:<savedId>`. Sent to the API as source "saved" + cm_id. */
+  savedId?: string | null
   auctionDate?: string | null
   totalAcres?: number | null
   tillableAcres?: number | null
