@@ -2643,6 +2643,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     setUtilitiesOpen(v => !v)
   }, [utilitiesToggleSignal])
 
+  const drawModeRef = useRef(false)
+  const pinModeRef = useRef(false)
+
   // Escape closes the panel. Owner 11/1: so does ANY click outside it —
   // a parcel, the map, a nav item — the panel must never stay out. The
   // nav's own My Maps trigger is skipped (it toggles the panel itself).
@@ -2652,6 +2655,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (e.key === 'Escape') setUtilitiesOpen(false)
     }
     const handlePointerDown = (e: PointerEvent) => {
+      // Owner 11/2: while Quick Draw or Set Pin is placing points on the
+      // map, the panel must STAY — it shows the figures for what is being
+      // drawn. Clicks on the map are the drawing itself, not "outside".
+      if (drawModeRef.current || pinModeRef.current) return
       const t = e.target as Element | null
       if (!t) return
       if (t.closest('.gg-utilities-panel')) return
@@ -2767,6 +2774,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // / mapInteractionSuspendedRef below, and the cursor/click effects
   // further down modeled directly on the pin ones).
   const [drawMode, setDrawMode] = useState(false)
+  drawModeRef.current = drawMode
+  pinModeRef.current = pinMode
   const [drawPoints, setDrawPoints] = useState<{ lat: number; lng: number }[]>([])
   // Quick Draw history (owner 2026-10-08: "it does not allow deleting dots,
   // moving already-created dots, and Ctrl-Z / Cmd-Z doesn't work"). Every
@@ -3311,6 +3320,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     refreshMyTracts()
     setSavedPanelNonce(n => n + 1)
     showZoomToast(`Saved to ${info.projectName || 'your maps'}`)
+    // Owner 11/2: after Save the saved tract's panel opens, so the Reports
+    // (and everything else) are one step away, not four.
+    setSavedTractOpen({ id: info.id })
   }, [])
   const tractEditor = useTractEditor({
     mapRef, enabled: !!mappingMode, start: mappingMode?.start ?? null,
@@ -11421,6 +11433,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {mappingMode && (
         <MapItToolbar
           editor={tractEditor} onExit={() => setMappingMode(null)}
+          onReports={(id) => { setMappingMode(null); setSavedTractOpen({ id }) }}
           startKind={mappingMode.start.kind}
           lockedProject={mappingMode.projectId
             ? { id: mappingMode.projectId, name: mappingMode.projectName || 'this project' } : null}

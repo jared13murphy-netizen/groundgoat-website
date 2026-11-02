@@ -13,7 +13,7 @@
  */
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, Eraser, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus,
+  ArrowLeft, ArrowRight, Check, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus,
   RotateCcw, RotateCw, Save, Scissors, Trash2, X,
 } from 'lucide-react'
 import {
@@ -76,11 +76,14 @@ function Btn({ icon, dot, text, onClick, active, disabled, primary, title }: {
 }
 
 export default function MapItToolbar({
-  editor, onExit, startKind, lockedProject, choosing, onToggleChoose,
+  editor, onExit, onReports, startKind, lockedProject, choosing, onToggleChoose,
 }: {
   editor: TractEditor
   /** Leave Map It without saving. */
   onExit: () => void
+  /** Owner 11/2: Reports must be reachable from the Map It screen. Opens
+   *  the saved tract's panel (Reports section) once the tract exists. */
+  onReports?: (savedId: string) => void
   /** How this session started: a parcel, a saved tract, or empty. */
   startKind: 'parcel' | 'tract' | 'empty'
   /** Project the tract is saved into, fixed for this session (Add a New
@@ -133,6 +136,12 @@ export default function MapItToolbar({
   const exit = () => {
     if (e.dirty && !window.confirm('Discard this map? Your drawing has not been saved.')) return
     onExit()
+  }
+  const reports = () => {
+    if (!e.savedId || !onReports) return
+    if (e.dirty && !window.confirm('Save your changes first? Reports are built from the saved map.')) return
+    if (e.dirty) { openSave(); return }
+    onReports(e.savedId)
   }
 
   const busy = !!e.busy
@@ -213,6 +222,10 @@ export default function MapItToolbar({
           <span style={stat}>{landTypes ? 'Step 2 · Land types' : 'Step 1 · Outline'}</span>
           <span style={stat}>Boundary {e.boundaryAcres.toFixed(2)} ac</span>
         </div>
+        {e.savedId && onReports && (
+          <Btn icon={<FileText size={13} />} text="Reports" onClick={reports}
+               title="Aerial, Soil, Ground Goat and 3D reports for this saved map" />
+        )}
         <Btn icon={<X size={13} />} text="Cancel mapping" onClick={exit} />
       </div>
 
