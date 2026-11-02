@@ -3383,6 +3383,20 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   useEffect(() => { onMappingModeChange?.(!!mappingMode) }, [!!mappingMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Owner 11/1: the Saved Projects slide-out closes on ANY click outside
+  // it (a parcel, the map, a nav item), same rule as the My Maps panel.
+  useEffect(() => {
+    if (!savedPanelOpen) return
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null
+      if (!t) return
+      if (t.closest('[data-gg-saved-panel]')) return
+      setSavedPanelOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [savedPanelOpen])
+
   // Saved Projects panel: clicking a project zooms to all of its maps
   // (owner 10/30) and turns the saved-maps layer on.
   const showSavedProject = useCallback(async (projectId: string) => {
