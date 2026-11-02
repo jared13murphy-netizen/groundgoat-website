@@ -2192,6 +2192,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // "Choose Parcel" armed inside an Add-a-New-Tract session.
   const [chooseArmed, setChooseArmed] = useState(false)
   const [myTractsOn, setMyTractsOn] = useState(true)
+  const toggleMyTracts = useCallback(() => {
+    setMyTractsOn(v => {
+      try { localStorage.setItem('gg_saved_maps_layer', v ? 'off' : 'on') } catch { /* private mode */ }
+      return !v
+    })
+  }, [])
   const [myTracts, setMyTracts] = useState<PortfolioTract[]>([])
   const [myTractsLoaded, setMyTractsLoaded] = useState(false)
   const [myTractsError, setMyTractsError] = useState<string | null>(null)
@@ -3704,8 +3710,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // the layer with no toggle left on screen to turn it off (the tiles
   // and the toggle row itself are also unmounted by the same
   // canUseProjectMaps check, above and below).
+  // Owner 11/1: the layer is ON by default for anyone who can use it. The
+  // access check resolves after mount, so the "off" branch below used to
+  // win first and the toggle never came back on; now it comes on when
+  // access resolves unless the user switched it off themselves (their
+  // choice is remembered in localStorage).
   useEffect(() => {
-    if (!canUseProjectMaps) setMyTractsOn(false)
+    if (!canUseProjectMaps) { setMyTractsOn(false); return }
+    let saved: string | null = null
+    try { saved = localStorage.getItem('gg_saved_maps_layer') } catch { /* private mode */ }
+    setMyTractsOn(saved !== 'off')
   }, [canUseProjectMaps])
   // Force-OFF: the legacy state_parcels pmtiles overlay (with its own
   // hover popups) is superseded by the always-on Regrid layer. We keep
@@ -11790,7 +11804,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {canUseProjectMaps && (
                 <>
                   <div
-                    onClick={() => setMyTractsOn(v => !v)}
+                    onClick={() => toggleMyTracts()}
                     style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
                   >
                     <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#2563eb', border: '1px solid rgba(255,255,255,0.2)' }} />
@@ -11799,7 +11813,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       role="switch"
                       aria-checked={myTractsOn}
                       aria-label="Show My Saved Maps"
-                      onClick={e => { e.stopPropagation(); setMyTractsOn(v => !v) }}
+                      onClick={e => { e.stopPropagation(); toggleMyTracts() }}
                       style={{
                         width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
                         background: myTractsOn ? '#F58CDE' : 'rgba(255,255,255,0.18)',
