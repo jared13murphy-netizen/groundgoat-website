@@ -5421,9 +5421,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'text-allow-overlap': false,
           'text-ignore-placement': false,
           'symbol-sort-key': ['-', 0, ['get', 'acres']],
+          // Owner 11/2: when the spot over the tract is taken (an auction
+          // pin's price label, another box), the label shifts to a side
+          // instead of vanishing.
+          'text-variable-anchor': ['center', 'top', 'bottom', 'left', 'right'],
+          'text-radial-offset': 0.9,
           'icon-image': 'gg-label-box',
           'icon-text-fit': 'both',
-          'icon-text-fit-padding': [5, 9, 5, 9],
+          'icon-text-fit-padding': [3, 6, 3, 6],
           'icon-allow-overlap': false,
           'icon-ignore-placement': false,
         },
