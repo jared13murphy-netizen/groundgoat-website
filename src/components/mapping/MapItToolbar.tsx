@@ -20,7 +20,7 @@ import {
   CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, listProjects,
 } from '@/lib/configurableMapping'
 import type { TractEditor } from './useTractEditor'
-import { polygonAcres } from '@/lib/cmShapes'
+import { polygonAcres } from '@/lib/polygonGeometry'
 
 const PINK = '#F58CDE'
 const NEW_PROJECT = '__new__'
