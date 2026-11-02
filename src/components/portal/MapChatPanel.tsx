@@ -96,6 +96,9 @@ interface MapChatPanelProps {
       (which, via ExploreMap's applyExternalFilters effect, also clears
       any owner-parcels dots) — the bubble's X button. */
   clearActiveSearch?: () => void
+  /** Owner 11/2: after Show Owned Ground, a pink button on the bubble
+   *  that adds every owned parcel to the report at once. */
+  addAllToReport?: { label: string; busy: boolean; run: () => void } | null
   /** Bumped by the parent (access/page.tsx) when the Explore map's
       Utilities panel "Goat Search" tile is tapped — opens this pill and
       focuses the input, the same way clicking the pill itself does.
@@ -210,7 +213,7 @@ function SearchSpinner({ dotClassName = 'bg-white' }: { dotClassName?: string })
   )
 }
 
-export default function MapChatPanel({ allowedStates, onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch, openSignal, hidden = false }: MapChatPanelProps) {
+export default function MapChatPanel({ allowedStates, onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch, addAllToReport = null, openSignal, hidden = false }: MapChatPanelProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -694,6 +697,12 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
             style={{ maxWidth: 'min(520px, calc(100vw - 96px))', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}
           >
             <span className="truncate">{activeSearchQuery}</span>
+            {addAllToReport && (
+              <button onClick={addAllToReport.run} disabled={addAllToReport.busy}
+                className="flex-shrink-0 px-3 py-1 rounded-full bg-gg-pink text-black text-[12px] font-semibold disabled:opacity-60">
+                {addAllToReport.label}
+              </button>
+            )}
             <button onClick={() => clearActiveSearch?.()} aria-label="Clear search"
               className="flex-shrink-0 w-6 h-6 rounded-full bg-white/12 hover:bg-white/20 flex items-center justify-center transition-colors">
               <X size={12} />

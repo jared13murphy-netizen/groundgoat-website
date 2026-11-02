@@ -2189,6 +2189,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
   const [savedPanelFocus, setSavedPanelFocus] = useState<{ projectId: string; n: number } | null>(null)
+  // Owner 11/2: bumped by the My Maps "New Project" tile; the panel opens
+  // its New Project name box when it changes.
+  const [savedPanelNewProject, setSavedPanelNewProject] = useState(0)
   // Old /map-portfolio and /configure-map links arrive as /access?project=<id>:
   // open the Saved Projects panel on that project, then drop the param.
   useEffect(() => {
@@ -11090,6 +11093,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (tract) {
         return {
           id: tract.id,
+          title: (tract as any).company_name || null,
           label: `${tract.county || 'Tract'}, ${tract.state || ''}${acresText(tract.total_acres)}`,
           resolve: async () => buildTractSaleDetail(tract),
         }
@@ -11109,6 +11113,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const acres = (dp.acres ?? pp.ll_gisacre ?? pp.gisacre) as unknown
       return {
         id: reportId,
+        title: ((dp.owner || pp.owner || '') as string).trim() || null,
         label: `${county || 'Parcel'}${st ? `, ${st}` : ''}${acresText(typeof acres === 'string' ? parseFloat(acres) : acres)}`,
         resolve: () => buildParcelReportRow({
           ll_uuid: uuid, lat: lngLat.lat, lng: lngLat.lng, tileProps: pf ? pp : null, reportId,
@@ -11132,7 +11137,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           style={{
             position: 'fixed', zIndex: 1000, pointerEvents: 'none',
             left: dragChip.x + 14, top: dragChip.y - 18,
-            padding: '8px 12px', borderRadius: 999,
+            padding: '8px 12px', borderRadius: dragChip.title && !dragChip.over && !dragChip.busy ? 12 : 999,
             background: dragChip.over ? '#F58CDE' : 'rgba(10,10,12,0.92)',
             border: `1.5px solid ${dragChip.over ? '#C563AD' : 'rgba(255,255,255,0.25)'}`,
             boxShadow: '0 8px 24px rgba(0,0,0,0.5)', color: dragChip.over ? '#0a0a0a' : '#fff',
@@ -11140,7 +11145,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             transform: dragChip.over ? 'scale(1.06)' : 'scale(1)', transition: 'background 120ms, transform 120ms',
           }}
         >
-          {dragChip.busy ? 'Adding…' : dragChip.over ? '+ Add to report' : dragChip.label}
+          {dragChip.busy ? 'Adding…' : dragChip.over ? '+ Add to report' : (
+            <>
+              {/* Owner 11/2: owner (parcel) / listing company (tract) above the acres */}
+              {dragChip.title && (
+                <div style={{ fontSize: 12, fontWeight: 700, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>{dragChip.title}</div>
+              )}
+              <div style={{ fontWeight: dragChip.title ? 500 : 700, opacity: dragChip.title ? 0.85 : 1 }}>{dragChip.label}</div>
+            </>
+          )}
         </div>
       )}
 
@@ -11466,6 +11479,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           open={savedPanelOpen}
           onClose={() => setSavedPanelOpen(false)}
           reloadNonce={savedPanelNonce}
+          newProjectNonce={savedPanelNewProject}
           focus={savedPanelFocus}
           onShowTract={(id) => { void showSavedTract(id) }}
           onShowProject={(id) => { void showSavedProject(id) }}
@@ -11842,6 +11856,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     icon={<SavedProjectsIcon size={20} />}
                     label="Saved Projects"
                     onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true) }}
+                  />
+                )}
+                {/* Owner 11/2: New Project here opens the Saved Projects
+                    slide-out and starts its New Project flow. */}
+                {canUseProjectMaps && (
+                  <UtilityTile
+                    icon={<PlusIcon size={20} />}
+                    label="New Project"
+                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true); setSavedPanelNewProject(n => n + 1) }}
                   />
                 )}
               </div>
