@@ -2649,15 +2649,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     setUtilitiesOpen(v => !v)
   }, [utilitiesToggleSignal])
 
-  // Escape closes the panel. The click-catcher (rendered with the panel
-  // below) handles the click-outside case.
+  // Escape closes the panel. Owner 11/1: so does ANY click outside it —
+  // a parcel, the map, a nav item — the panel must never stay out. The
+  // nav's own My Maps trigger is skipped (it toggles the panel itself).
   useEffect(() => {
     if (!utilitiesOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setUtilitiesOpen(false)
     }
+    const handlePointerDown = (e: PointerEvent) => {
+      const t = e.target as Element | null
+      if (!t) return
+      if (t.closest('.gg-utilities-panel')) return
+      if (t.closest('[data-gg-utilities-trigger]')) return
+      setUtilitiesOpen(false)
+    }
     document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+    }
   }, [utilitiesOpen])
 
   // ── Pin (2026-09-08) ─────────────────────────────────────────────────
