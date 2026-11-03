@@ -43,6 +43,9 @@ function asRealUuid(id: string | null | undefined): string | null {
 }
 
 interface SubjectInfo {
+  /** Owner 11/2: ids for the subject thumbnail (saved map / parcel). */
+  subject_cm_id?: string | null
+  subject_ll_uuid?: string | null
   county?: string
   state?: string
   subject_acres?: number
@@ -204,6 +207,10 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                   <div className="w-2 h-2 rounded-full bg-gg-pink" />
                   <span className="text-xs font-semibold text-gg-pink uppercase tracking-wider">Subject Tract</span>
                 </div>
+                {/* Owner 11/2: thumbnail of the subject tract / parcel / saved map */}
+                {(() => { const k = subjectInfo.tract_id ? 'tract' : subjectInfo.subject_cm_id ? 'saved' : subjectInfo.subject_ll_uuid ? 'parcel' : null
+                  const id = subjectInfo.tract_id || subjectInfo.subject_cm_id || subjectInfo.subject_ll_uuid || null
+                  return k && id ? <div className="mb-2"><CardThumb kind={k} id={String(id)} size={96} className="w-full !h-24 object-cover" /></div> : null })()}
                 <div className="text-sm font-bold mb-1">
                   {subjectInfo.county}, {subjectInfo.state}
                   {subjectInfo.subject_township ? ` · ${subjectInfo.subject_township}` : ''}

@@ -709,6 +709,8 @@ export default function AdminUsersPage() {
                           <div>
                             <p className="text-white font-medium text-xs">{user.first_name} {user.last_name}</p>
                             <p className="text-gg-gray-500 text-[10px]">{user.email}</p>
+                            {/* Owner 11/2: phone on the card next to the email. */}
+                            <p className="text-gg-gray-500 text-[10px]">{user.phone || 'No phone'}</p>
                             <Link href={`/admin/users/${user.id}`} className="text-gg-pink text-[10px] hover:underline">View</Link>
                           </div>
                         </td>

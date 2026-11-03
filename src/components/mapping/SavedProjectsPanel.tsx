@@ -12,16 +12,16 @@
  */
 import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import Link from 'next/link'
 import {
-  ChevronDown, ChevronRight, Download, FolderPlus, Loader2, MoreHorizontal, Plus, Trash2, X,
+  Check, ChevronDown, ChevronRight, Download, FolderPlus, Image as ImageIcon, Loader2, MoreHorizontal, Plus, Trash2, Upload, X,
 } from 'lucide-react'
 import {
   archiveParcel, createProject, deleteReport, downloadReport, duplicateProject, firmMembers,
   getProject, listProjects, listReports, moveParcel, projectShares, queueReport, renameParcel,
   reportFilename, setProjectShares, updateProject, updateProjectAerialYear,
   REPORT_BUSY_LABEL, REPORT_LABEL, USES_ELEVATION,
-  type FirmMember, type Project, type ReportKind, type ReportRow, type SavedParcelRow,
+  addLibraryLogo, deleteLibraryLogo, fetchLibraryLogoUrl, getBranding, setBranding,
+  type FirmMember, type LibraryLogo, type Project, type ReportKind, type ReportRow, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
 
@@ -49,6 +49,9 @@ interface Props {
   onShowProject: (projectId: string) => void
   /** A rename/move/delete happened: refresh the map's saved-maps layer. */
   onChanged: () => void
+  /** Owner 11/2: bumped by the My Maps "New Project" tile — opens the
+   *  New Project name box, same as the panel's own button. */
+  newProjectNonce?: number
 }
 
 const panel: CSSProperties = {
@@ -101,7 +104,7 @@ function mapLine(t: SavedParcelRow) {
 type Detail = { loading: boolean; error?: string; parcels: SavedParcelRow[] }
 
 export default function SavedProjectsPanel({
-  open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged,
+  open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged, newProjectNonce = 0,
 }: Props) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
@@ -114,6 +117,75 @@ export default function SavedProjectsPanel({
   const [editing, setEditing] = useState<{ key: string; text: string } | null>(null)
   const [moving, setMoving] = useState<string | null>(null)    // tract id
   const [creating, setCreating] = useState<string | null>(null) // new project name draft
+  useEffect(() => { if (newProjectNonce > 0) setCreating('') }, [newProjectNonce])
+
+  // ── Report Logo (owner 11/2: back on this panel, for every mapping user —
+  // premium state subscribers included, not just firms). Same library API
+  // the retired Map Portfolio card used: upload several, pick the one that
+  // prints, remove. Firm members see the firm's logos too.
+  const [logoOpen, setLogoOpen] = useState(false)
+  const [brandName, setBrandName] = useState('')
+  const [libraryLogos, setLibraryLogos] = useState<LibraryLogo[]>([])
+  const [libraryUrls, setLibraryUrls] = useState<Record<string, string>>({})
+  const [selectedLogoId, setSelectedLogoId] = useState<string | null>(null)
+  const [brandSaving, setBrandSaving] = useState<'name' | 'logo' | 'remove' | null>(null)
+  const [brandMsg, setBrandMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [brandLoaded, setBrandLoaded] = useState(false)
+  const loadBranding = useCallback(async () => {
+    try {
+      const b = await getBranding()
+      setBrandName(b.name || '')
+      const logos = b.logos || []
+      setLibraryLogos(logos)
+      setSelectedLogoId(b.selected_logo_id || null)
+      const urls: Record<string, string> = {}
+      await Promise.all(logos.map(async (l) => { const u = await fetchLibraryLogoUrl(l.id); if (u) urls[l.id] = u }))
+      setLibraryUrls(urls)
+      setBrandLoaded(true)
+    } catch (e: any) {
+      setBrandMsg({ kind: 'err', text: e?.message || 'Could not load your report logo.' })
+    }
+  }, [])
+  useEffect(() => { if (open && logoOpen && !brandLoaded) void loadBranding() }, [open, logoOpen, brandLoaded, loadBranding])
+  const saveBrandName = async () => {
+    setBrandSaving('name'); setBrandMsg(null)
+    try { await setBranding({ name: brandName.trim() }); setBrandMsg({ kind: 'ok', text: 'Company name saved.' }) }
+    catch (e: any) { setBrandMsg({ kind: 'err', text: e?.message || 'Could not save that name.' }) }
+    finally { setBrandSaving(null) }
+  }
+  const uploadLogo = async (file: File) => {
+    if (file.size > 2 * 1024 * 1024) { setBrandMsg({ kind: 'err', text: 'That logo is too big — please use an image under 2 MB.' }); return }
+    setBrandMsg(null)
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(new Error('Could not read that file.'))
+      reader.readAsDataURL(file)
+    }).catch((e: Error) => { setBrandMsg({ kind: 'err', text: e.message }); return null })
+    if (!dataUrl) return
+    setBrandSaving('logo')
+    try {
+      await addLibraryLogo(file.name.replace(/\.[^.]+$/, '') || 'Logo', dataUrl, true)
+      setBrandMsg({ kind: 'ok', text: 'Logo added and selected for your reports.' })
+      await loadBranding()
+    } catch (e: any) { setBrandMsg({ kind: 'err', text: e?.message || 'Could not save that logo.' }) }
+    finally { setBrandSaving(null) }
+  }
+  const removeLogo = async (id: string) => {
+    if (!window.confirm('Remove this logo from your library?')) return
+    setBrandSaving('remove'); setBrandMsg(null)
+    try { await deleteLibraryLogo(id); setBrandMsg({ kind: 'ok', text: 'Logo removed.' }); await loadBranding() }
+    catch (e: any) { setBrandMsg({ kind: 'err', text: e?.message || 'Could not remove that logo.' }) }
+    finally { setBrandSaving(null) }
+  }
+  const pickLogo = async (id: string | '') => {
+    setBrandSaving('logo'); setBrandMsg(null)
+    try {
+      await setBranding({ logo_id: id }); setSelectedLogoId(id || null)
+      setBrandMsg({ kind: 'ok', text: id ? 'That logo now prints on your reports.' : 'Reports will print without a logo.' })
+    } catch (e: any) { setBrandMsg({ kind: 'err', text: e?.message || 'Could not change the logo.' }) }
+    finally { setBrandSaving(null) }
+  }
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [reportsOpen, setReportsOpen] = useState<Record<string, boolean>>({})
@@ -357,6 +429,65 @@ export default function SavedProjectsPanel({
           </button>
           <button type="button" style={iconBtn} onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
+        {/* Report Logo (owner 11/2) */}
+        <div data-gg-report-logo style={{ border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: '6px 8px' }}>
+          <button type="button" onClick={() => setLogoOpen((v) => !v)}
+                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, width: '100%', fontSize: 12, fontWeight: 700 }}>
+            {logoOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            <ImageIcon size={13} /> Report Logo
+            <span style={{ ...muted, marginLeft: 'auto', fontWeight: 400 }}>
+              {selectedLogoId ? 'Logo selected' : brandLoaded ? 'No logo' : ''}
+            </span>
+          </button>
+          {logoOpen && (
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={muted}>Your name and the logo you pick print on every PDF report you build.</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={brandName} onChange={(e) => setBrandName(e.target.value)} placeholder="Company name on reports"
+                       maxLength={120} style={{ ...input, flex: 1 }} />
+                <button type="button" style={pinkBtn} disabled={brandSaving === 'name'} onClick={() => void saveBrandName()}>
+                  {brandSaving === 'name' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <button type="button" onClick={() => void pickLogo('')} disabled={!!brandSaving} title="Print reports without a logo"
+                        style={{ ...iconBtn, width: 72, height: 72, flexDirection: 'column', gap: 4, fontSize: 10,
+                                 outline: selectedLogoId ? 'none' : '2px solid #F58CDE' }}>
+                  <ImageIcon size={14} style={{ opacity: 0.6 }} /> No logo
+                </button>
+                {libraryLogos.map((l) => (
+                  <div key={l.id} style={{ width: 72, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <button type="button" onClick={() => void pickLogo(l.id)} disabled={!!brandSaving}
+                            title={l.scope === 'firm' ? `${l.name} (firm logo)` : l.name}
+                            style={{ ...iconBtn, width: 72, height: 72, padding: 3, background: '#fff',
+                                     outline: selectedLogoId === l.id ? '2px solid #F58CDE' : 'none' }}>
+                      {libraryUrls[l.id]
+                        // eslint-disable-next-line @next/next/no-img-element
+                        ? <img src={libraryUrls[l.id]} alt={l.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                        : <Loader2 size={13} className="animate-spin" />}
+                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 0 }}>
+                      <span style={{ ...muted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10 }}>
+                        {selectedLogoId === l.id ? '✓ ' : ''}{l.name}
+                      </span>
+                      <button type="button" onClick={() => void removeLogo(l.id)} disabled={!!brandSaving}
+                              title="Remove this logo" aria-label="Remove this logo" style={{ ...iconBtn, padding: 2 }}>
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <label title="Upload logo" style={{ ...iconBtn, width: 72, height: 72, flexDirection: 'column', gap: 4, fontSize: 10,
+                                                     cursor: brandSaving ? 'not-allowed' : 'pointer', opacity: brandSaving ? 0.6 : 1 }}>
+                  {brandSaving === 'logo' ? <Loader2 size={13} className="animate-spin" /> : <Upload size={14} />} Upload logo
+                  <input type="file" accept="image/png,image/jpeg" disabled={!!brandSaving} style={{ display: 'none' }}
+                         onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f); e.target.value = '' }} />
+                </label>
+              </div>
+              {brandMsg && <span style={{ ...muted, color: brandMsg.kind === 'err' ? '#fca5a5' : '#86efac' }}>{brandMsg.text}</span>}
+            </div>
+          )}
+        </div>
         {creating !== null && (
           <div style={{ display: 'flex', gap: 6 }}>
             <input
@@ -595,7 +726,7 @@ export default function SavedProjectsPanel({
                           )
                         })}
                         <div style={{ ...muted, marginTop: 10 }}>
-                          Report logo: <Link href="/account/branding" style={{ color: PINK }}>Account → Branding</Link>
+                          Report logo: see <button type="button" onClick={() => setLogoOpen(true)} style={{ background: 'none', border: 'none', padding: 0, color: PINK, cursor: 'pointer', fontSize: 11 }}>Report Logo</button> at the top of this panel.
                         </div>
                       </div>
                     )

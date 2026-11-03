@@ -21,13 +21,16 @@ import type maplibregl from 'maplibre-gl'
 export interface DragCandidate {
   /** text shown in the chip, e.g. "McDonough, IL · 61.3 ac" */
   label: string
+  /** Owner 11/2: the row above the acres — land owner for a parcel,
+   *  listing company for a tract. */
+  title?: string | null
   /** stable id, so a drop on an item already in the report is a no-op */
   id: string | null
   /** resolves the report row (a parcel needs a fetch; a tract is immediate) */
   resolve: () => Promise<unknown>
 }
 
-export interface DragChip { x: number; y: number; label: string; over: boolean; busy?: boolean }
+export interface DragChip { x: number; y: number; label: string; title?: string | null; over: boolean; busy?: boolean }
 
 interface Options {
   map: maplibregl.Map | null
@@ -92,7 +95,7 @@ export default function useDragToReport({ map, container, enabled, candidateAt, 
         try { (navigator as any).vibrate?.(30) } catch {}
         container.style.cursor = 'grabbing'
         latest.current.onStart?.()
-        setChip({ x: start.x, y: start.y, label: cand.label, over: false })
+        setChip({ x: start.x, y: start.y, label: cand.label, title: cand.title ?? null, over: false })
       }, HOLD_MS)
     }
     const onMove = (e: PointerEvent) => {
