@@ -135,6 +135,11 @@ export function useTractEditor({
   const projectNameRef = useRef(projectName); projectNameRef.current = projectName
   /** source parcels of a saved tract being edited (no detail record). */
   const sourceRef = useRef<string[]>([])
+  // Owner 11/3: Regrid's total acres is THE acres of a parcel. While the
+  // boundary is still the parcel(s) it came from (measured area within 1%
+  // of the record's own measured area), the bar shows the recorded Regrid
+  // acres; reshape it and the measured area takes over.
+  const refAcresRef = useRef<{ regrid: number; drawn: number } | null>(null)
 
   const histRef = useRef<Hist[]>([])
   const redoRef = useRef<Hist[]>([])
@@ -252,6 +257,7 @@ export function useTractEditor({
     loadSeq.current++
     histRef.current = []; redoRef.current = []
     savedIdRef.current = null; setSavedId(null); classifyingRef.current = null; sourceRef.current = []
+    refAcresRef.current = null
     setDetail(null); setBoundaryState([]); setShapesState([]); setClassified(false)
     setDefaultNameSaved('')
     setModeState('outline'); setTool(null); setDrawing(false); setDraft([]); setCutPts([])
@@ -274,6 +280,8 @@ export function useTractEditor({
       const rings = geometryToPolys(d.boundary)
       if (replacing) snapshotTract()
       setDetail(d)
+      refAcresRef.current = (d.parcel?.acres_of_record > 0 && d.parcel?.acres_drawn > 0)
+        ? { regrid: Number(d.parcel.acres_of_record), drawn: Number(d.parcel.acres_drawn) } : null
       // Warm the engine for this outline in the background so the Land
       // Types step is instant when the outline is left as is. Discarded
       // by ensureClassified if the boundary changed in the meantime.
@@ -308,6 +316,8 @@ export function useTractEditor({
         const loaded = simplifyShapes(explodeShapes(t.polygons as any))
         savedIdRef.current = t.id; setSavedId(t.id)
         sourceRef.current = t.source_ll_uuids || []
+        refAcresRef.current = (t.stats?.acres_source === 'regrid' && t.stats?.acres > 0 && t.stats?.acres_drawn > 0)
+          ? { regrid: Number(t.stats.acres), drawn: Number(t.stats.acres_drawn) } : null
         boundaryRef.current = rings; shapesRef.current = loaded; classifiedRef.current = true
         setBoundaryState(rings)
         setShapesState(loaded); setClassified(true)
@@ -699,7 +709,11 @@ export function useTractEditor({
     for (const s of shapes) t[s.cls] += shapeAcres(s)
     return t
   }, [shapes])
-  const boundaryAcres = useMemo(() => boundaryAcresOf(boundary), [boundary])
+  const boundaryAcres = useMemo(() => {
+    const local = boundaryAcresOf(boundary)
+    const ref = refAcresRef.current
+    return ref && Math.abs(local - ref.drawn) <= 0.01 * ref.drawn ? ref.regrid : local
+  }, [boundary])
 
   // ── name suggestion ──────────────────────────────────────────────
   const defaultName = useMemo(() => {
