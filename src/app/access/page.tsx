@@ -24,6 +24,8 @@ import { decodeArea } from '@/lib/shareLink'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import { buildParcelReportRow } from '@/lib/parcelReportRow'
+import { getSavedReport } from '@/lib/configurableMapping'
+import { rebuildSavedReportRows } from '@/lib/savedReportRows'
 import MapChatPanel from '@/components/portal/MapChatPanel'
 import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
@@ -1068,6 +1070,27 @@ function AccessPortalPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, searchParams])
 
+  // Owner 11/3: reopen a saved report. The subject opens exactly the way a
+  // fresh Find Comps does (live figures), then the saved rows — each rebuilt
+  // from its live record — replace the report. Nothing cached is shown.
+  const handleOpenSavedReport = async (id: string) => {
+    let data: Awaited<ReturnType<typeof getSavedReport>>
+    try { data = await getSavedReport(id) } catch (e) { console.error('saved report load failed', e); return }
+    const subj = data.report?.subject || {}
+    const rows = await rebuildSavedReportRows(data.report, data.tracts)
+    if (subj.subject_kind === 'tract' && subj.tract_id) {
+      await handleFindComparables(String(subj.tract_id), subj.county || '', subj.state || '')
+    } else if ((subj.subject_kind === 'saved' && subj.subject_cm_id) || (subj.subject_kind === 'parcel' && subj.subject_ll_uuid)) {
+      await handleFindParcelComparables({ ll_uuid: subj.subject_ll_uuid || '', county: subj.county || '', state: subj.state || '',
+        lat: null, lng: null, saved_id: subj.subject_cm_id || undefined })
+    } else {
+      setShowComparablesReportPanel(false)
+      setShowMainReportPanel(true)
+    }
+    setReportIds(new Set(rows.map((r) => r.id)))
+    setReportTracts(rows)
+  }
+
   const handleCloseComparables = () => {
     setSubjectTractId(null)
     setSubjectParcel(null)
@@ -1162,6 +1185,7 @@ function AccessPortalPageInner() {
           sharedArea={sharedArea}
           subjectTractId={subjectTractId || (subjectParcel ? `parcel:${subjectParcel.ll_uuid}` : null)}
           onFindParcelComparables={handleFindParcelComparables}
+          onOpenSavedReport={(id) => { void handleOpenSavedReport(id) }}
           subjectTractLocation={subjectTractLocation}
           resetFiltersSignal={resetFiltersSignal}
           applyExternalFilters={chatAppliedFilters}

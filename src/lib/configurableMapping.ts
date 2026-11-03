@@ -935,3 +935,54 @@ export async function queueAndDownloadReport(
   }
   throw new Error('The report is taking too long — check Reports in Saved Projects.')
 }
+
+// ── Saved reports (owner 2026-11-03) ───────────────────────────────────
+// A report saved as its recipe (subject + item ids + notes), never figures
+// or a PDF. Every emailed/downloaded comp report is saved automatically by
+// the API; the panel's Save button saves one explicitly.
+export interface SavedReportItem {
+  source: 'tract' | 'parcel' | 'saved'
+  tract_id?: string | null
+  ll_uuid?: string | null
+  cm_id?: string | null
+  county?: string | null
+  state?: string | null
+  notes?: string | null
+  latitude?: number | null
+  longitude?: number | null
+}
+export interface SavedReportRow {
+  id: string
+  user_id: string
+  kind: string
+  name: string
+  subject: Record<string, any>
+  items: SavedReportItem[]
+  item_count: number
+  parcel_id: string | null
+  project_id: string | null
+  created_at: string | null
+  updated_at: string | null
+  last_opened_at: string | null
+  mine?: boolean
+}
+export function listSavedReports(opts: { parcelId?: string } = {}) {
+  const s = opts.parcelId ? `?parcel_id=${encodeURIComponent(opts.parcelId)}` : ''
+  return j<{ reports: SavedReportRow[] }>(`/api/mapping/saved-reports${s}`)
+}
+export function getSavedReport(id: string) {
+  return j<{ report: SavedReportRow; tracts: any[] }>(`/api/mapping/saved-reports/${encodeURIComponent(id)}`)
+}
+export function saveReport(body: { name?: string | null; subject: Record<string, any>; items: SavedReportItem[] }) {
+  return j<{ report: SavedReportRow }>('/api/mapping/saved-reports', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+}
+export function renameSavedReport(id: string, name: string) {
+  return j<{ report: SavedReportRow }>(`/api/mapping/saved-reports/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  })
+}
+export function deleteSavedReport(id: string) {
+  return j<{ ok: boolean }>(`/api/mapping/saved-reports/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
