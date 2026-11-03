@@ -55,6 +55,7 @@ interface TeamMember {
   email: string
   firstName: string
   lastName: string
+  phone: string
 }
 
 interface ReferrerInfo {
@@ -134,6 +135,7 @@ function SignUpContent() {
     email: '',
     firstName: '',
     lastName: '',
+    phone: '',
   })
   const [additionalSeats, setAdditionalSeats] = useState(0)
   const [showAddMember, setShowAddMember] = useState(false)
@@ -334,6 +336,10 @@ function SignUpContent() {
       setError('Last name is required')
       return
     }
+    if (newMember.phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '').length !== 10) {
+      setError('A 10-digit cell phone number is required for every user')
+      return
+    }
 
     if (teamMembers.some(m => m.email.toLowerCase() === newMember.email.toLowerCase())) {
       setError('This team member is already added')
@@ -348,7 +354,7 @@ function SignUpContent() {
     }
     
     setTeamMembers([...teamMembers, newMember])
-    setNewMember({ email: '', firstName: '', lastName: '' })
+    setNewMember({ email: '', firstName: '', lastName: '', phone: '' })
     setShowAddMember(false)
     setError('')
   }
@@ -602,10 +608,12 @@ function SignUpContent() {
           firm_city: firmData.firmCity.trim(),
           firm_state: firmData.firmState,
           firm_zip: firmData.firmZip.trim(),
+          admin_phone: formData.phone.trim(),
           team_members: teamMembers.map(m => ({
             email: m.email,
             first_name: m.firstName,
             last_name: m.lastName,
+            phone: m.phone.trim(),
           })),
           home_state: getStateAbbreviation(formData.homeState),
           home_county: formData.homeCounty,
@@ -1671,11 +1679,21 @@ function SignUpContent() {
                       />
                       <p className="text-gg-gray-500 text-xs mt-1">They&apos;ll receive an email invitation to set up their own password</p>
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gg-gray-300 mb-2">Cell Phone</label>
+                      <input
+                        type="tel"
+                        value={newMember.phone}
+                        onChange={(e) => setNewMember({ ...newMember, phone: e.target.value })}
+                        className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                        placeholder="(555) 123-4567"
+                      />
+                    </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
                           setShowAddMember(false)
-                          setNewMember({ email: '', firstName: '', lastName: '' })
+                          setNewMember({ email: '', firstName: '', lastName: '', phone: '' })
                           setError('')
                         }}
                         className="btn-secondary flex-1"
