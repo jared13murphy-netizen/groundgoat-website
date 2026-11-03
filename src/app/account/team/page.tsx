@@ -52,6 +52,7 @@ export default function TeamPage() {
     email: '',
     firstName: '',
     lastName: '',
+    phone: '',
   })
 
   useEffect(() => {
@@ -112,6 +113,12 @@ export default function TeamPage() {
       return
     }
 
+    // Owner 11/2: every user needs a cell phone, no matter the plan.
+    if (inviteForm.phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '').length !== 10) {
+      setError('A 10-digit cell phone number is required for every user')
+      setLoading(false)
+      return
+    }
     try {
       // Create the user account as firm_user
       const response = await fetch(`${API_URL}/api/firms/invite`, {
@@ -124,6 +131,7 @@ export default function TeamPage() {
           email: inviteForm.email,
           first_name: inviteForm.firstName,
           last_name: inviteForm.lastName,
+          phone: inviteForm.phone.trim(),
         })
       })
 
@@ -134,7 +142,7 @@ export default function TeamPage() {
 
       setSuccess(`Successfully added ${inviteForm.firstName} to your team!`)
       setShowInviteModal(false)
-      setInviteForm({ email: '', firstName: '', lastName: '' })
+      setInviteForm({ email: '', firstName: '', lastName: '', phone: '' })
       
       // Refresh team list
       fetchTeamMembers(token)
@@ -720,6 +728,18 @@ export default function TeamPage() {
                     onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
                     className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
                     placeholder="john@example.com"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gg-gray-300 mb-2">Cell Phone</label>
+                  <input
+                    type="tel"
+                    value={inviteForm.phone}
+                    onChange={(e) => setInviteForm({ ...inviteForm, phone: e.target.value })}
+                    className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-white placeholder-gg-gray-500 focus:border-gg-pink focus:outline-none"
+                    placeholder="(555) 123-4567"
                     required
                   />
                 </div>
