@@ -52,8 +52,10 @@ const bar: CSSProperties = {
 const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }
 const stat: CSSProperties = { fontSize: 12, color: 'rgba(255,255,255,0.75)' }
 const field: CSSProperties = {
-  width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.08)',
-  border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, color: '#fff',
+  // Owner 11/3: input boxes are ALWAYS white with a light gray border —
+  // never a dark box, even inside a dark panel.
+  width: '100%', boxSizing: 'border-box', background: '#FFFFFF',
+  border: '1px solid #D1D5DB', borderRadius: 8, color: '#111111',
   padding: '8px 10px', fontSize: 14,
 }
 const label: CSSProperties = {

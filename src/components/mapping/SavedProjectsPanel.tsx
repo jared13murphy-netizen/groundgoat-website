@@ -63,8 +63,10 @@ const panel: CSSProperties = {
   fontSize: 13,
 }
 const input: CSSProperties = {
-  width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.08)',
-  border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, color: '#fff',
+  // Owner 11/3: input boxes are ALWAYS white with a light gray border —
+  // never a dark box, even inside a dark panel.
+  width: '100%', boxSizing: 'border-box', background: '#FFFFFF',
+  border: '1px solid #D1D5DB', borderRadius: 8, color: '#111111',
   padding: '7px 10px', fontSize: 13,
 }
 const muted: CSSProperties = { color: 'rgba(255,255,255,0.6)', fontSize: 11 }
