@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Trash2, Check, Mountain, ExternalLink, Download } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import useFreshParcelFigures from '@/lib/useFreshParcelFigures'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
@@ -77,6 +78,9 @@ interface PortalComparablesReportPanelProps {
 }
 
 export default function PortalComparablesReportPanel({ subjectInfo, reportTracts, onRemoveTract, onUpdateTract, onClose, onView3DTerrain, onViewListing }: PortalComparablesReportPanelProps) {
+  // Owner 11/3: parcel rows re-read their figures from the one parcel record
+  // every time this panel opens — never the copy taken when the row was added.
+  useFreshParcelFigures(reportTracts, onUpdateTract)
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -116,7 +120,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       state: t.state || '',
       total_acres: t.totalAcres,
       tillable_acres: t.tillableAcres,
-      pct_tillable: t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) : null,
+      pct_tillable: t.pctTillable != null ? Math.round(t.pctTillable) : (t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) : null),
       soil_rating: t.soilRating,
       price_per_acre: t.pricePerAcre,
       price_per_tillable_acre: t.tillableAcres && t.totalAcres && t.pricePerAcre && t.tillableAcres > 0
@@ -296,7 +300,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                     <div>
                       <div className="text-[10px] text-gg-gray-500">Tillable</div>
                       <div className="text-sm font-medium">
-                        {t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) + '%' : '—'}
+                        {t.pctTillable != null ? Math.round(t.pctTillable) + '%' : t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) + '%' : '—'}
                       </div>
                     </div>
                     <div>
