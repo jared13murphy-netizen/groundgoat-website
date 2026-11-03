@@ -212,7 +212,7 @@ export default function MapItToolbar({
           {lockedProject ? (
             <div>
               <span style={label}>Project</span>
-              <div style={{ ...field, background: 'rgba(255,255,255,0.04)' }}>{lockedProject.name}</div>
+              <div style={{ ...field, background: '#F3F4F6' }}>{lockedProject.name}</div>
             </div>
           ) : (
           <div>
