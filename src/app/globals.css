@@ -138,26 +138,32 @@ input:focus, textarea:focus, select:focus {
   opacity: 0.4;
 }
 
-/* Admin form inputs - white background with dark text */
+/* Owner rule 2026-11-03: EVERY text box is white with a light gray border,
+   never a dark box — on dark panels too (Saved Projects, Map It, filters,
+   Goat Search, signup, Team modal, admin). !important so Tailwind utility
+   classes (bg-gg-gray-900 …) and inline dark styles cannot override it. */
 .admin-input,
+input:not([type]),
 input[type="text"],
 input[type="email"],
 input[type="password"],
 input[type="number"],
 input[type="url"],
+input[type="tel"],
+input[type="search"],
 input[type="date"],
 input[type="time"],
 input[type="datetime-local"],
 textarea,
 select {
-  background-color: #ffffff;
-  color: #1a1a1a;
-  border: 1px solid #d1d5db;
+  background-color: #ffffff !important;
+  color: #1a1a1a !important;
+  border: 1px solid #d1d5db !important;
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #9ca3af;
+  color: #9ca3af !important;
 }
 
 /* Keep buttons styled correctly */
