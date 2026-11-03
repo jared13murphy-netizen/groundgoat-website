@@ -275,6 +275,7 @@ export default function SavedProjectsPanel({
   }, [loadProjects, loadDetail, loadReports, loadSavedReports])
 
   useEffect(() => { if (open) void loadProjects() }, [open, loadProjects])
+  useEffect(() => { if (open) void loadSavedReports() }, [open, loadSavedReports])
   useEffect(() => {
     if (!open || members !== null) return
     firmMembers().then((r) => setMembers(r.members || [])).catch(() => setMembers([]))
