@@ -13,7 +13,7 @@
 import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  Check, ChevronDown, ChevronRight, Download, FolderPlus, Image as ImageIcon, Loader2, MoreHorizontal, Plus, Trash2, Upload, X,
+  Check, ChevronDown, ChevronRight, Download, FolderPlus, Image as ImageIcon, Loader2, MoreHorizontal, Pencil, Plus, Trash2, Upload, X,
 } from 'lucide-react'
 import {
   archiveParcel, createProject, deleteReport, downloadReport, duplicateProject, firmMembers,
@@ -21,6 +21,7 @@ import {
   reportFilename, setProjectShares, updateProject, updateProjectAerialYear,
   REPORT_BUSY_LABEL, REPORT_LABEL, USES_ELEVATION,
   addLibraryLogo, deleteLibraryLogo, fetchLibraryLogoUrl, getBranding, setBranding,
+  listSavedReports, renameSavedReport, deleteSavedReport, type SavedReportRow,
   type FirmMember, type LibraryLogo, type Project, type ReportKind, type ReportRow, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
@@ -52,6 +53,8 @@ interface Props {
   /** Owner 11/2: bumped by the My Maps "New Project" tile — opens the
    *  New Project name box, same as the panel's own button. */
   newProjectNonce?: number
+  /** Owner 11/3: open a saved comp report (rebuilt live) in the report panel. */
+  onOpenSavedReport?: (id: string) => void
 }
 
 const panel: CSSProperties = {
@@ -104,7 +107,7 @@ function mapLine(t: SavedParcelRow) {
 type Detail = { loading: boolean; error?: string; parcels: SavedParcelRow[] }
 
 export default function SavedProjectsPanel({
-  open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged, newProjectNonce = 0,
+  open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged, newProjectNonce = 0, onOpenSavedReport,
 }: Props) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
@@ -115,6 +118,41 @@ export default function SavedProjectsPanel({
   const detailsRef = useRef(details); detailsRef.current = details
   const [menu, setMenu] = useState<string | null>(null)        // 'p:<id>' | 't:<id>'
   const [editing, setEditing] = useState<{ key: string; text: string } | null>(null)
+  // Saved reports (owner 11/3): every comp report the user emailed, downloaded
+  // or saved. Those built from a Map It tract hang under that tract; the rest
+  // list at the bottom of the panel.
+  const [savedReports, setSavedReports] = useState<SavedReportRow[]>([])
+  const loadSavedReports = useCallback(async () => {
+    try { setSavedReports((await listSavedReports()).reports || []) } catch { /* panel still works without them */ }
+  }, [])
+  const reportsForTract = (tractId: string) => savedReports.filter((r) => r.parcel_id === tractId)
+  const looseReports = savedReports.filter((r) => !r.parcel_id)
+  const fmtWhen = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '')
+  const renameReport = async (r: SavedReportRow) => {
+    const name = window.prompt('Report name', r.name)
+    if (name == null || !name.trim() || name.trim() === r.name) return
+    try { await renameSavedReport(r.id, name.trim()); await loadSavedReports() } catch (e: any) { setMsg(e?.message || 'Could not rename the report.') }
+  }
+  const removeSavedReport = async (r: SavedReportRow) => {
+    if (!window.confirm(`Delete the saved report "${r.name}"?`)) return
+    try { await deleteSavedReport(r.id); setSavedReports((x) => x.filter((y) => y.id !== r.id)) } catch (e: any) { setMsg(e?.message || 'Could not delete the report.') }
+  }
+  const reportLine = (r: SavedReportRow) => (
+    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }} data-testid="saved-report-row">
+      <button type="button" title="Open this report"
+              style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, color: '#fff', cursor: 'pointer', textAlign: 'left' }}
+              onClick={() => onOpenSavedReport?.(r.id)}>
+        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{r.name}</div>
+        <div style={muted}>{r.item_count} {r.item_count === 1 ? 'sale' : 'sales'} · {fmtWhen(r.updated_at)}{r.mine === false ? ' · shared' : ''}</div>
+      </button>
+      {r.mine !== false && (
+        <>
+          <button type="button" style={iconBtn} aria-label="Rename report" onClick={() => void renameReport(r)}><Pencil size={13} /></button>
+          <button type="button" style={iconBtn} aria-label="Delete saved report" onClick={() => void removeSavedReport(r)}><Trash2 size={13} /></button>
+        </>
+      )}
+    </div>
+  )
   const [moving, setMoving] = useState<string | null>(null)    // tract id
   const [creating, setCreating] = useState<string | null>(null) // new project name draft
   useEffect(() => { if (newProjectNonce > 0) setCreating('') }, [newProjectNonce])
@@ -233,7 +271,8 @@ export default function SavedProjectsPanel({
     await loadProjects()
     for (const id of Object.keys(detailsRef.current)) void loadDetail(id, true)
     for (const id of Object.keys(reportsOpenRef.current)) if (reportsOpenRef.current[id]) void loadReports(id)
-  }, [loadProjects, loadDetail, loadReports])
+    void loadSavedReports()
+  }, [loadProjects, loadDetail, loadReports, loadSavedReports])
 
   useEffect(() => { if (open) void loadProjects() }, [open, loadProjects])
   useEffect(() => {
@@ -756,6 +795,12 @@ export default function SavedProjectsPanel({
                             </div>
                           )}
                           <div style={muted}>{mapLine(t)}</div>
+                          {reportsForTract(t.id).length > 0 && (
+                            <div style={{ marginTop: 4, paddingLeft: 6, borderLeft: `2px solid ${PINK}` }} onClick={(e) => e.stopPropagation()}>
+                              <div style={{ ...muted, fontWeight: 600 }}>Comp reports</div>
+                              {reportsForTract(t.id).map(reportLine)}
+                            </div>
+                          )}
                           {moving === t.id && (
                             <select
                               autoFocus style={{ ...input, marginTop: 4 }} defaultValue=""
@@ -820,6 +865,13 @@ export default function SavedProjectsPanel({
             </div>
           )
         })}
+        {!q && looseReports.length > 0 && (
+          <div style={{ ...section, marginTop: 12 }} data-testid="saved-reports-section">
+            <div style={{ fontWeight: 600, marginBottom: 2 }}>Saved Reports</div>
+            <div style={muted}>Comp reports you emailed, downloaded or saved. Open one to rebuild it with today&apos;s figures.</div>
+            {looseReports.map(reportLine)}
+          </div>
+        )}
       </div>
     </div>
   )
