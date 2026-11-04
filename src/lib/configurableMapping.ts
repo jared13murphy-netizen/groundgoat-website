@@ -950,6 +950,9 @@ export interface SavedReportItem {
   notes?: string | null
   latitude?: number | null
   longitude?: number | null
+  sale_price?: number | null
+  total_acres?: number | null
+  price_per_acre?: number | null
 }
 export interface SavedReportRow {
   id: string
@@ -958,6 +961,8 @@ export interface SavedReportRow {
   name: string
   subject: Record<string, any>
   items: SavedReportItem[]
+  /** Stored at save time: sales, priced, total_acres, avg_price_per_acre (acre-weighted). */
+  summary?: { sales?: number; priced?: number; total_acres?: number | null; avg_price_per_acre?: number | null }
   item_count: number
   parcel_id: string | null
   project_id: string | null
