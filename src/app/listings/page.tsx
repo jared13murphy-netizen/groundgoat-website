@@ -12,6 +12,7 @@ import { getCountiesForState, getStateAbbreviation, US_STATES } from '@/data/cou
 import { getDistanceToCounty } from '@/data/countyCoordinates'
 import { isAllowedForExplore, getAllowedStates } from '@/lib/stateAccess'
 import { STATE_NAMES } from '@/components/map/mapConstants'
+import { listingPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 
@@ -628,11 +629,13 @@ function ListingsPageContent() {
                     </div>
                     <div>
                       <div className="text-white font-medium">
-                        {getPricePerAcre(listing) ? formatCurrency(getPricePerAcre(listing)!) : '\u2014'}
+                        {listingPriceMode(listing) === 'total' && totalPriceOf(listing)
+                          ? formatCurrency(totalPriceOf(listing)!)
+                          : getPricePerAcre(listing) ? formatCurrency(getPricePerAcre(listing)!) : '\u2014'}
                       </div>
                       <div className="text-gg-gray-500 text-xs">
-                        $/Acre
-                        {getPriceBasis(listing) && getPricePerAcre(listing) && (
+                        {listingPriceMode(listing) === 'total' && totalPriceOf(listing) ? totalPriceLabel(getPriceBasis(listing)) : '$/Acre'}
+                        {listingPriceMode(listing) !== 'total' && getPriceBasis(listing) && getPricePerAcre(listing) && (
                           <span className={`ml-1 text-[9px] font-semibold uppercase px-1 py-0.5 rounded ${getPriceBasis(listing) === 'sold' ? 'bg-green-500/15 text-green-400' : 'bg-amber-500/15 text-amber-400'}`}>
                             {getPriceBasis(listing) === 'sold' ? 'Sold' : 'Asking'}
                           </span>
