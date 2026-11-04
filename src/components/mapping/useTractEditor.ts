@@ -505,6 +505,9 @@ export function useTractEditor({
   }, [cancelDraft])
   const startDrawPolygon = useCallback(() => {
     if (toolRef.current === 'draw' && drawingRef.current) { cancelDraft(); return }
+    // Owner 11/3: Add Polygon de-selects whatever was selected — otherwise
+    // picking a type for the new polygon recoloured the old one too.
+    setSelectedId(null)
     setTool('draw'); setDrawing(true); setDraft([]); setCutPts([])
   }, [cancelDraft])
   const toggleCut = useCallback(() => {
