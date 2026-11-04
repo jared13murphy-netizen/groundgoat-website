@@ -14,6 +14,7 @@ import { formatTillable } from '@/lib/tillable'
 import { listingMatchesSearch } from '@/lib/listingSearch'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { formatStateList } from '@/lib/stateAccess'
+import { listingPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -360,11 +361,20 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
         {activeTab === 'results' && (() => {
           const ppa = getListingAvgPricePerAcre(listing)
           const date = formatDate(listing)
-          if (!ppa.avg && !date) return null
+          // Owner 11/4: small or non-ag ground shows the total, labelled as such.
+          const lump = listingPriceMode(listing) === 'total' ? totalPriceOf(listing) : null
+          if (!ppa.avg && !lump && !date) return null
           return (
             <div className="mt-3 pt-2 border-t border-white/15">
               <div className="flex items-center gap-1.5 text-xs">
-                {ppa.avg ? (
+                {lump ? (
+                  <>
+                    <DollarSign size={12} className="text-gg-gray-300" />
+                    <span className="text-gg-pink font-bold text-sm">{formatPrice(lump)}</span>
+                    <span className="text-gg-gray-300">{totalPriceLabel(listing.sale_price ? 'sold' : 'asking').toLowerCase()}</span>
+                    {date && <span className="text-gg-gray-300">· {date}</span>}
+                  </>
+                ) : ppa.avg ? (
                   <>
                     <DollarSign size={12} className="text-gg-gray-300" />
                     <span className="text-gg-pink font-bold text-sm">{formatPrice(ppa.avg)}/ac</span>
@@ -377,7 +387,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
                   </>
                 )}
               </div>
-              {ppa.avg && ppa.isAverage && (
+              {!lump && ppa.avg && ppa.isAverage && (
                 <div className="text-[10px] text-gg-gray-300 mt-1 italic">Avg of {listing.tract_count || listing.tracts?.length} tracts</div>
               )}
             </div>

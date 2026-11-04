@@ -16,6 +16,7 @@ import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { getListingTillableAcres, getListingSoilRating } from './PortalListPanel'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import AuctionCountdown from '../AuctionCountdown'
+import { listingPriceMode, tractPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -303,12 +304,22 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             <div className="text-[10px] text-gg-gray-500 uppercase">Tracts</div>
           </div>
         )}
-        {getPricePerAcre() && (
-          <div className="text-center">
-            <div className="text-lg font-bold text-gg-pink">{formatCurrency(getPricePerAcre()!)}</div>
-            <div className="text-[10px] text-gg-gray-500 uppercase">$/Acre</div>
-          </div>
-        )}
+        {(() => {
+          // Owner 11/4: small or non-ag ground shows the total, labelled as such.
+          const lump = listingPriceMode(listing) === 'total' ? totalPriceOf(listing) : null
+          if (lump) return (
+            <div className="text-center">
+              <div className="text-lg font-bold text-gg-pink">{formatCurrency(lump)}</div>
+              <div className="text-[10px] text-gg-gray-500 uppercase">{totalPriceLabel((listing as { price_basis?: 'sold' | 'asking' | null }).price_basis ?? (listing.sale_price ? 'sold' : 'asking'))}</div>
+            </div>
+          )
+          return getPricePerAcre() ? (
+            <div className="text-center">
+              <div className="text-lg font-bold text-gg-pink">{formatCurrency(getPricePerAcre()!)}</div>
+              <div className="text-[10px] text-gg-gray-500 uppercase">$/Acre</div>
+            </div>
+          ) : null
+        })()}
         {!listing.is_incomplete && tillableAcres != null && (() => {
           const tillableFmt = formatTillable(getTotalAcres(), tillableAcres, null)
           return (
@@ -582,7 +593,12 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                           <div className="text-[10px] text-gg-gray-300">{soilRatingLabel(tract)}</div>
                         </div>
                       ) : null}
-                      {tract.sale_price && tract.total_acres ? (
+                      {tractPriceMode(tract) === 'total' && totalPriceOf(tract) ? (
+                        <div>
+                          <div className="text-sm font-semibold text-gg-pink">{formatCurrency(totalPriceOf(tract)!)}</div>
+                          <div className="text-[10px] text-gg-gray-300">{totalPriceLabel((tract as { price_basis?: 'sold' | 'asking' | null }).price_basis ?? (tract.sale_price ? 'sold' : 'asking'))}</div>
+                        </div>
+                      ) : tract.sale_price && tract.total_acres ? (
                         <div>
                           <div className="text-sm font-semibold text-gg-pink">{formatCurrency(tract.sale_price / tract.total_acres)}</div>
                           <div className="text-[10px] text-gg-gray-300">$/Acre</div>

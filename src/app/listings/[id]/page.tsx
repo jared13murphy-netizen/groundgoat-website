@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { listingPriceMode, tractPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
@@ -355,12 +356,21 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               <div className="text-2xl font-bold text-white">{listing.tracts?.length || listing.tract_count || '—'}</div>
               <div className="text-gg-gray-400 text-sm">Tracts</div>
             </div>
-            {getPricePerAcre() && (
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white">{formatCurrency(getPricePerAcre()!)}</div>
-                <div className="text-gg-gray-400 text-sm">$/Acre <BasisTag basis={getPriceBasis()} /></div>
-              </div>
-            )}
+            {(() => {
+              const lump = listingPriceMode(listing) === 'total' ? totalPriceOf(listing) : null
+              if (lump) return (
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-white">{formatCurrency(lump)}</div>
+                  <div className="text-gg-gray-400 text-sm">{totalPriceLabel(getPriceBasis())}</div>
+                </div>
+              )
+              return getPricePerAcre() ? (
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-white">{formatCurrency(getPricePerAcre()!)}</div>
+                  <div className="text-gg-gray-400 text-sm">$/Acre <BasisTag basis={getPriceBasis()} /></div>
+                </div>
+              ) : null
+            })()}
           </div>
 
           {/* Auction/Listing Details */}
@@ -503,12 +513,17 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                         <div className="text-gg-gray-500 text-xs">{soilRatingLabel(tract)}</div>
                       </div>
                     )}
-                    {(tract.display_price_per_acre ?? (tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : null)) != null && (
+                    {tractPriceMode(tract) === 'total' && totalPriceOf(tract) ? (
+                      <div>
+                        <div className="text-white font-medium">{formatCurrency(totalPriceOf(tract)!)}</div>
+                        <div className="text-gg-gray-500 text-xs">{totalPriceLabel(tract.price_basis ?? (tract.sale_price ? 'sold' : 'asking'))}</div>
+                      </div>
+                    ) : (tract.display_price_per_acre ?? (tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : null)) != null ? (
                       <div>
                         <div className="text-white font-medium">{formatCurrency((tract.display_price_per_acre ?? (tract.sale_price! / tract.total_acres!)))}</div>
                         <div className="text-gg-gray-500 text-xs">$/Acre <BasisTag basis={tract.price_basis ?? (tract.sale_price ? 'sold' : null)} /></div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
                   {/* Find Comparables Button — opens the real comp map on
