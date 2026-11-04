@@ -13,7 +13,7 @@
 import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  Check, ChevronDown, ChevronRight, Download, FolderPlus, Image as ImageIcon, Loader2, MoreHorizontal, Pencil, Plus, Trash2, Upload, X,
+  Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, Trash2, Upload, X,
 } from 'lucide-react'
 import {
   archiveParcel, createProject, deleteReport, downloadReport, duplicateProject, firmMembers,
@@ -577,8 +577,9 @@ export default function SavedProjectsPanel({
                              if (e.key === 'Escape') cancelEdit()
                            }} />
                   ) : (
-                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {p.name}
+                    <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Folder size={14} style={{ flex: 'none', opacity: 0.8 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
                     </div>
                   )}
                   <div style={muted}>
@@ -765,8 +766,9 @@ export default function SavedProjectsPanel({
                   {maps.map((t) => {
                     const tKey = `t:${t.id}`
                     return (
-                      <div key={t.id} style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 4,
-                                               padding: '4px 4px', borderRadius: 8, background: 'rgba(255,255,255,0.04)' }}>
+                      <div key={t.id} data-testid="tract-card" style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 4,
+                                               margin: '6px 0 6px 18px', padding: '10px 12px', borderRadius: 12,
+                                               background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.22)' }}>
                         <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
                              onClick={() => { if (editing?.key !== tKey) onShowTract(t.id) }}>
                           {editing?.key === tKey ? (
@@ -779,8 +781,10 @@ export default function SavedProjectsPanel({
                                      if (e.key === 'Escape') cancelEdit()
                                    }} />
                           ) : (
-                            <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {t.name || 'Untitled'}
+                            <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <MapIcon size={14} color={PINK} style={{ flex: 'none' }} />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name || 'Untitled'}</span>
+                              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'rgba(255,255,255,0.55)', marginLeft: 2 }}>TRACT</span>
                             </div>
                           )}
                           <div style={muted}>{mapLine(t)}</div>
