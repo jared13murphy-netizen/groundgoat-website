@@ -4255,7 +4255,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // because coverage is partial today, not because the search
           // itself did anything wrong.
           const askedSellerOrBuyer = !!(nextFilters.seller || nextFilters.buyer)
-          onChatSearchError?.(
+          if (Object.keys(incoming || {}).length > 0) onChatSearchError?.(
             askedSellerOrBuyer
               ? 'No tracts matched that search. Note: seller/buyer names are only on file for a portion of our auction results so far — full coverage is coming.'
               : 'No tracts matched that search.',
@@ -4268,9 +4268,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // owns the map, so a failure here belongs to a superseded search
         // and shouldn't surface an error toast for what the user isn't
         // even looking at anymore.
+        // Owner 11/3: this same path also runs for a plain CLEAR (closing a
+        // comp report, leaving comp mode: clearActiveSearch → {} filters).
+        // No search ran then, so a transient load failure must never say
+        // "Search worked…" — the viewport cell-loader refills on its own.
+        const wasASearch = Object.keys(incoming || {}).length > 0
         if (e.name !== 'AbortError' && myGen === tractsGenRef.current) {
           console.error('chat search load:', e)
-          onChatSearchError?.('Search worked but the map couldn\'t load results — try again.', 'err')
+          if (wasASearch) onChatSearchError?.('Search worked but the map couldn\'t load results — try again.', 'err')
         }
       })
       .finally(() => {
