@@ -272,6 +272,10 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
   const [loadingOwnedGround, setLoadingOwnedGround] = useState(false)
   const [regridData, setRegridData] = useState<any>(null)
   const [cropHistory, setCropHistory] = useState<any>(null)
+  // Rainfall by year (owner 11/4): PRISM annual precipitation at the parcel,
+  // every year 1981→latest, never an average.
+  const [rainfall, setRainfall] = useState<{ year: number; inches: number }[] | null>(null)
+  const [rainfallExpanded, setRainfallExpanded] = useState(false)
   const [expandedCropYears, setExpandedCropYears] = useState<Set<number>>(new Set())
   // Monotonic click sequence — a slow crop-history response from a PREVIOUS
   // click must never paint under the current parcel (audit 8/20: cross-
@@ -538,6 +542,16 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
     // it resolves. 'by-point' is a deliberate never-matching path id: the
     // backend falls through to the lat/lng spatial lookup.
     const cropSeq = ++cropFetchSeqRef.current
+    setRainfall(null); setRainfallExpanded(false)
+    if (lat != null && lng != null) {
+      fetchWithAuth(`${API_URL}/api/parcels/precipitation?lat=${lat}&lng=${lng}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(j => {
+          if (cropSeq !== cropFetchSeqRef.current) return  // stale click
+          if (Array.isArray(j?.years) && j.years.length) setRainfall(j.years)
+        })
+        .catch(() => {})
+    }
     if (ll_uuid || (lat != null && lng != null)) {
       const cropQs = lat != null && lng != null ? `?lat=${lat}&lng=${lng}` : ''
       fetchWithAuth(`${API_URL}/api/parcels/${encodeURIComponent(ll_uuid || 'by-point')}/crop-history${cropQs}`)
@@ -1000,7 +1014,7 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
               Property, Assessed Value, Buildings, Mailing Address — shared
               with CompInlinePopup (parcelDetailFields.tsx) so the two
               modals' data/order/formatting can't drift apart. */}
-          <ParcelDetailSections d={derived} hideComposition hideLastSale afterSoilRating={
+          <ParcelDetailSections d={derived} hideComposition hideLastSale afterSoilRating={<>{
             cropHistory?.available ? (
               /* ── CROPS PLANTED — the panel's one designed object (owner
                  8/20: "different look... be creative"). A field-card: soft
@@ -1067,6 +1081,47 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
                 <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>USDA Cropland Data</div>
               </div>
             ) : null
+          }{rainfall ? (
+              /* ── RAINFALL BY YEAR (owner 11/4): one line per year, newest
+                 first, inches of annual precipitation at this parcel. The
+                 first 10 years show; "Show all years" opens the full
+                 history back to 1981. Never an average. */
+              <div style={{
+                margin: '10px 16px 4px',
+                padding: '12px 14px 8px',
+                background: '#121216',
+                border: '1px solid #26262f',
+                borderRadius: 14,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.2px', color: '#FFFFFF', textTransform: 'uppercase' }}>
+                    Rainfall by Year
+                  </span>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
+                    {`${rainfall[rainfall.length - 1].year}–${rainfall[0].year}`}
+                  </span>
+                </div>
+                {(rainfallExpanded ? rainfall : rainfall.slice(0, 10)).map(y => {
+                  const max = Math.max(...rainfall.map(r => r.inches)) || 1
+                  return (
+                    <div key={y.year} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: '#FFFFFF', width: 34, fontVariantNumeric: 'tabular-nums' }}>{y.year}</span>
+                      <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.max(2, (y.inches / max) * 100)}%`, height: '100%', background: '#4FA3E0', borderRadius: 4 }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#FFFFFF', width: 52, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{y.inches.toFixed(2)} in</span>
+                    </div>
+                  )
+                })}
+                {rainfall.length > 10 && (
+                  <button type="button" onClick={() => setRainfallExpanded(v => !v)}
+                    style={{ background: 'none', border: 'none', color: '#F58CDE', fontSize: 11, fontWeight: 700, padding: '4px 0', cursor: 'pointer' }}>
+                    {rainfallExpanded ? 'Show fewer years' : `Show all ${rainfall.length} years`}
+                  </button>
+                )}
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>PRISM Climate Group, Oregon State University</div>
+              </div>
+            ) : null}</>
           } />
 
           {/* No-data state — shown only when skeleton props are also empty.
