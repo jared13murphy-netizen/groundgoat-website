@@ -324,6 +324,13 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             <div className="text-[10px] text-gg-gray-500 uppercase">{soilRatingLabel(null, listing.tracts)}</div>
           </div>
         )}
+        {/* Owner 11/3: a multi-tract auction's figures are averages of all its
+            tracts — say so, small and gray, only when there is more than one. */}
+        {!listing.is_incomplete && (listing.tracts?.length || listing.tract_count || 0) > 1 && (
+          <div className="w-full text-[11px] text-gg-gray-500 pt-1" data-testid="multi-tract-note">
+            Figures above are averages of all {listing.tracts?.length || listing.tract_count} tracts in this auction.
+          </div>
+        )}
       </div>
 
       {/* Auction/Listing Details */}
