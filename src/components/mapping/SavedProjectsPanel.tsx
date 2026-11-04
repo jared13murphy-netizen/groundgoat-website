@@ -25,6 +25,7 @@ import {
   type FirmMember, type LibraryLogo, type Project, type ReportKind, type ReportRow, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
+import { SavedReportCard } from '@/components/mapping/SavedReportsPanel'
 
 const PINK = '#F58CDE'
 /** Same default the old Configure Map slider started at. */
@@ -128,8 +129,6 @@ export default function SavedProjectsPanel({
     try { setSavedReports((await listSavedReports()).reports || []) } catch { /* panel still works without them */ }
   }, [])
   const reportsForTract = (tractId: string) => savedReports.filter((r) => r.parcel_id === tractId)
-  const looseReports = savedReports.filter((r) => !r.parcel_id)
-  const fmtWhen = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '')
   const renameReport = async (r: SavedReportRow) => {
     const name = window.prompt('Report name', r.name)
     if (name == null || !name.trim() || name.trim() === r.name) return
@@ -140,20 +139,7 @@ export default function SavedProjectsPanel({
     try { await deleteSavedReport(r.id); setSavedReports((x) => x.filter((y) => y.id !== r.id)) } catch (e: any) { setMsg(e?.message || 'Could not delete the report.') }
   }
   const reportLine = (r: SavedReportRow) => (
-    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }} data-testid="saved-report-row">
-      <button type="button" title="Open this report"
-              style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', padding: 0, color: '#fff', cursor: 'pointer', textAlign: 'left' }}
-              onClick={() => onOpenSavedReport?.(r.id)}>
-        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{r.name}</div>
-        <div style={muted}>{r.item_count} {r.item_count === 1 ? 'sale' : 'sales'} · {fmtWhen(r.updated_at)}{r.mine === false ? ' · shared' : ''}</div>
-      </button>
-      {r.mine !== false && (
-        <>
-          <button type="button" style={iconBtn} aria-label="Rename report" onClick={() => void renameReport(r)}><Pencil size={13} /></button>
-          <button type="button" style={iconBtn} aria-label="Delete saved report" onClick={() => void removeSavedReport(r)}><Trash2 size={13} /></button>
-        </>
-      )}
-    </div>
+    <SavedReportCard key={r.id} r={r} onOpen={(id) => onOpenSavedReport?.(id)} onRename={(x) => void renameReport(x)} onDelete={(x) => void removeSavedReport(x)} />
   )
   const [moving, setMoving] = useState<string | null>(null)    // tract id
   const [creating, setCreating] = useState<string | null>(null) // new project name draft
@@ -799,8 +785,8 @@ export default function SavedProjectsPanel({
                           )}
                           <div style={muted}>{mapLine(t)}</div>
                           {reportsForTract(t.id).length > 0 && (
-                            <div style={{ marginTop: 4, paddingLeft: 6, borderLeft: `2px solid ${PINK}` }} onClick={(e) => e.stopPropagation()}>
-                              <div style={{ ...muted, fontWeight: 600 }}>Comp reports</div>
+                            <div style={{ marginTop: 2 }} onClick={(e) => e.stopPropagation()}>
+                              <div style={{ ...muted, fontWeight: 600, marginTop: 6 }}>Comp reports</div>
                               {reportsForTract(t.id).map(reportLine)}
                             </div>
                           )}
@@ -868,13 +854,6 @@ export default function SavedProjectsPanel({
             </div>
           )
         })}
-        {!q && looseReports.length > 0 && (
-          <div style={{ ...section, marginTop: 12 }} data-testid="saved-reports-section">
-            <div style={{ fontWeight: 600, marginBottom: 2 }}>Saved Reports</div>
-            <div style={muted}>Comp reports you emailed, downloaded or saved. Open one to rebuild it with today&apos;s figures.</div>
-            {looseReports.map(reportLine)}
-          </div>
-        )}
       </div>
     </div>
   )

@@ -48,6 +48,7 @@ import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } fr
 import MapItToolbar from '@/components/mapping/MapItToolbar'
 import { useTractEditor, type SavedInfo, type TractStart } from '@/components/mapping/useTractEditor'
 import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
+import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
 import { bboxOf } from '@/lib/cmShapes'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
@@ -88,6 +89,7 @@ import {
   Map as MapDrawIcon,
   Plus as PlusIcon,
   Folder as SavedProjectsIcon,
+  Bookmark as SavedReportsIcon,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -2189,6 +2191,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [editingTractId, setEditingTractId] = useState<string | null>(null)
   // Saved Projects slide-out (replaces the separate portfolio screens).
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
+  // Owner 11/3: Saved Reports slide-out, opened from the My Maps tile.
+  const [savedReportsOpen, setSavedReportsOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
   const [savedPanelFocus, setSavedPanelFocus] = useState<{ projectId: string; n: number } | null>(null)
   // Owner 11/2: bumped by the My Maps "New Project" tile; the panel opens
@@ -11496,6 +11500,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             setMappingMode({ start: { kind: 'empty' }, projectId: p.id, projectName: p.name })
           }} />
       )}
+      {/* Owner 11/3: Saved Reports slide-out, opened from the My Maps tile. */}
+      {canUseProjectMaps && !mappingMode && onOpenSavedReport && (
+        <SavedReportsPanel
+          open={savedReportsOpen}
+          onClose={() => setSavedReportsOpen(false)}
+          onOpenReport={(id) => { setSavedReportsOpen(false); onOpenSavedReport(id) }} />
+      )}
 
       {/* Goat Search animation overlay — renders while a chat-driven
           search is in flight. Pure visual sugar; pointer-events:none so
@@ -11859,6 +11870,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     icon={<SavedProjectsIcon size={20} />}
                     label="Saved Projects"
                     onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true) }}
+                  />
+                )}
+                {/* Owner 11/3: every comp report this account emailed,
+                    downloaded or saved — cards with Avg $/Acre, searchable. */}
+                {canUseProjectMaps && onOpenSavedReport && (
+                  <UtilityTile
+                    icon={<SavedReportsIcon size={20} />}
+                    label="Saved Reports"
+                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(false); setSavedReportsOpen(true) }}
                   />
                 )}
                 {/* Owner 11/2: New Project here opens the Saved Projects
