@@ -1742,7 +1742,7 @@ interface ExploreMapProps {
   onMappingModeChange?: (active: boolean) => void
   /** Open Map It on an auction tract's boundary (owner 11/5). A new `key`
    *  starts a new session; ignored unless the user can use Map It. */
-  mapItTractRequest?: { key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null } | null
+  mapItTractRequest?: { key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null; tractId: string | null; statedAcres: number | null } | null
   /** Tells the page whether this user can use Map It (same gate as the
    *  parcel panel's Map It button), so the tract panel can show its own. */
   onMapItAccessChange?: (ok: boolean) => void
@@ -3423,7 +3423,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!mapItTractRequest || !canUseProjectMaps) return
     setLandDetail(null)
     setMappingMode({
-      start: { kind: 'boundary', key: mapItTractRequest.key, geometry: mapItTractRequest.geometry, name: mapItTractRequest.name, state: mapItTractRequest.state },
+      start: { kind: 'boundary', key: mapItTractRequest.key, geometry: mapItTractRequest.geometry, name: mapItTractRequest.name, state: mapItTractRequest.state, tractId: mapItTractRequest.tractId, statedAcres: mapItTractRequest.statedAcres },
       projectId: null, projectName: null,
     })
   }, [mapItTractRequest?.key]) // eslint-disable-line react-hooks/exhaustive-deps
