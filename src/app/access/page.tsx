@@ -12,7 +12,6 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import liveEvents from '@/lib/liveEvents'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
 import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
-import { formatAcres } from '@/lib/format'
 import { getDistanceToCounty, getCountyCoordinates } from '@/data/countyCoordinates'
 import PortalNavBar from '@/components/portal/PortalNavBar'
 import PortalKPICards from '@/components/portal/PortalKPICards'
@@ -422,6 +421,7 @@ function AccessPortalPageInner() {
   const [mapItAccess, setMapItAccess] = useState(false)
   const [mapItTractRequest, setMapItTractRequest] = useState<{
     key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null
+    tractId: string | null; statedAcres: number | null
   } | null>(null)
   // Bubble's X button: clears the bubble AND resets the map's
   // chat-applied filters. handleChatApplyFilters({}, true) bumps
@@ -1474,13 +1474,16 @@ function AccessPortalPageInner() {
               onMapIt={!mapItAccess ? undefined : (tract) => {
                 const geometry = ringsToGeometry(tract.polygonCoordinates)
                 if (!geometry) return
-                const acres = tract.totalAcres ? `${formatAcres(tract.totalAcres)} ac, ` : ''
                 setSelectedTract(null)
                 setMapItTractRequest({
                   key: `${tract.id}:${Date.now()}`,
                   geometry: geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon,
-                  name: `${acres}${tract.county} County, ${tract.state}`,
+                  // No acres in the name: the saved panel shows acres once,
+                  // in its Acres card (owner 11/5).
+                  name: tract.companyName ? `${tract.companyName} tract` : `${tract.county} County auction tract`,
                   state: tract.state || null,
+                  tractId: tract.tractId || tract.id || null,
+                  statedAcres: tract.totalAcres ?? null,
                 })
               }}
               /* Comp mode (2026-08-17): a tract "+" now opens THIS

@@ -231,12 +231,10 @@ export default function SavedTractPanel({
             {detail.project.name}{multi ? ` · ${detail.project_tract_count} tracts` : ''}
           </div>
         )}
-        <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 9, marginTop: 9 }}>
-          {acres != null && (
-            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{fmtAc(acres)}</span>
-          )}
-          {place && <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>{place}</span>}
-        </div>
+        {/* Acres are shown once, in the Acres card below (owner 11/5). */}
+        {place && (
+          <div style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)', marginTop: 6 }}>{place}</div>
+        )}
         <button
           onClick={onClose} aria-label="Close panel"
           style={{
