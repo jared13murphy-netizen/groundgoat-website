@@ -1740,6 +1740,12 @@ interface ExploreMapProps {
   onUtilitiesActiveChange?: (active: boolean) => void
   /** Map It entered/left: the page hides the Goat Search dock meanwhile. */
   onMappingModeChange?: (active: boolean) => void
+  /** Open Map It on an auction tract's boundary (owner 11/5). A new `key`
+   *  starts a new session; ignored unless the user can use Map It. */
+  mapItTractRequest?: { key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null } | null
+  /** Tells the page whether this user can use Map It (same gate as the
+   *  parcel panel's Map It button), so the tract panel can show its own. */
+  onMapItAccessChange?: (ok: boolean) => void
   /** /go Quick-Draw share: outlines this ring on the map and fits the
       camera to it. [lng, lat] pairs, same convention as
       zoomToBoundsSignal/pinnedTractPolygon's coords. Does not need to be
@@ -1910,7 +1916,7 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -3410,6 +3416,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   }, [utilitiesOpen, savedPanelOpen, filterOpen])
 
   useEffect(() => { onMappingModeChange?.(!!mappingMode) }, [!!mappingMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onMapItAccessChange?.(canUseProjectMaps) }, [canUseProjectMaps]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Map It from the auction tract panel (owner 11/5): seed the editor with
+  // the tract's boundary; the rest of the session is the parcel flow.
+  useEffect(() => {
+    if (!mapItTractRequest || !canUseProjectMaps) return
+    setLandDetail(null)
+    setMappingMode({
+      start: { kind: 'boundary', key: mapItTractRequest.key, geometry: mapItTractRequest.geometry, name: mapItTractRequest.name, state: mapItTractRequest.state },
+      projectId: null, projectName: null,
+    })
+  }, [mapItTractRequest?.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Owner 11/1: the Saved Projects slide-out closes on ANY click outside
   // it (a parcel, the map, a nav item), same rule as the My Maps panel.
@@ -11471,7 +11488,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         <MapItToolbar
           editor={tractEditor} onExit={() => setMappingMode(null)}
           onDone={(id) => { setMappingMode(null); setSavedTractOpen({ id }) }}
-          startKind={mappingMode.start.kind}
+          startKind={mappingMode.start.kind === 'boundary' ? 'parcel' : mappingMode.start.kind}
           lockedProject={mappingMode.projectId
             ? { id: mappingMode.projectId, name: mappingMode.projectName || 'this project' } : null}
           savedProject={mapItSaved?.project ?? null}

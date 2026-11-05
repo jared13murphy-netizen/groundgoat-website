@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2, Plus } from 'lucide-react'
+import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2, Plus, Layers } from 'lucide-react'
 import { ACTION_BTN } from '@/components/map/LandDetailPanel'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
@@ -727,6 +727,10 @@ export interface TractDetailActionBarProps {
   compMode?: boolean
   /** Watching is per auction (listing): the button acts on tract.listingId
       and is hidden when the tract has no listing or no toggle handler. */
+  /** Map It on this auction tract (owner 11/5): opens the Explore-map tract
+      editor seeded with the tract boundary. Hidden when not passed (no Map It
+      access) or when the tract has no boundary; never in comp mode. */
+  onMapIt?: (tract: TractSaleData) => void
 }
 
 export function TractDetailActionBar({
@@ -737,6 +741,7 @@ export function TractDetailActionBar({
   onViewListing,
   onFindComparables,
   compMode = false,
+  onMapIt,
 }: TractDetailActionBarProps) {
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
 
@@ -860,6 +865,16 @@ export function TractDetailActionBar({
         )}
 
         <div style={{ display: 'flex', gap: 6 }}>
+          {hasBoundaries && !compMode && onMapIt && (
+            <button
+              onClick={() => onMapIt(tract)}
+              title="Map It"
+              style={ACTION_BTN}
+            >
+              <Layers size={16} /> Map It
+            </button>
+          )}
+
           {hasBoundaries && tract.tractId && onView3DTerrain && (
             <button
               onClick={() => onView3DTerrain(tract.tractId!, `${tract.county}, ${tract.state}`)}

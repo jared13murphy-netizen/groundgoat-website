@@ -11,7 +11,8 @@ import { Loader2, BarChart3, ArrowLeft, X, Bookmark } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import liveEvents from '@/lib/liveEvents'
 import { SHOW_PRIVATE_TREATY } from '@/lib/featureFlags'
-import { toRings as toTractRings } from '@/lib/polygonRings'
+import { toRings as toTractRings, ringsToGeometry } from '@/lib/polygonRings'
+import { formatAcres } from '@/lib/format'
 import { getDistanceToCounty, getCountyCoordinates } from '@/data/countyCoordinates'
 import PortalNavBar from '@/components/portal/PortalNavBar'
 import PortalKPICards from '@/components/portal/PortalKPICards'
@@ -416,6 +417,12 @@ function AccessPortalPageInner() {
   const [utilitiesActive, setUtilitiesActive] = useState(false)
   // Map It is editing a tract: the Goat Search dock hides (owner 10/30).
   const [mappingActive, setMappingActive] = useState(false)
+  // Map It on an auction tract (owner 11/5): the tract panel asks the map
+  // to open its editor on the tract boundary; the map reports the access.
+  const [mapItAccess, setMapItAccess] = useState(false)
+  const [mapItTractRequest, setMapItTractRequest] = useState<{
+    key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null
+  } | null>(null)
   // Bubble's X button: clears the bubble AND resets the map's
   // chat-applied filters. handleChatApplyFilters({}, true) bumps
   // chatAppliedFilters' nonce, which ExploreMap's applyExternalFilters
@@ -1201,6 +1208,8 @@ function AccessPortalPageInner() {
           utilitiesToggleSignal={utilitiesToggleSignal}
           onUtilitiesActiveChange={setUtilitiesActive}
           onMappingModeChange={setMappingActive}
+          mapItTractRequest={mapItTractRequest}
+          onMapItAccessChange={setMapItAccess}
         />
       </div>
 
@@ -1462,6 +1471,18 @@ function AccessPortalPageInner() {
                 setMapListingId(listingId)
               }}
               onFindComparables={handleFindComparables}
+              onMapIt={!mapItAccess ? undefined : (tract) => {
+                const geometry = ringsToGeometry(tract.polygonCoordinates)
+                if (!geometry) return
+                const acres = tract.totalAcres ? `${formatAcres(tract.totalAcres)} ac, ` : ''
+                setSelectedTract(null)
+                setMapItTractRequest({
+                  key: `${tract.id}:${Date.now()}`,
+                  geometry: geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon,
+                  name: `${acres}${tract.county} County, ${tract.state}`,
+                  state: tract.state || null,
+                })
+              }}
               /* Comp mode (2026-08-17): a tract "+" now opens THIS
                  slide-out instead of the old inline popup, narrowed to
                  the popup's three actions. `subjectTractId` is the same
