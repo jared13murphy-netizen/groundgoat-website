@@ -64,7 +64,9 @@ export type TractStart =
   | { kind: 'tract'; id: string }
   | { kind: 'empty' }
   /** an auction tract's boundary (owner 11/5: Map It on auction tracts) */
-  | { kind: 'boundary'; key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null }
+  | { kind: 'boundary'; key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null;
+      /** the auction tract it came from + the company's stated acres (THE acres while unchanged) */
+      tractId: string | null; statedAcres: number | null }
 
 interface Params {
   mapRef: { current: maplibregl.Map | null }
@@ -124,6 +126,8 @@ export function useTractEditor({
   const detailRef = useRef(detail); detailRef.current = detail
   /** state of a boundary start (no parcel detail record carries it). */
   const startStateRef = useRef<string | null>(null)
+  /** auction tract(s) a boundary start or a saved tract came from. */
+  const sourceTractRef = useRef<string[]>([])
   const modeRef = useRef(mode); modeRef.current = mode
   const toolRef = useRef(tool); toolRef.current = tool
   const drawingRef = useRef(drawing); drawingRef.current = drawing
@@ -263,6 +267,7 @@ export function useTractEditor({
     histRef.current = []; redoRef.current = []
     savedIdRef.current = null; setSavedId(null); classifyingRef.current = null; sourceRef.current = []
     startStateRef.current = null
+    sourceTractRef.current = []
     refAcresRef.current = null
     setDetail(null); setBoundaryState([]); setShapesState([]); setClassified(false)
     setDefaultNameSaved('')
@@ -317,6 +322,11 @@ export function useTractEditor({
       // from the engine on the Land Types step, exactly like a parcel.
       const rings = geometryToPolys(startBoundary.geometry)
       startStateRef.current = startBoundary.state
+      sourceTractRef.current = startBoundary.tractId ? [startBoundary.tractId] : []
+      // Owner 11/5: the company's stated acres are THE acres while the
+      // outline is unchanged (same rule as Regrid acres for a parcel).
+      refAcresRef.current = startBoundary.statedAcres && startBoundary.statedAcres > 0
+        ? { regrid: startBoundary.statedAcres, drawn: boundaryAcresOf(rings) } : null
       prewarmRef.current = {
         key: JSON.stringify(polysToGeometry(rings)),
         p: classifyBoundary(polysToGeometry(rings) as any, startBoundary.state).catch(() => null),
@@ -340,7 +350,8 @@ export function useTractEditor({
         const loaded = simplifyShapes(explodeShapes(t.polygons as any))
         savedIdRef.current = t.id; setSavedId(t.id)
         sourceRef.current = t.source_ll_uuids || []
-        refAcresRef.current = (t.stats?.acres_source === 'regrid' && t.stats?.acres > 0 && t.stats?.acres_drawn > 0)
+        sourceTractRef.current = Array.isArray((t.stats as any)?.source_tract_ids) ? (t.stats as any).source_tract_ids : []
+        refAcresRef.current = ((t.stats?.acres_source === 'regrid' || (t.stats as any)?.acres_source === 'listing') && t.stats?.acres > 0 && t.stats?.acres_drawn > 0)
           ? { regrid: Number(t.stats.acres), drawn: Number(t.stats.acres_drawn) } : null
         boundaryRef.current = rings; shapesRef.current = loaded; classifiedRef.current = true
         setBoundaryState(rings)
@@ -775,6 +786,7 @@ export function useTractEditor({
         source_ll_uuids: detailRef.current?.parcel?.ll_uuid
           ? [String(detailRef.current.parcel.ll_uuid)]
           : sourceRef.current,
+        source_tract_ids: sourceTractRef.current,
         project_id: opts.projectId ?? null,
         project_name: opts.projectId ? null : (opts.projectName?.trim() || null),
       }

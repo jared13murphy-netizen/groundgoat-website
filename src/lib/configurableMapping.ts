@@ -162,6 +162,9 @@ export interface SaveBody {
   boundary: any
   polygons: { cls: LandClass; geometry: any }[]
   source_ll_uuids: string[]
+  /** Auction tract(s) the outline came from: their stated acres are THE acres
+   *  while the outline is unchanged (owner 11/5). */
+  source_tract_ids?: string[]
   /** Omit to have a project created automatically — a single-parcel user
    *  never has to think about projects. */
   project_id?: string | null
