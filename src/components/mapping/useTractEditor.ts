@@ -56,12 +56,15 @@ export interface SaveOptions {
 
 /** How a Map It session starts:
  *  parcel — load that parcel's outline (the parcel-panel entry);
+ *  boundary — an auction tract's outline (the tract-panel entry);
  *  tract  — open a saved tract for editing (boundary + land types, Save = PUT);
  *  empty  — nothing yet: draw a tract or choose a parcel (Add a New Tract). */
 export type TractStart =
   | { kind: 'parcel'; ll_uuid: string }
   | { kind: 'tract'; id: string }
   | { kind: 'empty' }
+  /** an auction tract's boundary (owner 11/5: Map It on auction tracts) */
+  | { kind: 'boundary'; key: string; geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon; name: string; state: string | null }
 
 interface Params {
   mapRef: { current: maplibregl.Map | null }
@@ -119,6 +122,8 @@ export function useTractEditor({
   const shapesRef = useRef(shapes); shapesRef.current = shapes
   const classifiedRef = useRef(classified); classifiedRef.current = classified
   const detailRef = useRef(detail); detailRef.current = detail
+  /** state of a boundary start (no parcel detail record carries it). */
+  const startStateRef = useRef<string | null>(null)
   const modeRef = useRef(mode); modeRef.current = mode
   const toolRef = useRef(tool); toolRef.current = tool
   const drawingRef = useRef(drawing); drawingRef.current = drawing
@@ -257,6 +262,7 @@ export function useTractEditor({
     loadSeq.current++
     histRef.current = []; redoRef.current = []
     savedIdRef.current = null; setSavedId(null); classifyingRef.current = null; sourceRef.current = []
+    startStateRef.current = null
     refAcresRef.current = null
     setDetail(null); setBoundaryState([]); setShapesState([]); setClassified(false)
     setDefaultNameSaved('')
@@ -268,6 +274,7 @@ export function useTractEditor({
 
   const startLlUuid = start?.kind === 'parcel' ? start.ll_uuid : null
   const startTractId = start?.kind === 'tract' ? start.id : null
+  const startBoundary = start?.kind === 'boundary' ? start : null
 
   /** Load a parcel's outline as the tract outline. Used by the parcel
    *  entry and by "Choose Parcel" in an Add-a-New-Tract session. */
@@ -305,6 +312,23 @@ export function useTractEditor({
     if (!enabled) { resetSession(); return }
     resetSession()
     if (startLlUuid) { void loadParcel(startLlUuid); return }
+    if (startBoundary) {
+      // Auction tract: its outline is the tract outline; land types come
+      // from the engine on the Land Types step, exactly like a parcel.
+      const rings = geometryToPolys(startBoundary.geometry)
+      startStateRef.current = startBoundary.state
+      prewarmRef.current = {
+        key: JSON.stringify(polysToGeometry(rings)),
+        p: classifyBoundary(polysToGeometry(rings) as any, startBoundary.state).catch(() => null),
+      }
+      boundaryRef.current = rings; shapesRef.current = []; classifiedRef.current = false
+      setBoundaryState(rings)
+      setShapesState([]); setClassified(false); setSelectedId(null); setFrame(null)
+      setDefaultNameSaved(startBoundary.name)
+      markClean([], rings)
+      fitMap(bboxOf(startBoundary.geometry.coordinates as any))
+      return
+    }
     if (!startTractId) return
     const seq = loadSeq.current
     setLoading(true); setBusy('Opening map…')
@@ -331,7 +355,7 @@ export function useTractEditor({
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, startLlUuid, startTractId])
+  }, [enabled, startLlUuid, startTractId, startBoundary?.key])
 
   // ── classify (outline -> land types) ─────────────────────────────
   const ensureClassified = useCallback(async (): Promise<void> => {
@@ -339,7 +363,7 @@ export function useTractEditor({
     if (classifyingRef.current) return classifyingRef.current
     const geom = polysToGeometry(boundaryRef.current)
     if (!geom) return
-    const state = detailRef.current?.parcel?.state ?? null
+    const state = detailRef.current?.parcel?.state ?? startStateRef.current
     const run = (async () => {
       setBusy('Fitting land types to the boundary…'); setError(null)
       try {
