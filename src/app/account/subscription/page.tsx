@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -445,13 +445,24 @@ export default function SubscriptionPage() {
   // Arriving from /upgrade with a state to add (?add=Iowa): open the Add
   // State modal on that state, so it goes through the confirm-and-charge
   // add-state flow rather than a second checkout.
+  // Read ONCE: later refetches (after the add itself) must not reopen it.
+  const addParamHandled = useRef(false)
   useEffect(() => {
-    if (loading || typeof window === 'undefined') return
+    if (loading || addParamHandled.current || typeof window === 'undefined') return
     const add = new URLSearchParams(window.location.search).get('add')
-    if (!add) return
-    const active = subscriptionData?.areas?.filter((sub: any) => sub.status === 'active' || sub.status === 'trialing') || []
+    if (!add || !subscriptionData || !user) return
+    addParamHandled.current = true
+    router.replace('/account/subscription')
+    const active = subscriptionData.areas?.filter((sub: any) => sub.status === 'active' || sub.status === 'trialing') || []
     const apple = active.some((sub: any) => sub.payment_platform === 'apple')
-    if (active.length > 0 && active.length < MAX_STATES && !apple && canManageSubscription()) {
+    const owned = active.some((sub: any) => (STATE_TO_ABBR[add] || add) === sub.state)
+    if (owned) {
+      setSuccessMessage(`${add} is already on your plan.`)
+    } else if (apple) {
+      setError('Your subscription is managed through the App Store. Add states in the Ground Goat app.')
+    } else if (active.length >= MAX_STATES) {
+      setError(`Your plan already covers ${MAX_STATES} states, the most a subscription can include.`)
+    } else if (active.length > 0 && canManageSubscription()) {
       setSelectedState(add)
       setAddStateStep('select')
       setShowAddModal(true)
@@ -1063,7 +1074,7 @@ export default function SubscriptionPage() {
                         </>
                       )}
                       <div className="flex justify-between pt-2 border-t border-gg-gray-700">
-                        <span className="text-white font-semibold">New annual charge</span>
+                        <span className="text-white font-semibold">New charge</span>
                         <span className="text-white font-semibold">${newPrice.toFixed(2)}/{unit}</span>
                       </div>
                     </div>

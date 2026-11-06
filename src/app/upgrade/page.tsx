@@ -253,10 +253,12 @@ function UpgradePageContent() {
   // plan tier (default Basic for new subscribers).
   const activeSub = areasData?.areas?.find(a => a.status === 'active' || a.status === 'trialing')
   const planTier = activeSub?.subscription_type === 'premium_state' ? 'premium_state' : 'basic_state'
-  const activeCycle: BillingCycle = activeSub?.billing_cycle === 'annual' ? 'annual' : activeSub ? 'monthly' : billingCycle
-  // Existing subscriber: one more state at the additional-state price.
-  // New subscriber: their first state.
-  const statePrice = activeSub ? PRICING[planTier][activeCycle].additional : PRICING[planTier][activeCycle].first
+  // Existing subscriber: their own cycle (unknown counts as annual, as on the
+  // backend). New subscriber: the toggle.
+  const activeCycle: BillingCycle = activeSub ? (activeSub.billing_cycle === 'monthly' ? 'monthly' : 'annual') : billingCycle
+  // A new subscriber's first state (existing subscribers see their price on
+  // the confirm step).
+  const statePrice = PRICING[planTier][activeCycle].first
   const activeCount = (areasData?.areas || []).filter(a => a.status === 'active' || a.status === 'trialing').length
   const atStateLimit = !!activeSub && activeCount >= MAX_STATES
 
@@ -353,8 +355,11 @@ function UpgradePageContent() {
                   <div>
                     <p className="text-white font-medium">Entire {getStateFullName(selectedState)} state</p>
                     <p className="text-gg-pink text-sm">
-                      ${formatPrice(statePrice)}/{cycleUnit(activeCycle) === 'mo' ? 'month' : 'year'}
-                      {activeSub ? ' added to your plan' : ''} (all counties included)
+                      {activeSub
+                        // An older plan may still carry its old per-state price, so the
+                        // exact amount is shown on the confirm step, from their own rows.
+                        ? 'Added to your current plan — you’ll see the price before you confirm (all counties included)'
+                        : `$${formatPrice(statePrice)}/${cycleUnit(activeCycle) === 'mo' ? 'month' : 'year'} (all counties included)`}
                     </p>
                   </div>
                   <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
