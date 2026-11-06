@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { PRICING, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
 import Image from 'next/image'
 import { 
   MapPin, 
@@ -92,6 +93,7 @@ const ACCESS_ROLES = ['groundgoat_admin', 'groundgoat_sales', 'firm_admin', 'fir
 export default function Home() {
   const router = useRouter()
   const [listings, setListings] = useState<Listing[]>(FALLBACK_LISTINGS)
+  const [pricingCycle, setPricingCycle] = useState<BillingCycle>('monthly')
   const [currentSlide, setCurrentSlide] = useState(0)
   const [userLocation, setUserLocation] = useState<string | null>(null)
 
@@ -488,6 +490,21 @@ export default function Home() {
             <p className="text-xl text-gg-gray-400 max-w-2xl mx-auto">
               Choose the plan that fits your needs. All plans include access to our mobile app.
             </p>
+            {/* Basic / Premium are sold monthly or annually (owner 2026-11-06). */}
+            <div className="mt-8 inline-flex bg-gg-gray-800 border border-gg-gray-700 rounded-full p-1">
+              {(['monthly', 'annual'] as const).map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setPricingCycle(c)}
+                  className={`px-6 py-2 rounded-full text-sm font-semibold transition-colors ${
+                    pricingCycle === c ? 'bg-gg-pink text-black' : 'text-gg-gray-300 hover:text-white'
+                  }`}
+                >
+                  {c === 'monthly' ? 'Monthly' : 'Annual'}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Pricing Cards */}
@@ -498,10 +515,10 @@ export default function Home() {
               <h3 className="font-display text-2xl font-bold text-white mb-2">Basic State</h3>
               <p className="text-gg-gray-400 mb-6">For active land investors</p>
               <div className="mb-1">
-                <span className="text-4xl font-bold text-white">$99</span>
-                <span className="text-gg-gray-400">/state/year</span>
+                <span className="text-4xl font-bold text-white">${formatPrice(PRICING.basic_state[pricingCycle].first)}</span>
+                <span className="text-gg-gray-400">/{cycleUnit(pricingCycle) === 'mo' ? 'month' : 'year'}</span>
               </div>
-              <p className="text-gg-gray-500 text-sm mb-6">per state, billed annually</p>
+              <p className="text-gg-gray-500 text-sm mb-6">first state &middot; +${formatPrice(PRICING.basic_state[pricingCycle].additional)}/{cycleUnit(pricingCycle)} each additional state (up to 5)</p>
               <ul className="space-y-3 mb-8 flex-grow">
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -532,11 +549,11 @@ export default function Home() {
                   Interactive Map
                 </li>
               </ul>
-              <Link href="/signup?plan=basic_state" className="btn-secondary w-full text-center block">
+              <Link href={`/signup?plan=basic_state&cycle=${pricingCycle}`} className="btn-secondary w-full text-center block">
                 Start 30-Day Free Trial
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
-                Billed annually • Cancel anytime
+                {pricingCycle === 'monthly' ? 'Billed monthly' : 'Billed annually'} • Cancel anytime
               </p>
             </div>
 
@@ -549,10 +566,10 @@ export default function Home() {
               <h3 className="font-display text-2xl font-bold text-white mb-2">Premium State</h3>
               <p className="text-gg-gray-400 mb-6">For data-driven land professionals</p>
               <div className="mb-1">
-                <span className="text-4xl font-bold text-white">$500</span>
-                <span className="text-gg-gray-400">/state/year</span>
+                <span className="text-4xl font-bold text-white">${formatPrice(PRICING.premium_state[pricingCycle].first)}</span>
+                <span className="text-gg-gray-400">/{cycleUnit(pricingCycle) === 'mo' ? 'month' : 'year'}</span>
               </div>
-              <p className="text-gg-gray-500 text-sm mb-6">per state, billed annually</p>
+              <p className="text-gg-gray-500 text-sm mb-6">first state &middot; +${formatPrice(PRICING.premium_state[pricingCycle].additional)}/{cycleUnit(pricingCycle)} each additional state (up to 5)</p>
               <ul className="space-y-3 mb-8 flex-grow">
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
@@ -575,11 +592,11 @@ export default function Home() {
                   Advanced land analytics
                 </li>
               </ul>
-              <Link href="/signup?plan=premium_state" className="btn-primary w-full text-center block">
+              <Link href={`/signup?plan=premium_state&cycle=${pricingCycle}`} className="btn-primary w-full text-center block">
                 Start 30-Day Free Trial
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
-                Billed annually • Cancel anytime
+                {pricingCycle === 'monthly' ? 'Billed monthly' : 'Billed annually'} • Cancel anytime
               </p>
             </div>
 

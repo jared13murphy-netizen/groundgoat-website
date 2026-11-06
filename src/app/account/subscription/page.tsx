@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, CreditCard, Calendar, AlertTriangle, CheckCircle, Crown, MapPin, Plus, ExternalLink, Building2, X, ChevronDown, ArrowUpCircle, Minus, Tag } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
-import { PRICING, formatPrice } from '@/config/pricing'
+import { PRICING, MAX_STATES, formatPrice, planTotal, cycleUnit, type BillingCycle } from '@/config/pricing'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -101,7 +101,7 @@ export default function SubscriptionPage() {
   const [showUpgradeConfirm, setShowUpgradeConfirm] = useState(false)
   // Owner 10/1: an upgrade keeps the original subscription date. The server
   // prices today's charge (premium to the next anniversary minus unused credit).
-  const [upgradePreview, setUpgradePreview] = useState<{ charged_today: number; credit_for_unused: number; premium_until_renewal: number; renews_on: string; annual_total: number } | null>(null)
+  const [upgradePreview, setUpgradePreview] = useState<{ charged_today: number; credit_for_unused: number; premium_until_renewal: number; renews_on: string; annual_total: number; renewal_total?: number } | null>(null)
   useEffect(() => {
     if (!showUpgradeConfirm) return
     setUpgradePreview(null)
@@ -442,6 +442,23 @@ export default function SubscriptionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, subscriptionData, user])
 
+  // Arriving from /upgrade with a state to add (?add=Iowa): open the Add
+  // State modal on that state, so it goes through the confirm-and-charge
+  // add-state flow rather than a second checkout.
+  useEffect(() => {
+    if (loading || typeof window === 'undefined') return
+    const add = new URLSearchParams(window.location.search).get('add')
+    if (!add) return
+    const active = subscriptionData?.areas?.filter((sub: any) => sub.status === 'active' || sub.status === 'trialing') || []
+    const apple = active.some((sub: any) => sub.payment_platform === 'apple')
+    if (active.length > 0 && active.length < MAX_STATES && !apple && canManageSubscription()) {
+      setSelectedState(add)
+      setAddStateStep('select')
+      setShowAddModal(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, subscriptionData, user])
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gg-black flex items-center justify-center">
@@ -473,14 +490,23 @@ export default function SubscriptionPage() {
   // The trialing sub (if any) drives the upgrade modal's "you keep your trial,
   // $0 today" reassurance so an upgrade never reads as an immediate charge.
   const trialingSub = activeSubscriptions.find(sub => sub.status === 'trialing' && sub.trial_end)
-  // Use the user's ACTUAL per-state price from their existing subscription so
-  // legacy-priced users (e.g. $19.99/mo) see the correct base in the Add State
-  // modal. Fall back to the default plan price only if we somehow don't have a
-  // subscription record loaded.
-  const actualPerStatePrice = activeSubscriptions[0]?.monthly_price
-  const perStatePrice = (actualPerStatePrice && actualPerStatePrice > 0)
-    ? actualPerStatePrice
-    : (currentPlanType === 'premium_state' ? PRICING.premium_state.annualPerState : PRICING.basic_state.annualPerState)
+  // Owner 2026-11-06: first state + a lower price for each additional state,
+  // billed monthly or annually. What one MORE state costs this person:
+  //  - a non-primary row already carries it (the additional-state price, or
+  //    the flat per-state price on a not-yet-moved older subscription);
+  //  - with one state on the current first-state price, it is the plan's
+  //    additional-state price; an older flat price is charged as-is.
+  const cycle: BillingCycle = currentBillingCycle === 'monthly' ? 'monthly' : 'annual'
+  const unit = cycleUnit(cycle)
+  const statePlan = currentPlanType === 'premium_state' ? 'premium_state' : 'basic_state'
+  const extraRow = activeSubscriptions.find(sub => !sub.is_primary && sub.monthly_price > 0)
+  const firstRowPrice = activeSubscriptions.find(sub => sub.is_primary)?.monthly_price ?? activeSubscriptions[0]?.monthly_price
+  const perStatePrice = extraRow
+    ? extraRow.monthly_price
+    : (firstRowPrice && firstRowPrice > 0 && Math.abs(firstRowPrice - PRICING[statePlan][cycle].first) > 0.005)
+      ? firstRowPrice
+      : PRICING[statePlan][cycle].additional
+  const atStateLimit = activeSubscriptions.length >= MAX_STATES
 
   return (
     <div className="min-h-screen bg-gg-black pt-24 pb-12">
@@ -689,7 +715,7 @@ export default function SubscriptionPage() {
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-white">Your States</h2>
-              {canManageSubscription() && !isAppleManaged && (
+              {canManageSubscription() && !isAppleManaged && !atStateLimit && (
                 <button
                   onClick={() => {
                     setShowAddModal(true)
@@ -785,7 +811,7 @@ export default function SubscriptionPage() {
                 <div>
                   <h3 className="font-medium text-white">Upgrade to Premium State</h3>
                   <p className="text-sm text-gg-gray-400">
-                    Get premium features for ${formatPrice(PRICING.premium_state.annualPerState)}/state/year (currently ${formatPrice(PRICING.basic_state.annualPerState)}/state/year)
+                    Get premium features for ${formatPrice(planTotal('premium_state', cycle, activeSubscriptions.length))}/{unit} for your {activeSubscriptions.length} {activeSubscriptions.length === 1 ? 'state' : 'states'} (Basic State is ${formatPrice(planTotal('basic_state', cycle, activeSubscriptions.length))}/{unit})
                   </p>
                 </div>
               </div>
@@ -918,7 +944,7 @@ export default function SubscriptionPage() {
                           <p className="text-white font-medium">{selectedState}</p>
                           <p className="text-gg-gray-400 text-sm">Full state coverage</p>
                         </div>
-                        <p className="text-white font-semibold">${perStatePrice.toFixed(2)}/yr</p>
+                        <p className="text-white font-semibold">${perStatePrice.toFixed(2)}/{unit}</p>
                       </div>
                     </div>
                   )}
@@ -963,7 +989,7 @@ export default function SubscriptionPage() {
                           <div className="mt-2 space-y-1 text-xs">
                             <div className="flex justify-between text-gg-gray-400">
                               <span>Base price</span>
-                              <span>${perStatePrice.toFixed(2)}/yr</span>
+                              <span>${perStatePrice.toFixed(2)}/{unit}</span>
                             </div>
                             <div className="flex justify-between text-green-400">
                               <span>Discount</span>
@@ -971,7 +997,7 @@ export default function SubscriptionPage() {
                             </div>
                             <div className="flex justify-between text-white font-semibold pt-1 border-t border-gg-gray-700">
                               <span>New price</span>
-                              <span>${newPrice.toFixed(2)}/yr</span>
+                              <span>${newPrice.toFixed(2)}/{unit}</span>
                             </div>
                           </div>
                         </div>
@@ -1024,7 +1050,7 @@ export default function SubscriptionPage() {
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gg-gray-400">Base price</span>
-                        <span className="text-white">${perStatePrice.toFixed(2)}/yr</span>
+                        <span className="text-white">${perStatePrice.toFixed(2)}/{unit}</span>
                       </div>
                       {hasPromo && (
                         <>
@@ -1038,12 +1064,12 @@ export default function SubscriptionPage() {
                       )}
                       <div className="flex justify-between pt-2 border-t border-gg-gray-700">
                         <span className="text-white font-semibold">New annual charge</span>
-                        <span className="text-white font-semibold">${newPrice.toFixed(2)}/yr</span>
+                        <span className="text-white font-semibold">${newPrice.toFixed(2)}/{unit}</span>
                       </div>
                     </div>
 
                     <p className="text-gg-gray-500 text-xs mb-4">
-                      Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/yr.
+                      Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/{unit}.
                     </p>
 
                     {error && (
@@ -1088,7 +1114,7 @@ export default function SubscriptionPage() {
                 <h3 className="text-xl font-semibold text-white">Upgrade to Premium</h3>
               </div>
               <p className="text-gg-gray-400 mb-4">
-                Your plan will switch from Basic State (${formatPrice(PRICING.basic_state.annualPerState)}/state/yr) to Premium State (${formatPrice(PRICING.premium_state.annualPerState)}/state/yr) for all {activeSubscriptions.length} {activeSubscriptions.length === 1 ? 'state' : 'states'}.
+                Your plan will switch from Basic State (${formatPrice(planTotal('basic_state', cycle, activeSubscriptions.length))}/{unit}) to Premium State (${formatPrice(planTotal('premium_state', cycle, activeSubscriptions.length))}/{unit}) for all {activeSubscriptions.length} {activeSubscriptions.length === 1 ? 'state' : 'states'}.
               </p>
               {trialingSub ? (
                 <div className="mb-6 rounded-lg border-2 border-gg-pink/50 bg-gg-pink/10 p-3">
@@ -1096,7 +1122,7 @@ export default function SubscriptionPage() {
                   <p className="text-gg-gray-300 text-sm mt-1">
                     <span className="text-white font-medium">$0 charged today.</span> Your free trial continues until{' '}
                     <span className="text-white font-medium">{formatDate(trialingSub.trial_end)}</span>. Only then will you be billed for
-                    Premium — <span className="text-white font-medium">${formatPrice(PRICING.premium_state.annualPerState * activeSubscriptions.length)}/yr</span>
+                    Premium — <span className="text-white font-medium">${formatPrice(planTotal('premium_state', cycle, activeSubscriptions.length))}/{unit}</span>
                     {activeSubscriptions.length > 1 ? ` (${activeSubscriptions.length} states)` : ''}.
                   </p>
                 </div>
@@ -1106,10 +1132,10 @@ export default function SubscriptionPage() {
                     <>
                       <span className="text-white font-medium">${formatPrice(upgradePreview.charged_today)} charged today</span>
                       {' '}(Premium through {upgradePreview.renews_on}: ${formatPrice(upgradePreview.premium_until_renewal)}, less ${formatPrice(upgradePreview.credit_for_unused)} credit for the unused part of your current plan).
-                      {' '}Your plan keeps its original date and renews on <span className="text-white font-medium">{upgradePreview.renews_on}</span> at ${formatPrice(upgradePreview.annual_total)}/yr.
+                      {' '}Your plan keeps its original date and renews on <span className="text-white font-medium">{upgradePreview.renews_on}</span> at ${formatPrice(upgradePreview.renewal_total ?? upgradePreview.annual_total)}/{unit}.
                     </>
                   ) : (
-                    <>Your card is charged today for Premium up to your plan&apos;s anniversary, less a credit for the unused part of your current plan. Your plan keeps its original renewal date.</>
+                    <>Your card is charged today for Premium up to your plan&apos;s next renewal date, less a credit for the unused part of your current plan. Your plan keeps its original renewal date.</>
                   )}
                 </p>
               )}

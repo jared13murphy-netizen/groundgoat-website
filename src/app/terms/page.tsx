@@ -63,12 +63,12 @@ export default function TermsPage() {
 
           <section>
             <h2 className="font-display text-2xl font-bold text-white mb-4">8. Subscription and Billing</h2>
-            <p>Some features require a paid subscription. All subscriptions are billed annually and begin with a 30-day free trial. By subscribing, you authorize Ground Goat to charge your payment method when the trial ends and at the start of each annual billing period thereafter. Subscriptions automatically renew at the then-current rate unless cancelled before the renewal date. You may cancel anytime; your access continues until the end of the current paid period. Refunds are not customary except where required by law.</p>
+            <p>Some features require a paid subscription. Basic State and Premium State subscriptions are billed monthly or annually, as you choose when you subscribe; Management Firm subscriptions are billed annually. Every subscription begins with a 30-day free trial. By subscribing, you authorize Ground Goat to charge your payment method when the trial ends and at the start of each billing period (monthly or annual) thereafter. Subscriptions automatically renew at the then-current rate unless cancelled before the renewal date. You may cancel anytime; your access continues until the end of the current paid period. Refunds are not customary except where required by law.</p>
             <ul className="list-disc list-inside mt-4 space-y-2">
-              <li>Basic State subscriptions at $99/year per state</li>
-              <li>Premium State subscriptions at $500/year per state</li>
+              <li>Basic State subscriptions at $5/month or $60/year for the first state, plus $2.50/month or $30/year for each additional state (up to 5 states)</li>
+              <li>Premium State subscriptions at $39/month or $468/year for the first state, plus $19.50/month or $234/year for each additional state (up to 5 states)</li>
               <li>Management Firm subscriptions at $2,400/year for up to 3 users, plus $9.99/month per additional user (billed annually) for users 4–10</li>
-              <li>All plans include a 30-day free trial and are billed annually</li>
+              <li>All plans include a 30-day free trial</li>
             </ul>
             <p className="mt-4">To cancel a subscription purchased through the Ground Goat website or Stripe billing portal, log in to your account at groundgoat.com and navigate to Settings &gt; Subscription, or contact us at info@groundgoat.com. Subscriptions purchased through the Apple App Store are managed by Apple; to cancel, visit your Apple ID subscription settings. Ground Goat has no ability to issue refunds for App Store purchases — those are governed by Apple's refund policy.</p>
           </section>

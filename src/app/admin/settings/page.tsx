@@ -5,6 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Bell, Mail, Shield, Database, Globe, Loader2, Check } from 'lucide-react'
+import { PRICING, MAX_STATES, formatPrice } from '@/config/pricing'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -29,11 +30,7 @@ export default function AdminSettingsPage() {
     // Scraper
     autoScraperEnabled: false,
     scraperFrequency: 'daily',
-    
-    // Pricing
-    countyPlanPrice: '7.99',
-    statePlanPrice: '29.99',
-    firmPlanPrice: '199.99',
+
   })
 
   useEffect(() => {
@@ -226,53 +223,40 @@ export default function AdminSettingsPage() {
               </div>
               <div>
                 <h2 className="font-semibold text-white">Pricing</h2>
-                <p className="text-sm text-gg-gray-400">Subscription plan pricing (requires Stripe update)</p>
+                <p className="text-sm text-gg-gray-400">Current subscription prices</p>
               </div>
             </div>
             
-            <div className="grid md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gg-gray-300 mb-2">County Plan</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-400">$</span>
-                  <input
-                    type="text"
-                    value={settings.countyPlanPrice}
-                    onChange={(e) => handleChange('countyPlanPrice', e.target.value)}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg pl-8 pr-4 py-3 text-white"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gg-gray-400">/mo</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gg-gray-300 mb-2">State Plan</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-400">$</span>
-                  <input
-                    type="text"
-                    value={settings.statePlanPrice}
-                    onChange={(e) => handleChange('statePlanPrice', e.target.value)}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg pl-8 pr-4 py-3 text-white"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gg-gray-400">/mo</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gg-gray-300 mb-2">Firm Plan</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gg-gray-400">$</span>
-                  <input
-                    type="text"
-                    value={settings.firmPlanPrice}
-                    onChange={(e) => handleChange('firmPlanPrice', e.target.value)}
-                    className="w-full bg-gg-gray-900 border border-gg-gray-700 rounded-lg pl-8 pr-4 py-3 text-white"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gg-gray-400">/mo</span>
-                </div>
-              </div>
+            {/* Read-only: the live prices (owner 2026-11-06), from the one
+                price list in @/config/pricing (mirrors backend plan_pricing.py).
+                The old editable County / State / Firm boxes changed nothing. */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gg-gray-400 text-left">
+                    <th className="py-2 pr-4 font-medium">Plan</th>
+                    <th className="py-2 pr-4 font-medium">Monthly</th>
+                    <th className="py-2 pr-4 font-medium">Annual</th>
+                  </tr>
+                </thead>
+                <tbody className="text-white">
+                  {(['basic_state', 'premium_state'] as const).map(k => (
+                    <tr key={k} className="border-t border-gg-gray-800">
+                      <td className="py-2 pr-4">{PRICING[k].name}</td>
+                      <td className="py-2 pr-4">${formatPrice(PRICING[k].monthly.first)} first state + ${formatPrice(PRICING[k].monthly.additional)} each additional</td>
+                      <td className="py-2 pr-4">${formatPrice(PRICING[k].annual.first)} first state + ${formatPrice(PRICING[k].annual.additional)} each additional</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-gg-gray-800">
+                    <td className="py-2 pr-4">{PRICING.firm.name}</td>
+                    <td className="py-2 pr-4 text-gg-gray-500">—</td>
+                    <td className="py-2 pr-4">${formatPrice(PRICING.firm.annualBase)} for {PRICING.firm.includedUsers} users + ${formatPrice(PRICING.firm.annualPerAdditionalUser)} per extra user (up to {PRICING.firm.maxUsers})</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <p className="text-gg-gray-500 text-sm mt-4">
-              Note: Changing prices here is for display only. Actual prices must be updated in Stripe.
+              Up to {MAX_STATES} states on Basic and Premium. 30-day free trial on every plan. Prices are set in Stripe and App Store Connect.
             </p>
           </div>
         </div>
