@@ -65,8 +65,8 @@ export default function TermsPage() {
             <h2 className="font-display text-2xl font-bold text-white mb-4">8. Subscription and Billing</h2>
             <p>Some features require a paid subscription. Basic State and Premium State subscriptions are billed monthly or annually, as you choose when you subscribe; Management Firm subscriptions are billed annually. Every subscription begins with a 30-day free trial. By subscribing, you authorize Ground Goat to charge your payment method when the trial ends and at the start of each billing period (monthly or annual) thereafter. Subscriptions automatically renew at the then-current rate unless cancelled before the renewal date. You may cancel anytime; your access continues until the end of the current paid period. Refunds are not customary except where required by law.</p>
             <ul className="list-disc list-inside mt-4 space-y-2">
-              <li>Basic State subscriptions at $5/month or $60/year for the first state, plus $2.50/month or $30/year for each additional state (up to 5 states)</li>
-              <li>Premium State subscriptions at $39/month or $468/year for the first state, plus $19.50/month or $234/year for each additional state (up to 5 states)</li>
+              <li>Basic State subscriptions at $4.99/month or $59.99/year for the first state, plus $2.50/month or $30/year for each additional state (up to 5 states)</li>
+              <li>Premium State subscriptions at $39.99/month or $399.99/year for the first state, plus $20/month or $200/year for each additional state (up to 5 states)</li>
               <li>Management Firm subscriptions at $2,400/year for up to 3 users, plus $9.99/month per additional user (billed annually) for users 4–10</li>
               <li>All plans include a 30-day free trial</li>
             </ul>
