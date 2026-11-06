@@ -2,10 +2,11 @@
 // Mirrors the backend list (plan_pricing.py, GET /api/pricing).
 //
 // Owner 2026-11-06: Basic State and Premium State are billed MONTHLY or
-// ANNUALLY (the person chooses) — a first-state price plus a lower price for
-// each additional state, 1-5 states. Annual is exactly 12 x monthly (no
-// annual discount). 30-day free trial on every plan. Management Firm is
-// unchanged (annual).
+// ANNUALLY (the person chooses) — a first-state price plus each additional
+// state at 50% of it, 1-5 states. The same prices are charged in the app
+// (Apple), so every total is an App Store price point (hence the .99s).
+// Basic annual = 12 x monthly; Premium annual is ~17% below 12 x monthly.
+// 30-day free trial on every plan. Management Firm is unchanged (annual).
 
 export type BillingCycle = 'monthly' | 'annual'
 
@@ -15,8 +16,8 @@ export const PRICING = {
   basic_state: {
     name: 'Basic State',
     // first state / each additional state
-    monthly: { first: 5, additional: 2.5 },
-    annual: { first: 60, additional: 30 },
+    monthly: { first: 4.99, additional: 2.5 },
+    annual: { first: 59.99, additional: 30 },
     description: 'For active land investors',
     features: [
       'Full state coverage (all counties)',
@@ -31,8 +32,8 @@ export const PRICING = {
   },
   premium_state: {
     name: 'Premium State',
-    monthly: { first: 39, additional: 19.5 },
-    annual: { first: 468, additional: 234 },
+    monthly: { first: 39.99, additional: 20 },
+    annual: { first: 399.99, additional: 200 },
     description: 'For data-driven land professionals',
     features: [
       'Everything in Basic State',
