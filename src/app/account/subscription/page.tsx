@@ -1080,7 +1080,9 @@ export default function SubscriptionPage() {
                     </div>
 
                     <p className="text-gg-gray-500 text-xs mb-4">
-                      Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/{unit}.
+                      {trialingSub
+                        ? <>Nothing is charged today — this state is added to your free trial. When the trial ends, it is billed at ${newPrice.toFixed(2)}/{unit}.</>
+                        : <>Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/{unit}.</>}
                     </p>
 
                     {error && (
