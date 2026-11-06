@@ -770,10 +770,10 @@ function Money({ d }: { d: any }) {
             <Row label="— trials with no price set" value={num(d.trials.unpriced)} tone="amber" />
           )}
           {d.trials.monthly_cycle > 0 && (
-            /* Every plan is sold annually, so a monthly-cycle row is a data
-               fault, not a plan. Worth saying rather than quietly averaging in. */
-            <Row label="— not on an annual cycle (should be none)"
-              value={num(d.trials.monthly_cycle)} tone="red" />
+            /* Basic / Premium are sold monthly again (owner 2026-11-06), so a
+               monthly trial is a real plan: its charge above is ONE month. */
+            <Row label="— on a monthly plan (charge is one month)"
+              value={num(d.trials.monthly_cycle)} />
           )}
           {/* Both "charging" lines count CHARGES, not people, because the
               money beside them is per subscription. The headline above
@@ -1778,7 +1778,7 @@ const CARD_INFO: Record<string, CardInfo> = {
   money: {
     lines: [
       { l: 'Individual plans, per year',
-        d: 'What every live subscription is worth over a year. Every plan is sold annually, so this is the actual yearly total, not a projection.' },
+        d: 'What every live subscription is worth over a year. Annual plans count at what they are billed; monthly plans (Basic / Premium can be monthly since November 2026) count at 12 times the monthly price.' },
       { l: 'Paying customers',
         d: 'People who have actually paid — active or past due. Trials are NOT in here; they are counted under "On a free trial", because somebody on a free trial has paid nothing. A firm counts once, at its admin, not once per seat.' },
       { l: 'The plan table',
@@ -1795,7 +1795,7 @@ const CARD_INFO: Record<string, CardInfo> = {
         d: 'Trials about to become real money. While a subscription is trialing, its period end IS the trial end.' },
     ],
     covers: 'Annual value of every live subscription, plus trials about to charge and who has cancelled. A firm counts once, at its admin\u2019s row.',
-    source: 'user_subscriptions. When billing_cycle is annual, monthly_price already holds the annual figure — for Stripe plans, Apple IAP, and firms alike.',
+    source: 'user_subscriptions. monthly_price holds the price per billing cycle: the annual figure when billing_cycle is annual, the monthly figure when it is monthly — for Stripe plans, Apple IAP, and firms alike.',
     caveat: 'Trials are shown separately and are not in the total — while a subscription is trialing its period end IS the trial end, so "charging within 7 days" means it is about to bill. Past-due subscriptions are still counted: that money is in dunning, not lost. Cancellations are ones that have already happened; there is no cancel-at-renewal flag stored, so a subscription set to lapse at its next renewal still looks live until it does.',
   },
   people: {

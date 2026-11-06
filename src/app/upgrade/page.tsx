@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { MapPin, ArrowLeft, Loader2, ChevronDown, Lock } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
-import { PRICING, formatPrice } from '@/config/pricing'
+import { PRICING, MAX_STATES, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
 import { STATE_ABBREVIATIONS, getStateAbbreviation, getStateFullName } from '@/data/counties'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -42,6 +42,8 @@ function UpgradePageContent() {
   const [loadingCounties, setLoadingCounties] = useState(false)
   const [showStateDropdown, setShowStateDropdown] = useState(false)
   const [showCountyDropdown, setShowCountyDropdown] = useState(false)
+  // New subscribers choose monthly or annual (owner 2026-11-06).
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly')
 
   // Get pre-filled values from URL params
   const prefilledState = searchParams.get('state') || ''
@@ -181,12 +183,18 @@ function UpgradePageContent() {
       router.push(`/signin?redirect=${returnUrl}`)
       return
     }
+    // Already subscribed: the state is ADDED to the existing subscription
+    // (additional-state price, confirm-and-charge on the Subscription page),
+    // never a second checkout — that would bill a second first-state price.
+    const existing = areasData?.areas?.find(a => a.status === 'active' || a.status === 'trialing')
+    if (existing) {
+      router.push(`/account/subscription?add=${encodeURIComponent(getStateFullName(selectedState))}`)
+      return
+    }
     setAddingArea(true)
     setError('')
     try {
-      // Determine subscription type from existing subscriptions or default to basic_state
-      const existingSub = areasData?.areas?.find(a => a.status === 'active' || a.status === 'trialing')
-      const subscriptionType = existingSub?.subscription_type || 'basic_state'
+      const subscriptionType = 'basic_state'
 
       const response = await fetch(`${API_URL}/api/subscriptions/checkout`, {
         method: 'POST',
@@ -203,7 +211,7 @@ function UpgradePageContent() {
           // guards can't string-match against UserSubscription.state.
           state: getStateAbbreviation(selectedState),
           county: null,
-          billing_cycle: 'annual', // all plans bill annually
+          billing_cycle: billingCycle,
         })
       })
       if (!response.ok) {
@@ -245,7 +253,14 @@ function UpgradePageContent() {
   // plan tier (default Basic for new subscribers).
   const activeSub = areasData?.areas?.find(a => a.status === 'active' || a.status === 'trialing')
   const planTier = activeSub?.subscription_type === 'premium_state' ? 'premium_state' : 'basic_state'
-  const perStateAnnual = PRICING[planTier].annualPerState
+  // Existing subscriber: their own cycle (unknown counts as annual, as on the
+  // backend). New subscriber: the toggle.
+  const activeCycle: BillingCycle = activeSub ? (activeSub.billing_cycle === 'monthly' ? 'monthly' : 'annual') : billingCycle
+  // A new subscriber's first state (existing subscribers see their price on
+  // the confirm step).
+  const statePrice = PRICING[planTier][activeCycle].first
+  const activeCount = (areasData?.areas || []).filter(a => a.status === 'active' || a.status === 'trialing').length
+  const atStateLimit = !!activeSub && activeCount >= MAX_STATES
 
   // Check if user already has this area subscribed
   const isAlreadySubscribed = areasData?.areas?.some(a =>
@@ -339,7 +354,13 @@ function UpgradePageContent() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-white font-medium">Entire {getStateFullName(selectedState)} state</p>
-                    <p className="text-gg-pink text-sm">${formatPrice(perStateAnnual)}/year (all counties included)</p>
+                    <p className="text-gg-pink text-sm">
+                      {activeSub
+                        // An older plan may still carry its old per-state price, so the
+                        // exact amount is shown on the confirm step, from their own rows.
+                        ? 'Added to your current plan — you’ll see the price before you confirm (all counties included)'
+                        : `$${formatPrice(statePrice)}/${cycleUnit(activeCycle) === 'mo' ? 'month' : 'year'} (all counties included)`}
+                    </p>
                   </div>
                   <div className="w-5 h-5 bg-gg-pink rounded-full flex items-center justify-center">
                     <svg className="w-3 h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
@@ -349,6 +370,30 @@ function UpgradePageContent() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* New subscribers pick how they are billed. */}
+          {!activeSub && selectedState && (
+            <div className="mb-6 flex justify-center">
+              <div className="inline-flex bg-gg-gray-800 border border-gg-gray-700 rounded-full p-1">
+                {(['monthly', 'annual'] as const).map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setBillingCycle(c)}
+                    className={`px-5 py-2 rounded-full text-sm font-semibold transition-colors ${
+                      billingCycle === c ? 'bg-gg-pink text-black' : 'text-gg-gray-300 hover:text-white'
+                    }`}
+                  >
+                    {c === 'monthly' ? 'Monthly' : 'Annual'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {atStateLimit && (
+            <p className="text-yellow-400 text-sm mb-4">Your plan already covers {MAX_STATES} states, the most a subscription can include.</p>
           )}
 
           {error && (
@@ -381,7 +426,7 @@ function UpgradePageContent() {
           {isLoggedIn ? (
             <button
               onClick={handleAddArea}
-              disabled={!selectedState || addingArea || isAlreadySubscribed || isPastDueForState}
+              disabled={!selectedState || addingArea || isAlreadySubscribed || isPastDueForState || atStateLimit}
               className="w-full bg-gg-pink text-black font-semibold py-3 px-4 rounded-lg hover:bg-gg-pink-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {addingArea ? (
@@ -390,7 +435,7 @@ function UpgradePageContent() {
                   Processing...
                 </>
               ) : (
-                'Subscribe Now'
+                activeSub ? 'Add to My Plan' : 'Subscribe Now'
               )}
             </button>
           ) : (
