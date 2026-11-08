@@ -1,13 +1,23 @@
 // Canonical Ground Goat pricing. Single source of truth for the website.
+// Mirrors the backend list (plan_pricing.py, GET /api/pricing).
 //
-// All plans are billed ANNUALLY. The Monthly/Annual toggle in the UI is
-// display-only: "monthly" simply shows the annual price divided by 12. The
-// billing_cycle sent to the backend is always 'annual' for these plans.
+// Owner 2026-11-06: Basic State and Premium State are billed MONTHLY or
+// ANNUALLY (the person chooses) — a first-state price plus each additional
+// state at 50% of it, 1-5 states. The same prices are charged in the app
+// (Apple), so every total is an App Store price point (hence the .99s).
+// Basic annual = 12 x monthly; Premium annual is ~17% below 12 x monthly.
+// 30-day free trial on every plan. Management Firm is unchanged (annual).
+
+export type BillingCycle = 'monthly' | 'annual'
+
+export const MAX_STATES = 5
 
 export const PRICING = {
   basic_state: {
     name: 'Basic State',
-    annualPerState: 99,
+    // first state / each additional state
+    monthly: { first: 4.99, additional: 2.5 },
+    annual: { first: 59.99, additional: 30 },
     description: 'For active land investors',
     features: [
       'Full state coverage (all counties)',
@@ -22,7 +32,8 @@ export const PRICING = {
   },
   premium_state: {
     name: 'Premium State',
-    annualPerState: 500,
+    monthly: { first: 39.99, additional: 20 },
+    annual: { first: 399.99, additional: 200 },
     description: 'For data-driven land professionals',
     features: [
       'Everything in Basic State',
@@ -59,16 +70,25 @@ export type PlanKey = keyof typeof PRICING
 
 export const SALES_CONTACT_EMAIL = 'info@groundgoat.com'
 
-// Display-only conversion. Billing is always annual; "monthly" = annual / 12.
-export function displayPrice(annual: number, cycle: 'monthly' | 'annual'): number {
-  return cycle === 'annual' ? annual : annual / 12
+export type StatePlanKey = 'basic_state' | 'premium_state'
+
+// Whole price per cycle for this many states: first state + each additional.
+export function planTotal(plan: StatePlanKey, cycle: BillingCycle, states: number): number {
+  if (states < 1) return 0
+  const p = PRICING[plan][cycle]
+  return Math.round((p.first + p.additional * (states - 1)) * 100) / 100
+}
+
+// Price of one more state on top of what the person already has.
+export function additionalStatePrice(plan: StatePlanKey, cycle: BillingCycle): number {
+  return PRICING[plan][cycle].additional
+}
+
+export function cycleUnit(cycle: BillingCycle): string {
+  return cycle === 'monthly' ? 'mo' : 'yr'
 }
 
 // Format a number as a price string, trimming the cents when whole.
 export function formatPrice(amount: number): string {
-  return Number.isInteger(amount) ? amount.toString() : amount.toFixed(2)
-}
-
-export function displayPriceLabel(annual: number, cycle: 'monthly' | 'annual'): string {
-  return formatPrice(displayPrice(annual, cycle))
+  return Number.isInteger(amount) ? amount.toLocaleString('en-US') : amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }

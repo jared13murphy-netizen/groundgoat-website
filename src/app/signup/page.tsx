@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
-import { PRICING, displayPriceLabel, formatPrice } from '@/config/pricing'
+import { PRICING, MAX_STATES, formatPrice, planTotal, cycleUnit } from '@/config/pricing'
 import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -17,12 +17,13 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-p
 // Max additional firm seats available self-serve (3 included + 7 = 10 total).
 const MAX_ADDITIONAL_SEATS = PRICING.firm.maxUsers - PRICING.firm.includedUsers
 
-// All plans bill annually; prices below are ANNUAL. The Monthly/Annual toggle
-// is display-only (see @/config/pricing). Field names mirror the shared config.
+// Basic/Premium bill monthly or annually (owner 2026-11-06): a first-state
+// price plus a lower price per additional state. Firm is annual only.
 const PLANS = {
   basic_state: {
     name: PRICING.basic_state.name,
-    pricePerState: PRICING.basic_state.annualPerState,
+    monthly: PRICING.basic_state.monthly,
+    annual: PRICING.basic_state.annual,
     description: PRICING.basic_state.description,
     features: PRICING.basic_state.features,
     trialDays: PRICING.basic_state.trialDays,
@@ -30,7 +31,8 @@ const PLANS = {
   },
   premium_state: {
     name: PRICING.premium_state.name,
-    pricePerState: PRICING.premium_state.annualPerState,
+    monthly: PRICING.premium_state.monthly,
+    annual: PRICING.premium_state.annual,
     description: PRICING.premium_state.description,
     features: PRICING.premium_state.features,
     trialDays: PRICING.premium_state.trialDays,
@@ -85,7 +87,8 @@ function SignUpContent() {
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [step])
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual')
+  // ?cycle=monthly from the homepage pricing cards; annual otherwise.
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>(searchParams.get('cycle') === 'monthly' ? 'monthly' : 'annual')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
@@ -302,8 +305,8 @@ function SignUpContent() {
   }
 
   const addArea = (state: string) => {
-    if (selectedAreas.length >= 5) {
-      setError('Maximum of 5 states allowed')
+    if (selectedAreas.length >= MAX_STATES) {
+      setError(`Maximum of ${MAX_STATES} states allowed`)
       return
     }
     const exists = selectedAreas.some(a => a.state === state)
@@ -363,21 +366,14 @@ function SignUpContent() {
     setTeamMembers(teamMembers.filter((_, i) => i !== index))
   }
 
+  // What the chosen plan costs per billing cycle. Firm: annual. Basic /
+  // Premium: first state + each additional state, for the chosen cycle.
   const calculatePrice = () => {
-    // Prices are annual. Billing is always annual; "monthly" is display-only.
-    let annual = 0
-
     if (selectedPlan === 'firm') {
       const firm = PLANS.firm
-      annual = firm.basePrice + additionalSeats * firm.additionalUserPrice
-    } else {
-      const plan = PLANS[selectedPlan as 'basic_state' | 'premium_state']
-      annual = Math.max(selectedAreas.length, 1) * plan.pricePerState
+      return formatPrice(firm.basePrice + additionalSeats * firm.additionalUserPrice)
     }
-
-    // Always the ANNUAL figure — billing is annual and the display-only
-    // monthly toggle is gone (see step 2).
-    return formatPrice(annual)
+    return formatPrice(planTotal(selectedPlan as 'basic_state' | 'premium_state', billingCycle, Math.max(selectedAreas.length, 1)))
   }
 
   const getTotalSteps = () => {
@@ -617,7 +613,7 @@ function SignUpContent() {
           })),
           home_state: getStateAbbreviation(formData.homeState),
           home_county: formData.homeCounty,
-          billing_cycle: 'annual', // toggle is display-only; billing is always annual
+          billing_cycle: 'annual', // the firm plan is annual only
           additional_seats: additionalSeats,
           promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
           referral_code: referralCode,
@@ -760,7 +756,7 @@ function SignUpContent() {
             subscription_type: selectedPlan,
             state: getStateAbbreviation(primaryArea.state),
             county: null,
-            billing_cycle: 'annual', // toggle is display-only; billing is always annual
+            billing_cycle: billingCycle, // what the person chose on the plan step
             additional_areas: selectedAreas.slice(1).map(area => ({
               state: getStateAbbreviation(area.state),
               county: null,
@@ -1148,14 +1144,26 @@ function SignUpContent() {
           {/* Step 2: Plan Selection */}
           {step === 2 && (
             <div className="space-y-6">
-              {/* Monthly/Annual toggle REMOVED (owner, 2026-07-31). Monthly
-                  plans are no longer sold, and the toggle was DISPLAY-ONLY:
-                  it divided the annual price by 12 on screen while both
-                  checkout call sites hardcoded billing_cycle:'annual'. A
-                  customer who clicked Monthly was shown ~1/12th the price and
-                  then charged the full annual amount. Plan cards now show the
-                  annual price with the monthly equivalent underneath, clearly
-                  labelled as billed annually. */}
+              {/* Monthly / Annual (owner 2026-11-06). This is a REAL choice:
+                  the selected cycle is what checkout bills. (The 7/31 toggle
+                  it replaces was display-only and charged annual regardless.)
+                  Management Firm stays annual. */}
+              <div className="flex justify-center">
+                <div className="inline-flex bg-gg-gray-800 border border-gg-gray-700 rounded-full p-1">
+                  {(['monthly', 'annual'] as const).map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setBillingCycle(c)}
+                      className={`px-5 py-2 rounded-full text-sm font-semibold transition-colors ${
+                        billingCycle === c ? 'bg-gg-pink text-black' : 'text-gg-gray-300 hover:text-white'
+                      }`}
+                    >
+                      {c === 'monthly' ? 'Monthly' : 'Annual'}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               <div className="space-y-4">
                 {Object.entries(PLANS).map(([key, p]) => (
@@ -1176,28 +1184,30 @@ function SignUpContent() {
                         </div>
                         <p className="text-gg-gray-400 text-sm">{p.description}</p>
                       </div>
-                      {/* Annual price is the headline; the monthly equivalent
-                          sits under it and says plainly that billing is
-                          annual (owner, 2026-07-31). Replaces the old
-                          display-only Monthly/Annual toggle, which showed a
-                          monthly figure and then charged the annual one. */}
+                      {/* First-state price for the chosen cycle, and what each
+                          additional state adds. Firm: annual base price. */}
                       <div className="text-right">
-                        <div>
-                          <span className="text-2xl font-bold text-white">
-                            ${key === 'firm'
-                              ? (p as typeof PLANS.firm).basePrice
-                              : (p as typeof PLANS.basic_state).pricePerState}
-                          </span>
-                          <span className="text-gg-gray-400 text-sm">
-                            {key === 'firm' ? '/year' : '/state/year'}
-                          </span>
-                        </div>
-                        <div className="text-gg-gray-400 text-xs mt-0.5 whitespace-nowrap">
-                          ${(((key === 'firm'
-                              ? (p as typeof PLANS.firm).basePrice
-                              : (p as typeof PLANS.basic_state).pricePerState) / 12)
-                              .toFixed(2))}/mo &middot; billed annually
-                        </div>
+                        {key === 'firm' ? (
+                          <>
+                            <div>
+                              <span className="text-2xl font-bold text-white">${formatPrice((p as typeof PLANS.firm).basePrice)}</span>
+                              <span className="text-gg-gray-400 text-sm">/year</span>
+                            </div>
+                            <div className="text-gg-gray-400 text-xs mt-0.5 whitespace-nowrap">billed annually</div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <span className="text-2xl font-bold text-white">
+                                ${formatPrice((p as typeof PLANS.basic_state)[billingCycle].first)}
+                              </span>
+                              <span className="text-gg-gray-400 text-sm">/{cycleUnit(billingCycle)}</span>
+                            </div>
+                            <div className="text-gg-gray-400 text-xs mt-0.5 whitespace-nowrap">
+                              first state &middot; +${formatPrice((p as typeof PLANS.basic_state)[billingCycle].additional)}/{cycleUnit(billingCycle)} each additional
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                     <p className="text-gg-pink text-sm mt-2">Start with a {p.trialDays}-day free trial</p>
@@ -1520,7 +1530,7 @@ function SignUpContent() {
                       </span>
                       <div className="text-right">
                         <span className="text-2xl font-bold text-white">${calculatePrice()}</span>
-                        <span className="text-gg-gray-400 text-sm">/year</span>
+                        <span className="text-gg-gray-400 text-sm">/{billingCycle === 'monthly' ? 'month' : 'year'}</span>
                       </div>
                     </div>
                   </div>
@@ -1751,19 +1761,19 @@ function SignUpContent() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gg-gray-400">Management Firm Base Plan</span>
-                    <span className="text-white">${displayPriceLabel(PLANS.firm.basePrice, billingCycle)}/{billingCycle === 'annual' ? 'yr' : 'mo'}</span>
+                    <span className="text-white">${formatPrice(PLANS.firm.basePrice)}/yr</span>
                   </div>
                   {additionalSeats > 0 && (
                     <div className="flex justify-between">
                       <span className="text-gg-gray-400">{additionalSeats} Additional User(s)</span>
-                      <span className="text-white">${displayPriceLabel(additionalSeats * PLANS.firm.additionalUserPrice, billingCycle)}/{billingCycle === 'annual' ? 'yr' : 'mo'}</span>
+                      <span className="text-white">${formatPrice(additionalSeats * PLANS.firm.additionalUserPrice)}/yr</span>
                     </div>
                   )}
                   <div className="pt-2 border-t border-gg-gray-700 flex justify-between">
                     <span className="text-white font-semibold">Total</span>
                     <div className="text-right">
                       <span className="text-2xl font-bold text-white">${calculatePrice()}</span>
-                      <span className="text-gg-gray-400 text-sm">/{billingCycle === 'annual' ? 'year' : 'mo'}</span>
+                      <span className="text-gg-gray-400 text-sm">/year</span>
                     </div>
                   </div>
                 </div>

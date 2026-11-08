@@ -184,23 +184,25 @@ export default function AdminReportsPage() {
             <TrendingUp size={20} className="text-gg-pink" />
             Subscription Breakdown
           </h3>
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="bg-gg-gray-800 rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">52</div>
-              <div className="text-gg-gray-400">County Plans</div>
-              <div className="text-gg-pink text-sm mt-1">$415.48/mo</div>
+          {/* Real paying rows by plan and billing cycle from /api/admin/stats
+              (was hard-coded sample numbers). Monthly value = annual / 12 for
+              annual plans. Trials are not revenue and are not counted. */}
+          {(stats?.subscriptions_by_plan || []).length === 0 ? (
+            <p className="text-gg-gray-400 text-sm">No paying subscriptions to show.</p>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-6">
+              {(stats.subscriptions_by_plan as { plan: string; billing_cycle: string; rows: number; mrr: number }[]).map(b => (
+                <div key={`${b.plan}:${b.billing_cycle}`} className="bg-gg-gray-800 rounded-xl p-6 text-center">
+                  <div className="text-3xl font-bold text-white mb-2">{b.rows}</div>
+                  <div className="text-gg-gray-400">
+                    {({ basic_state: 'Basic State', premium_state: 'Premium State', firm: 'Management Firms', state: 'State (old plan)', county: 'County (old plan)' } as Record<string, string>)[b.plan] || b.plan}
+                    {' · '}{b.billing_cycle === 'monthly' ? 'Monthly' : 'Annual'}
+                  </div>
+                  <div className="text-gg-pink text-sm mt-1">${b.mrr.toFixed(2)}/mo</div>
+                </div>
+              ))}
             </div>
-            <div className="bg-gg-gray-800 rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">28</div>
-              <div className="text-gg-gray-400">State Plans</div>
-              <div className="text-gg-pink text-sm mt-1">$839.72/mo</div>
-            </div>
-            <div className="bg-gg-gray-800 rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">4</div>
-              <div className="text-gg-gray-400">Management Firms</div>
-              <div className="text-gg-pink text-sm mt-1">$759.96/mo</div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
