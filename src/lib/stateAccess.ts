@@ -41,7 +41,16 @@ export function getAllowedStates(me: any): string[] | null {
 /** An 'individual' subscriber admitted to the website ONLY because of a
  *  non-empty allowed_states array — never true for a staff/firm role. */
 export function isRestrictedIndividual(me: any): boolean {
+  // allowed_states also counts Basic State, which is app-only, so the website
+  // map additionally needs can_use_web_map (premium/firm/staff) from /me.
   return me?.account_type === 'individual' && Array.isArray(me?.allowed_states) && me.allowed_states.length > 0
+    && me?.can_use_web_map !== false
+}
+
+/** A Basic State subscriber: has state data, but only in the app (owner 10/5). */
+export function isAppOnlySubscriber(me: any): boolean {
+  return me?.account_type === 'individual' && Array.isArray(me?.allowed_states) && me.allowed_states.length > 0
+    && me?.can_use_web_map === false
 }
 
 /** Who gets an Explore Map / listings portal on the website at all. */

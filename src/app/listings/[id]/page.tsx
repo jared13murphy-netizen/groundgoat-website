@@ -156,7 +156,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         const data = await response.json()
         setListing(data)
       } else {
-        router.push('/listings')
+        router.push('/access')
       }
     } catch (err) {
       console.error('Failed to fetch listing:', err)
@@ -283,8 +283,8 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
         <div className="text-center">
           <MapPin className="mx-auto text-gg-gray-600 mb-4" size={48} />
           <p className="text-gg-gray-400 mb-4">Listing not found</p>
-          <Link href="/listings" className="text-gg-pink hover:underline">
-            Back to Listings
+          <Link href="/access" className="text-gg-pink hover:underline">
+            Back to Map
           </Link>
         </div>
       </div>
@@ -309,11 +309,11 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
           {/* Back Button */}
           <div className="absolute top-4 left-4">
             <Link
-              href="/listings"
+              href="/access"
               className="flex items-center gap-2 px-4 py-2 bg-black/50 backdrop-blur-sm text-white rounded-lg hover:bg-black/70 transition-colors"
             >
               <ArrowLeft size={20} />
-              Back to Listings
+              Back to Map
             </Link>
           </div>
 

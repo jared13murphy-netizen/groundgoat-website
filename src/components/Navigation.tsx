@@ -3,12 +3,38 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { useState, useEffect } from 'react'
-import { Menu, X, LogOut, User, List } from 'lucide-react'
+import { Menu, X, LogOut, User, MapPin, Smartphone } from 'lucide-react'
 import GoToSandboxButton, { isGroundGoatStaff } from '@/components/GoToSandboxButton'
 import { useRouter, usePathname } from 'next/navigation'
-import { isAllowedForExplore } from '@/lib/stateAccess'
+import { isAllowedForExplore, isAppOnlySubscriber } from '@/lib/stateAccess'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
+const APP_STORE_URL = 'https://apps.apple.com/us/app/ground-goat/id6753321116'
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.groundgoat.app'
+
+// Basic State is app-only (owner 10/5): tell the subscriber where their data
+// is and keep the download one tap away (owner 11/9).
+function AppOnlyNote() {
+  return (
+    <div className="rounded-lg border border-gg-pink/40 bg-gg-pink/10 p-3">
+      <p className="flex items-center gap-2 text-sm font-semibold text-white">
+        <Smartphone size={16} />
+        Your Basic State data is in the app
+      </p>
+      <p className="mt-1 text-xs text-gg-gray-300">
+        Auctions, sale results and alerts for your state are in the Ground Goat app.
+      </p>
+      <div className="mt-3 flex flex-col gap-2">
+        <a href={APP_STORE_URL} target="_blank" rel="noopener noreferrer" className="btn-primary text-center text-sm py-2">
+          Download on the App Store
+        </a>
+        <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer" className="btn-primary text-center text-sm py-2">
+          Get it on Google Play
+        </a>
+      </div>
+    </div>
+  )
+}
 
 export default function Navigation() {
   const router = useRouter()
@@ -106,11 +132,12 @@ export default function Navigation() {
   }, [user?.account_type])
 
   const isAdmin = user?.account_type === 'groundgoat_admin' || user?.account_type === 'groundgoat_sales'
-  // Same gate /access, /listings and /go use: the four staff/firm roles, or
+  // Same gate /access and /go use: the four staff/firm roles, or
   // an individual with a Premium State subscription (allowed_states from
   // /api/auth/me). Before 2026-10-22 this listed the roles only, so a
   // Premium State user never saw a Map link anywhere on the site.
-  const canViewListings = isAllowedForExplore(user)
+  const canViewMap = isAllowedForExplore(user)
+  const appOnly = isAppOnlySubscriber(user)
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
@@ -144,7 +171,7 @@ export default function Navigation() {
             
             {user ? (
               <>
-                {canViewListings && (
+                {canViewMap && (
                   <Link
                     href="/access"
                     className="text-gg-gray-300 hover:text-white transition-colors font-medium"
@@ -183,6 +210,11 @@ export default function Navigation() {
                         <User size={16} />
                         Account
                       </Link>
+                      {appOnly && (
+                        <div className="px-4 py-2">
+                          <AppOnlyNote />
+                        </div>
+                      )}
                       {/* Your firm's admin, for anyone in a firm. Shown to the
                           admin too — as "you are the admin" — so nobody is told
                           to email themselves. */}
@@ -296,16 +328,25 @@ export default function Navigation() {
                       <p className="text-sm text-gg-gray-400">{user.email}</p>
                     </div>
                   </div>
-                  {canViewListings && (
+                  {appOnly && <AppOnlyNote />}
+                  {canViewMap && (
                     <Link
-                      href="/listings"
+                      href="/access"
                       className="text-white font-medium py-2 flex items-center gap-2"
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
-                      <List size={18} />
-                      Listings
+                      <MapPin size={18} />
+                      Map
                     </Link>
                   )}
+                  <Link
+                    href="/account"
+                    className="text-white font-medium py-2 flex items-center gap-2"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                  >
+                    <User size={18} />
+                    Account
+                  </Link>
                   {isAdmin && (
                     <Link
                       href="/admin/dashboard"
