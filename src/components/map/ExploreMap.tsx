@@ -50,6 +50,8 @@ import { useTractEditor, type SavedInfo, type TractStart } from '@/components/ma
 import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
 import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
+import ElevatorPanel from './ElevatorPanel'
+import { ELEVATOR_LAYER, getElevatorPins, setElevatorPins, type ElevatorPin } from '@/lib/grainBids'
 import { bboxOf } from '@/lib/cmShapes'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
 import { countyCentroids } from '@/data/countyCentroids'
@@ -3749,6 +3751,82 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // this frontend can ship before the backend starts sending the field.
   const [canUseLayers, setCanUseLayers] = useState(false)
   const layersEnabled = canUseLayers || isAdmin
+
+  // ── Grain elevators (owner 11/9): a yellow grain-bin pin on every elevator;
+  // a click opens ElevatorPanel (its bids + the 15 closest within 75 mi).
+  // Ground Goat admins only while it is tested on the Barchart trial — the
+  // backend enforces the same rule. Its own toggle in My Maps, default on.
+  const [elevatorsOn, setElevatorsOn] = useState(() => {
+    try { return localStorage.getItem('gg_grain_elevators_layer') !== 'off' } catch { return true }
+  })
+  const toggleElevators = useCallback(() => {
+    setElevatorsOn(v => {
+      try { localStorage.setItem('gg_grain_elevators_layer', v ? 'off' : 'on') } catch { /* private mode */ }
+      return !v
+    })
+  }, [])
+  const [elevatorPins, setElevatorPinsState] = useState<ElevatorPin[] | null>(null)
+  const [elevatorPinsError, setElevatorPinsError] = useState<string | null>(null)
+  const [elevatorOpen, setElevatorOpen] = useState<{ id: number } | null>(null)
+  useEffect(() => {
+    if (!isAdmin || !elevatorsOn || elevatorPins) return
+    let stale = false
+    getElevatorPins()
+      .then(r => { if (!stale) { setElevatorPinsState(r.elevators); setElevatorPinsError(null) } })
+      .catch((e: any) => { if (!stale) setElevatorPinsError(e?.message || 'Could not load elevators.') })
+    return () => { stale = true }
+  }, [isAdmin, elevatorsOn, elevatorPins])
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !isAdmin || !elevatorPins) return
+    setElevatorPins(map, elevatorPins, elevatorsOn)
+  }, [mapLoaded, isAdmin, elevatorPins, elevatorsOn])
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !isAdmin) return
+    const onClick = (e: maplibregl.MapLayerMouseEvent) => {
+      if (mapInteractionSuspendedRef.current) return
+      const id = Number(e.features?.[0]?.properties?.id)
+      if (!isFinite(id)) return
+      setLandDetail(null)
+      setUtilitiesOpen(false)
+      setSavedPanelOpen(false)
+      setSavedTractOpen(null)
+      setElevatorOpen({ id })
+    }
+    const onEnter = () => { if (!mapInteractionSuspendedRef.current) map.getCanvas().style.cursor = 'pointer' }
+    const onLeave = () => { if (!mapInteractionSuspendedRef.current) map.getCanvas().style.cursor = '' }
+    map.on('click', ELEVATOR_LAYER, onClick)
+    map.on('mouseenter', ELEVATOR_LAYER, onEnter)
+    map.on('mouseleave', ELEVATOR_LAYER, onLeave)
+    return () => {
+      try {
+        map.off('click', ELEVATOR_LAYER, onClick)
+        map.off('mouseenter', ELEVATOR_LAYER, onEnter)
+        map.off('mouseleave', ELEVATOR_LAYER, onLeave)
+      } catch { /* map torn down */ }
+    }
+  }, [mapLoaded, isAdmin])
+  // Never stacked with the other right-hand panels, and closed by a click
+  // anywhere outside it (a click on another elevator pin swaps it instead).
+  useEffect(() => { if (landDetail || savedPanelOpen || utilitiesOpen || savedTractOpen) setElevatorOpen(null) },
+    [landDetail, savedPanelOpen, utilitiesOpen, savedTractOpen])
+  useEffect(() => { if (!elevatorsOn) setElevatorOpen(null) }, [elevatorsOn])
+  useEffect(() => {
+    if (!elevatorOpen) return
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null
+      if (!t || t.closest('[data-gg-elevator-panel]')) return
+      const map = mapRef.current
+      if (t.closest('canvas.maplibregl-canvas') && map) {
+        const rect = (map.getCanvas() as HTMLCanvasElement).getBoundingClientRect()
+        if (clickClaimedByLayers(map, [e.clientX - rect.left, e.clientY - rect.top], [ELEVATOR_LAYER])) return
+      }
+      setElevatorOpen(null)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [elevatorOpen])
   // Download/Email Parcel report-button entitlement (owner 2026-08-17:
   // "allow for premium_state and hide for basic_state" — see
   // main._require_report_access). NOT the same rule as canUseLayers
@@ -6717,7 +6795,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // tract on top of it.
       // Sale dots outrank the parcel fill (see SALE_DOT_LAYERS): all three
       // sale-dot layers must be here, not just parcel-sale-pin-plus.
-      const topPinLayers = [...SALE_DOT_LAYERS, 'tract-pin-circles', 'tract-polygon-fill']
+      const topPinLayers = [ELEVATOR_LAYER, ...SALE_DOT_LAYERS, 'tract-pin-circles', 'tract-polygon-fill']
       if (clickClaimedByLayers(map, e.point, topPinLayers)) return
       const parcelProps: any = f.properties || {}
       // State-gate click guard (spec §6): this fill layer no longer hard-
@@ -7067,7 +7145,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // If the click also landed on a tract pin or tract polygon, that
       // layer's own onClick (below) opens the tract details — don't ALSO
       // open the parcel/comp popup here.
-      if (clickClaimedByLayers(map, e.point, ['tract-pin-circles', 'tract-polygon-fill'])) return
+      if (clickClaimedByLayers(map, e.point, [ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill'])) return
       const props: any = f.properties || {}
       // State-gate click guard (spec §6) — same reasoning as FILL_LAYER's
       // onClick above: this dot is dimmed, not filtered out, for an
@@ -7422,7 +7500,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // (minzoom TRACT_TIER_MIN=9) — a tract pin can sit directly over a
         // durable dot at those zooms. Tract always wins; defer to its own
         // onClick (tract-pin-circles / tract-polygon-fill handler).
-        if (clickClaimedByLayers(map, e.point, ['tract-pin-circles', 'tract-polygon-fill'])) return
+        if (clickClaimedByLayers(map, e.point, [ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill'])) return
         const [lng, lat] = f.geometry.coordinates as [number, number]
         const props: any = f.properties || {}
         const ll_uuid = props.id as string | undefined
@@ -9088,7 +9166,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       } catch {/* layer torn down */}
       if (hasParcel) return
       if (clickClaimedByLayers(map, e.point, [
-        'tract-pin-circles', 'tract-polygon-fill',
+        ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill',
         'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
       ])) return
 
@@ -9222,7 +9300,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Task #26: soils fill spans all zooms — also defer to tract layers
       // and the sale-dot layers (both outrank overlays in priority).
       if (clickClaimedByLayers(map, e.point, [
-        'tract-pin-circles', 'tract-polygon-fill',
+        ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill',
         'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
       ])) return
 
@@ -10007,6 +10085,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Set Pin placement / Draw Area mode (2026-09-08) — see
       // mapInteractionSuspendedRef.
       if (mapInteractionSuspendedRef.current) return
+      // A grain elevator pin drawn on top takes the click (its own handler).
+      if (clickClaimedByLayers(map, e.point, [ELEVATOR_LAYER])) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
@@ -10058,6 +10138,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // than trusting whichever feature happened to be hit.
     const onMyTractClick = (e: any) => {
       if (mapInteractionSuspendedRef.current) return
+      if (clickClaimedByLayers(map, e.point, [ELEVATOR_LAYER])) return
       const f = e.features?.[0]
       if (!f) return
       const hitId = f.properties?.tractId
@@ -10223,6 +10304,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Set Pin placement / Draw Area mode (2026-09-08) — see
       // mapInteractionSuspendedRef.
       if (mapInteractionSuspendedRef.current) return
+      // A grain elevator pin drawn on top takes the click (its own handler).
+      if (clickClaimedByLayers(map, e.point, [ELEVATOR_LAYER])) return
       const f = e.features?.[0]
       if (!f) return
       const tractId = (f.properties?.tractId as string) || ''
@@ -10746,6 +10829,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Set Pin placement / Draw Area mode (2026-09-08) — see
       // mapInteractionSuspendedRef.
       if (mapInteractionSuspendedRef.current) return
+      // A grain elevator pin drawn on top takes the click (its own handler).
+      if (clickClaimedByLayers(map, e.point, [ELEVATOR_LAYER])) return
       const f = e.features?.[0]
       if (!f) return
       const geom = f.geometry as GeoJSON.Point
@@ -11183,6 +11268,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             </>
           )}
         </div>
+      )}
+
+      {/* Owner 11/9: grain elevator slide-out (admins only for now). */}
+      {isAdmin && !mappingMode && (
+        <ElevatorPanel
+          elevatorId={elevatorOpen?.id ?? null}
+          onClose={() => setElevatorOpen(null)}
+          onSelect={({ id, lat, lng }) => {
+            setElevatorOpen({ id })
+            mapRef.current?.easeTo({ center: [lng, lat], duration: 600 })
+          }}
+        />
       )}
 
       {/* Owner 11/2: Saved Tract slide-out — a click on one of the user's own
@@ -11958,6 +12055,43 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                         : myTracts.length === 0
                         ? 'You have not saved any project maps yet.'
                         : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`}
+                    </div>
+                  )}
+                </>
+              )}
+              {/* Grain elevator pins (owner 11/9) — admins only for now. */}
+              {isAdmin && (
+                <>
+                  <div
+                    onClick={() => toggleElevators()}
+                    style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: canUseProjectMaps ? 0 : 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
+                  >
+                    <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#FFD21F', border: '1px solid rgba(0,0,0,0.6)' }} />
+                    <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Grain Elevators</span>
+                    <button
+                      role="switch"
+                      aria-checked={elevatorsOn}
+                      aria-label="Grain Elevators"
+                      onClick={e => { e.stopPropagation(); toggleElevators() }}
+                      style={{
+                        width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
+                        background: elevatorsOn ? '#F58CDE' : 'rgba(255,255,255,0.18)',
+                        position: 'relative', transition: 'background 0.15s',
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute', top: 2, left: elevatorsOn ? 16 : 2, width: 14, height: 14,
+                        borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                      }} />
+                    </button>
+                  </div>
+                  {elevatorsOn && (
+                    <div style={{ padding: '2px 2px 0', color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>
+                      {elevatorPinsError
+                        ? elevatorPinsError
+                        : !elevatorPins
+                        ? 'Loading elevators…'
+                        : `${elevatorPins.length.toLocaleString()} elevators · zoom in to see pins`}
                     </div>
                   )}
                 </>
