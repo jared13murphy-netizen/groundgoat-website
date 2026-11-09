@@ -172,14 +172,16 @@ export function ensureElevatorLayer(map: maplibregl.Map) {
       id: ELEVATOR_LAYER,
       type: 'symbol',
       source: ELEVATOR_SOURCE,
-      minzoom: 6,
+      minzoom: 7,
       layout: {
         'icon-image': PIN_IMAGE,
         'icon-anchor': 'bottom',
-        'icon-size': ['interpolate', ['linear'], ['zoom'], 6, 0.55, 9, 0.8, 12, 1],
-        // Zoomed out, MapLibre thins overlapping pins; from z10 every elevator shows.
-        'icon-allow-overlap': ['step', ['zoom'], false, 10, true],
-        'icon-padding': 1,
+        'icon-size': ['interpolate', ['linear'], ['zoom'], 7, 0.55, 9, 0.8, 12, 1],
+        // Every elevator always draws (owner: a pin on every elevator). Most
+        // sit in a town, so with collision on, the town's own label hid its
+        // elevator (Roseville IL, 11/9); ignore-placement keeps the labels too.
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       },
       // An elevator with no bids in the last few days stays on the map, faded.
       paint: { 'icon-opacity': ['case', ['get', 'has_bids'], 1, 0.5] },
