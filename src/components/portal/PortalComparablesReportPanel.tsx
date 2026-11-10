@@ -214,7 +214,8 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Comparable Sales</h2>
+            {/* One parcel or tract is not a comparison (owner 11/10). */}
+            <h2 className="text-lg font-semibold">{reportTracts.length === 1 ? 'Land Report' : 'Comparable Sales'}</h2>
             <p className="text-xs text-gg-gray-400 mt-0.5">
               Click tracts on the map to build your report
             </p>
