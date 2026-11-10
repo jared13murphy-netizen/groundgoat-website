@@ -55,7 +55,7 @@ import LayersPanel, { applyOverlayOpacity, loadOverlayOpacity, saveOverlayOpacit
 import {
   NATIONAL_LAYERS, NATIONAL_OVERLAY_KEYS, EMPTY_AVAILABILITY, fetchNationalAvailability, isLayerAvailable,
   addNationalLayer, setNationalLayerVisible, nationalLayerIds, nationalClickLayerIds, describeNationalFeature,
-  nationalPopupHtml, keyForLayerId,
+  nationalPopupHtml, keyForLayerId, mapLayersHere,
   type NationalAvailability, type NationalLayerKey, type NationalOverlayKey,
 } from './nationalLayers'
 import { ELEVATOR_LAYER, getElevatorPins, setElevatorPins, type ElevatorPin } from '@/lib/grainBids'
@@ -2481,6 +2481,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // (handleParcelGeometryResolved) that can't close over the latest state
   // directly.
   const landDetailRef = useRef<LandDetailClickData | null>(null)
+  // When the current landDetail was set (ms) — pairs a panel with the click
+  // whose national-layer lines it should show.
+  const landDetailStampRef = useRef(0)
+  const nationalPopupRef = useRef<maplibregl.Popup | null>(null)
   // Identity (by object reference — a fresh object per click, same pattern
   // LandDetailPanel's own settledForRef uses) of the selection the veil
   // sources CURRENTLY render — a parcel's LandDetailClickData OR a tract's
@@ -2555,6 +2559,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => { nationalAvailRef.current = nationalAvailability }, [nationalAvailability])
   const nationalOnRef = useRef(nationalOn)
   useEffect(() => { nationalOnRef.current = nationalOn }, [nationalOn])
+  // "Map layers here" lines from the latest click (t = click time) — shown
+  // at the top of the parcel panel that click opened.
+  const [nationalHere, setNationalHere] = useState<{ t: number; lng: number; lat: number; lines: Array<{ key: string; line: string }> } | null>(null)
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
 
@@ -9603,22 +9610,32 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '260px', className: 'gg-nl-popup' })
+    nationalPopupRef.current = popup
     const onClick = (e: maplibregl.MapMouseEvent) => {
       if (mapInteractionSuspendedRef.current) return
       const av = nationalAvailRef.current
       const onKeys = (Object.keys(NATIONAL_LAYERS) as NationalLayerKey[]).filter(k =>
         (k === 'slope' || k === 'hel') ? baseOverlayRef.current === k : !!nationalOnRef.current[k as NationalOverlayKey])
       const ids = onKeys.flatMap(k => nationalClickLayerIds(k, av[k] || [])).filter(id => map.getLayer(id))
-      if (!ids.length) return
+      if (!ids.length) { setNationalHere(null); return }
+      const clickT = Date.now()
       if (clickClaimedByLayers(map, e.point, [
         ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill', 'today-pin-core',
         'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
-      ])) return
+      ])) { setNationalHere(null); return }
       let feats: maplibregl.MapGeoJSONFeature[] = []
       try {
-        const pad = 4
-        feats = map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ids })
+        // Areas: exactly the clicked point. Points (airports, POIs): a
+        // small box so a dot is easy to hit.
+        const pad = 6
+        const pts = ids.filter(id => id.endsWith('-circle'))
+        const areas = ids.filter(id => !id.endsWith('-circle'))
+        feats = [
+          ...(pts.length ? map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: pts }) : []),
+          ...(areas.length ? map.queryRenderedFeatures(e.point, { layers: areas }) : []),
+        ]
       } catch { return }
+      setNationalHere({ t: clickT, lng: e.lngLat.lng, lat: e.lngLat.lat, lines: mapLayersHere(feats as any) })
       const seen = new Set<string>()
       const entries: Array<{ key: NationalLayerKey; heading: string; lines: string[] }> = []
       for (const f of feats) {
@@ -9635,7 +9652,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         if (entries.length >= 5) break
       }
       if (!entries.length) return
-      popup.setLngLat(e.lngLat).setHTML(nationalPopupHtml(entries)).addTo(map)
+      // A parcel / soils panel opened by this same click carries the lines
+      // itself ("Map layers here"); the popup shows alone only where no
+      // panel opens (water, public land with no parcel).
+      const at = e.lngLat
+      window.setTimeout(() => {
+        if (landDetailRef.current && landDetailStampRef.current >= clickT - 50) return
+        popup.setLngLat(at).setHTML(nationalPopupHtml(entries)).addTo(map)
+      }, 300)
     }
     map.on('click', onClick)
     return () => { map.off('click', onClick); popup.remove() }
@@ -11185,6 +11209,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // handleParcelGeometryResolved below).
   useEffect(() => {
     landDetailRef.current = landDetail
+    landDetailStampRef.current = landDetail ? Date.now() : 0
+    // Panel closed → its "Map layers here" lines go with it. Panel opened
+    // (even late, after an async lookup) → it carries the lines, so the
+    // stand-alone national-layer popup goes away.
+    if (!landDetail) setNationalHere(null)
+    else nationalPopupRef.current?.remove()
     parcelSelectionActiveRef.current = !!(landDetail && landDetail.source === 'parcel')
 
     if (landDetail && landDetail.source === 'parcel') {
@@ -11657,6 +11687,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       <LandDetailPanel
         clickData={mappingMode ? null : landDetail}
         onClose={() => setLandDetail(null)}
+        // Lines belong to the click that opened this panel: same click point
+        // (parcel / sale-dot clicks carry it), or — for overlay-only clicks
+        // with no point — a panel opened at that click.
+        mapLayersHere={landDetail && nationalHere && (
+          landDetail.clickLng != null && landDetail.clickLat != null
+            ? Math.abs(landDetail.clickLng - nationalHere.lng) < 0.003 && Math.abs(landDetail.clickLat - nationalHere.lat) < 0.003
+            : landDetailStampRef.current >= nationalHere.t - 50
+        ) ? nationalHere.lines : null}
         onGeometryResolved={handleParcelGeometryResolved}
         onToggleReport={onToggleReport}
         reportIds={reportIds}

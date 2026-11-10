@@ -588,3 +588,59 @@ export function keyForLayerId(id: string): NationalLayerKey | null {
   const m = /^gg-nl-([a-z]+)/.exec(id)
   return m && m[1] in NATIONAL_LAYERS ? (m[1] as NationalLayerKey) : null
 }
+
+// ── "Map layers here" (owner 11/10): one compact line per ON layer under a
+// click, shown at the top of the parcel panel (the popup shows alone only
+// where no panel opens). Same wording as the app (utils/nationalLayers.js).
+const abbreviateUnit = (s: unknown) => String(s || '').trim()
+  .replace(/\bNational Forest\b/g, 'NF')
+  .replace(/\bNational Wildlife Refuge\b/g, 'NWR')
+  .replace(/\bNational Park\b/g, 'NP')
+  .replace(/\bNational Grassland\b/g, 'NG')
+
+export function summarizeNationalFeature(key: NationalLayerKey, p: Record<string, any> = {}): string | null {
+  switch (key) {
+    case 'flood': {
+      const sfha = p.SFHA_TF === 'T'
+      const sub = String(p.ZONE_SUBTY || '')
+      const chance = sfha ? '1% annual chance' : (/0\.2/.test(sub) ? '0.2% annual chance' : (/LEVEE/.test(sub) ? 'levee-protected' : 'minimal hazard'))
+      const tags = [sfha ? 'SFHA' : null, sub === 'FLOODWAY' ? 'Floodway' : null].filter(Boolean)
+      return `Flood zone: ${p.FLD_ZONE || '?'} (${chance})${tags.length ? ` · ${tags.join(' · ')}` : ''}`
+    }
+    case 'wetlands': return `Wetland: ${String(p.WETLAND_TYPE || 'Wetland').replace(/ Wetland$/, '')}`
+    case 'slope': return `Slope: ${String(p.slope_class || '').replace('-', '–')}`
+    case 'hel': return `HEL: ${p.hel_class || ''}`
+    case 'public': return `Public land: ${abbreviateUnit(p.name) || 'Public land'}${p.mgr ? ` (${p.mgr})` : ''}`
+    case 'protected': return `Protected: ${abbreviateUnit(p.name) || 'Protected area'}${p.gap ? ` (GAP ${p.gap})` : ''}`
+    case 'tribal': return `Tribal land: ${p.name || ''}`
+    case 'plss': return `PLSS: ${p.label || (p.sec ? `Sec ${p.sec}` : '')}`
+    case 'grazing': return `Grazing allotment: ${String(p.name || '').trim()}${p.allot_no ? ` (#${p.allot_no})` : ''}`
+    case 'airports': return `Airport: ${p.name || ''}${p.ident ? ` (${p.ident})` : ''}`
+    case 'poi': {
+      const cat = POI_COLORS.find(([c]) => c === p.cat)
+      return `${cat ? cat[1] : 'Place'}: ${p.name || ''}`
+    }
+    default: return null
+  }
+}
+
+/** Rendered features → unique lines in panel order (PLSS section replaces township). */
+export function mapLayersHere(features: Array<{ layer: { id: string }; properties?: any; sourceLayer?: string }>): Array<{ key: NationalLayerKey; line: string }> {
+  const byKey = new Map<NationalLayerKey, string[]>()
+  for (const f of features) {
+    const key = keyForLayerId(f.layer.id)
+    if (!key) continue
+    const line = summarizeNationalFeature(key, f.properties || {})
+    if (!line) continue
+    const list = byKey.get(key) || []
+    if (key === 'plss') {
+      if (f.sourceLayer === 'section') { byKey.set(key, [line]); continue }
+      if (list.length) continue
+    }
+    if (!list.includes(line) && list.length < 2) list.push(line)
+    byKey.set(key, list)
+  }
+  const out: Array<{ key: NationalLayerKey; line: string }> = []
+  for (const key of Object.keys(NATIONAL_LAYERS) as NationalLayerKey[]) for (const line of byKey.get(key) || []) out.push({ key, line })
+  return out
+}
