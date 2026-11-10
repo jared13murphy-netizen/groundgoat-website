@@ -52,6 +52,12 @@ import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
 import ElevatorPanel from './ElevatorPanel'
 import LayersPanel, { applyOverlayOpacity, loadOverlayOpacity, saveOverlayOpacity, OVERLAY_DEFAULT_OPACITY, type OpacityLayerKey } from './LayersPanel'
+import {
+  NATIONAL_LAYERS, NATIONAL_OVERLAY_KEYS, EMPTY_AVAILABILITY, fetchNationalAvailability, isLayerAvailable,
+  addNationalLayer, setNationalLayerVisible, nationalLayerIds, nationalClickLayerIds, describeNationalFeature,
+  nationalPopupHtml, keyForLayerId,
+  type NationalAvailability, type NationalLayerKey, type NationalOverlayKey,
+} from './nationalLayers'
 import { ELEVATOR_LAYER, getElevatorPins, setElevatorPins, type ElevatorPin } from '@/lib/grainBids'
 import { bboxOf } from '@/lib/cmShapes'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
@@ -2533,8 +2539,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // terrain3DOn: independent 3D pitch toggle.
   // Both are now surfaced as tiles inside the Utilities panel (below)
   // rather than their own bottom-left button/popup.
-  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null>(null)
+  const [baseOverlay, setBaseOverlay] = useState<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | 'slope' | 'hel' | null>(null)
   const [selectedCropYear, setSelectedCropYear] = useState<number>(2025)  // newest CSB year (2025 edition, 11/2026)
+  // National layers (owner 11/10, nationalLayers.ts). Free overlays that
+  // stack (flood, wetlands, public land, …); Slope / HEL ride baseOverlay.
+  // Which state / national files exist comes from the tile server listing.
+  const [nationalOn, setNationalOnState] = useState<Record<NationalOverlayKey, boolean>>(
+    () => Object.fromEntries(NATIONAL_OVERLAY_KEYS.map(k => [k, false])) as Record<NationalOverlayKey, boolean>,
+  )
+  const setNationalOn = useCallback((changes: Partial<Record<NationalOverlayKey, boolean>>) => {
+    setNationalOnState(cur => ({ ...cur, ...changes }))
+  }, [])
+  const [nationalAvailability, setNationalAvailability] = useState<NationalAvailability>(EMPTY_AVAILABILITY)
+  const nationalAvailRef = useRef<NationalAvailability>(EMPTY_AVAILABILITY)
+  useEffect(() => { nationalAvailRef.current = nationalAvailability }, [nationalAvailability])
+  const nationalOnRef = useRef(nationalOn)
+  useEffect(() => { nationalOnRef.current = nationalOn }, [nationalOn])
   const [terrain3DOn, setTerrain3DOn] = useState(false)
   const [terrainExaggeration, setTerrainExaggeration] = useState(1.3)
 
@@ -3506,7 +3526,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Mutable ref so the unified map-click handler always reads the
   // current overlay without being torn down/re-created on every change.
-  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null>(null)
+  const baseOverlayRef = useRef<'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | 'slope' | 'hel' | null>(null)
   // Keep baseOverlayRef in sync with baseOverlay state.
   useEffect(() => { baseOverlayRef.current = baseOverlay }, [baseOverlay])
 
@@ -9412,6 +9432,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         crops: 10,
         csb: 10,
         fsa: 6,
+        slope: NATIONAL_LAYERS.slope.minzoom,
+        hel: NATIONAL_LAYERS.hel.minzoom,
       }
       const minZ = minZooms[baseOverlay]
       if (minZ !== undefined && zoom < minZ) {
@@ -9421,6 +9443,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           crops: 'Crops by Year',
           csb: 'Crops by Year',
           fsa: 'FSA',
+          slope: 'Slope',
+          hel: 'Highly erodible land',
         }
         setZoomTooFar(`Zoom in to see ${labels[baseOverlay] ?? baseOverlay}`)
       } else {
@@ -9464,12 +9488,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const states = { soil: SOIL_PMTILES_STATES, fsa: FSA_PMTILES_STATES, engine: ENGINE_PMTILES_STATES }
+    const states = { soil: SOIL_PMTILES_STATES, fsa: FSA_PMTILES_STATES, engine: ENGINE_PMTILES_STATES, national: nationalAvailability }
     for (const key of Object.keys(overlayOpacity) as OpacityLayerKey[]) {
       applyOverlayOpacity(map, key, overlayOpacity[key], states)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overlayOpacity, mapLoaded, baseOverlay, selectedPrecipYear, layersEnabled])
+  }, [overlayOpacity, mapLoaded, baseOverlay, selectedPrecipYear, layersEnabled, nationalOn, nationalAvailability])
 
   // ── Annual Precipitation (PRISM) raster overlay ─────────────────────
   // Public PNG raster tiles (z3-10, 256px) from overlayConfig.tiles.precip,
@@ -9521,6 +9545,101 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
   }, [mapLoaded, baseOverlay, overlayConfig, selectedPrecipYear])
+
+  // ── National layers (owner 11/10) ─────────────────────────────────
+  // 1. Which files exist: the tile server's own listing (refreshed every
+  //    10 min so states the builders upload tonight appear without a reload).
+  useEffect(() => {
+    if (!layersEnabled) return
+    let cancelled = false
+    const load = () => {
+      fetchNationalAvailability()
+        .then(av => { if (!cancelled) setNationalAvailability(av) })
+        .catch(() => { /* enrichment only — silent, like the overlay config */ })
+    }
+    load()
+    const t = window.setInterval(load, 10 * 60 * 1000)
+    return () => { cancelled = true; window.clearInterval(t) }
+  }, [layersEnabled])
+
+  // 2. Mount lazily on first ON, then only show / hide. Slope + HEL follow
+  //    baseOverlay (one soil fill at a time); the rest follow nationalOn.
+  const nationalWasOnRef = useRef<Partial<Record<NationalLayerKey, boolean>>>({})
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded || !layersEnabled) return
+    const w = window as any
+    if (!w.__ggPmtilesRegistered) {
+      maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile as any)
+      w.__ggPmtilesRegistered = true
+    }
+    const before = map.getLayer('regrid-parcels-fill') ? 'regrid-parcels-fill'
+      : map.getLayer('tract-polygon-fill') ? 'tract-polygon-fill' : undefined
+    for (const key of Object.keys(NATIONAL_LAYERS) as NationalLayerKey[]) {
+      const states = nationalAvailability[key] || []
+      const on = (key === 'slope' || key === 'hel')
+        ? baseOverlay === key
+        : !!nationalOn[key as NationalOverlayKey]
+      const active = on && isLayerAvailable(nationalAvailability, key)
+      if (active) {
+        try {
+          addNationalLayer(map, key, states, overlayOpacityRef.current[key] ?? NATIONAL_LAYERS[key].defaultOpacity, true, before)
+        } catch (err) { console.warn('national layer', key, err) }
+        // Zoom hint once, when the layer is switched on below its zoom.
+        if (!nationalWasOnRef.current[key] && map.getZoom() < NATIONAL_LAYERS[key].minzoom && key !== 'slope' && key !== 'hel') {
+          showZoomToast(`Zoom in to view ${NATIONAL_LAYERS[key].name}`)
+        }
+      }
+      setNationalLayerVisible(map, key, states, active)
+      nationalWasOnRef.current[key] = active
+    }
+  }, [mapLoaded, layersEnabled, nationalOn, nationalAvailability, baseOverlay, showZoomToast])
+
+  // 3. Click → small info popup listing every national layer under the
+  //    point (flood zone, wetland type, public unit, PLSS section, …). It
+  //    sits beside whatever panel the click also opens (parcel / soils);
+  //    pins and sale dots keep the click to themselves.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '260px', className: 'gg-nl-popup' })
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (mapInteractionSuspendedRef.current) return
+      const av = nationalAvailRef.current
+      const onKeys = (Object.keys(NATIONAL_LAYERS) as NationalLayerKey[]).filter(k =>
+        (k === 'slope' || k === 'hel') ? baseOverlayRef.current === k : !!nationalOnRef.current[k as NationalOverlayKey])
+      const ids = onKeys.flatMap(k => nationalClickLayerIds(k, av[k] || [])).filter(id => map.getLayer(id))
+      if (!ids.length) return
+      if (clickClaimedByLayers(map, e.point, [
+        ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill', 'today-pin-core',
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
+      ])) return
+      let feats: maplibregl.MapGeoJSONFeature[] = []
+      try {
+        const pad = 4
+        feats = map.queryRenderedFeatures([[e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad]], { layers: ids })
+      } catch { return }
+      const seen = new Set<string>()
+      const entries: Array<{ key: NationalLayerKey; heading: string; lines: string[] }> = []
+      for (const f of feats) {
+        const key = keyForLayerId(f.layer.id)
+        if (!key) continue
+        const d = describeNationalFeature(key, (f.properties || {}) as any, (f as any).sourceLayer)
+        if (!d) continue
+        const sig = `${key}|${d.heading}`
+        if (seen.has(sig)) continue
+        seen.add(sig)
+        // PLSS: the section line reads first ("Section 22 · T5N R6W").
+        if (key === 'plss' && (f as any).sourceLayer === 'section') entries.unshift({ key, ...d })
+        else entries.push({ key, ...d })
+        if (entries.length >= 5) break
+      }
+      if (!entries.length) return
+      popup.setLngLat(e.lngLat).setHTML(nationalPopupHtml(entries)).addTo(map)
+    }
+    map.on('click', onClick)
+    return () => { map.off('click', onClick); popup.remove() }
+  }, [mapLoaded])
 
   // ── 3D Terrain — all-zoom implementation ────────────────────────────
   //
@@ -9687,6 +9806,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // means the LAST one moved ends up closest to the anchor —
       // i.e. just below tracts — which is exactly Regrid Parcel
       // Labels per the spec above.
+      const nl = (keys: NationalLayerKey[]) => keys.flatMap(k => nationalLayerIds(k, nationalAvailRef.current[k] || []))
       const desiredBottomToTop = [
         // Annual Precipitation (PRISM) raster — sits directly above the
         // satellite/Wayback imagery + terrain (which aren't in this list;
@@ -9697,6 +9817,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // listed first purely so it never floats above them if that ever
         // changes.
         'precip-tiles',
+        // Light pollution raster (national layers, owner 11/10) — just above
+        // the imagery, under every vector overlay.
+        ...nl(['light']),
         // SSURGO soil polygons (Land ID-style) — fill + outline
         // share the same z-slot as the green tillable; only one
         // is visible at a time depending on the data-source toggle.
@@ -9716,6 +9839,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'csb-fields-fill',
         // FSA CLU field lines — per-state PMTiles, above NCCPI and CSB.
         ...FSA_PMTILES_STATES.map(st => `explore-fsa-line-${st}`),
+        // National layers (owner 11/10): Slope / HEL sit in the soil-fill
+        // slot (one base overlay at a time); the free overlays stack above
+        // it — big land areas first, flood / wetlands, then line work.
+        ...nl(['slope', 'hel', 'public', 'protected', 'tribal', 'grazing', 'wetlands', 'flood', 'plss']),
         'parcel-enrichment-tillable-fill',
         'parcel-enrichment-tillable-worldcover-fill',
         'parcel-enrichment-fsa-clu-line',
@@ -9727,6 +9854,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'regrid-parcels-fill',
         'regrid-parcels-line',
         'regrid-parcels-label',
+        // Point layers (airports, POIs) above the parcel labels, below pins.
+        ...nl(['poi', 'airports']),
       ]
       const tractAnchor = map.getLayer('tract-polygon-fill') ? 'tract-polygon-fill' : undefined
       for (const id of desiredBottomToTop) {
@@ -9744,6 +9873,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     mapLoaded, regridConfig, isEnrichmentPilot,
     enrichmentOverlay, tillableSource,
     baseOverlay,
+    nationalOn, nationalAvailability,
     // Deliberately NOT including tracts.length — that state changes
     // every viewport tick and would cause our reorder to thrash
     // (potentially racing with the Regrid label refresh). Tracts get
@@ -12125,6 +12255,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               aerialYear={aerialYear}
               onSelectSatellite={() => selectAerialYear(null)}
               onOpenAerialYear={() => { setYearReturnView('layers'); setUtilitiesView('year') }}
+              nationalAvailability={nationalAvailability}
+              nationalOn={nationalOn}
+              setNationalOn={setNationalOn}
             />
           )}
 

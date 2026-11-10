@@ -19,11 +19,19 @@ import { useState } from 'react'
 import type maplibregl from 'maplibre-gl'
 import { ChevronDown, X as XIcon, Check as CheckIcon } from 'lucide-react'
 import { CDL_LEGEND_ROWS } from './mapOverlays'
+import {
+  NATIONAL_LAYERS, NATIONAL_OVERLAY_KEYS, HEL_ENABLED, isLayerAvailable, applyNationalOpacity,
+  type NationalAvailability, type NationalLayerKey, type NationalOverlayKey, type LegendRow,
+} from './nationalLayers'
 
 const PINK = '#F58CDE'
 
-export type BaseOverlayValue = 'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | null
-export type OpacityLayerKey = 'ssurgo' | 'nccpi' | 'crops' | 'engine' | 'fsa' | 'precip'
+// 'slope' / 'hel' (national layers, owner 11/10) are soil-polygon fills, so
+// they join the one-at-a-time base overlays instead of stacking on Soil Types.
+export type BaseOverlayValue = 'crops' | 'csb' | 'ssurgo' | 'nccpi' | 'fsa' | 'engine' | 'precip' | 'slope' | 'hel' | null
+export type OpacityLayerKey = 'ssurgo' | 'nccpi' | 'crops' | 'engine' | 'fsa' | 'precip' | NationalLayerKey
+const NATIONAL_KEYS = Object.keys(NATIONAL_LAYERS) as NationalLayerKey[]
+const isNationalKey = (k: string): k is NationalLayerKey => k in NATIONAL_LAYERS
 
 // ── Opacity: default = the paint value each layer has always used ──────
 export const OVERLAY_DEFAULT_OPACITY: Record<OpacityLayerKey, number> = {
@@ -33,6 +41,8 @@ export const OVERLAY_DEFAULT_OPACITY: Record<OpacityLayerKey, number> = {
   engine: 0.55, // explore-engine-fill-{ST} (per-class, max 0.55)
   fsa: 0.90,    // explore-fsa-line-{ST} (line-opacity)
   precip: 0.72, // precip-tiles (raster-opacity)
+  // National layers (nationalLayers.ts defaultOpacity).
+  ...(Object.fromEntries(NATIONAL_KEYS.map(k => [k, NATIONAL_LAYERS[k].defaultOpacity])) as Record<NationalLayerKey, number>),
 }
 export const OPACITY_MIN = 0.2
 export const OPACITY_MAX = 1
@@ -65,9 +75,13 @@ export function applyOverlayOpacity(
   map: maplibregl.Map,
   key: OpacityLayerKey,
   value: number,
-  states: { soil: string[]; fsa: string[]; engine: string[] },
+  states: { soil: string[]; fsa: string[]; engine: string[]; national?: NationalAvailability },
 ) {
   const v = clampOpacity(value)
+  if (isNationalKey(key)) {
+    applyNationalOpacity(map, key, states.national?.[key] ?? [], v)
+    return
+  }
   const set = (id: string, prop: string, val: unknown) => {
     try { if (map.getLayer(id)) map.setPaintProperty(id, prop as any, val as any) } catch { /* layer not ready */ }
   }
@@ -124,6 +138,11 @@ export type LayersPanelProps = {
   aerialYear: number | null
   onSelectSatellite: () => void
   onOpenAerialYear: () => void
+  // National layers (owner 11/10). availability = which state / national
+  // files the tile server holds; a layer with none is not shown.
+  nationalAvailability: NationalAvailability
+  nationalOn: Record<NationalOverlayKey, boolean>
+  setNationalOn: (changes: Partial<Record<NationalOverlayKey, boolean>>) => void
 }
 
 type LayerId = OpacityLayerKey | 'savedMaps' | 'elevators'
@@ -147,6 +166,7 @@ const DESCRIPTIONS: Record<LayerId, string> = {
   precip: 'Rainfall by year, inches',
   savedMaps: 'Your saved tracts and projects',
   elevators: 'Cash bids at nearby elevators',
+  ...(Object.fromEntries(NATIONAL_KEYS.map(k => [k, NATIONAL_LAYERS[k].desc])) as Record<NationalLayerKey, string>),
 }
 
 // Preview image key per layer (public/layer-previews/<key>.png and
@@ -160,6 +180,7 @@ const PREVIEWS: Record<LayerId, string | null> = {
   precip: 'precipitation',
   savedMaps: 'saved-maps',
   elevators: 'grain-elevators',
+  ...(Object.fromEntries(NATIONAL_KEYS.map(k => [k, NATIONAL_LAYERS[k].preview])) as Record<NationalLayerKey, string>),
 }
 
 const PRECIP_GRADIENT = 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)'
@@ -253,7 +274,7 @@ export default function LayersPanel(p: LayersPanelProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const cropsOn = p.baseOverlay === 'crops' || p.baseOverlay === 'csb'
 
-  const base = (key: OpacityLayerKey, name: string): LayerDef => {
+  const base = (key: 'ssurgo' | 'nccpi' | 'crops' | 'engine' | 'fsa' | 'precip' | 'slope' | 'hel', name: string): LayerDef => {
     const on = key === 'crops' ? cropsOn : p.baseOverlay === key
     return {
       id: key, name, desc: DESCRIPTIONS[key], preview: PREVIEWS[key], on,
@@ -268,6 +289,21 @@ export default function LayersPanel(p: LayersPanelProps) {
     setOff: () => { if (t.on) t.toggle() },
   })
 
+  const avail = (k: NationalLayerKey) => isLayerAvailable(p.nationalAvailability, k)
+  // National base overlays (slope / HEL) — only where the tile server has them.
+  const nationalBase = (k: 'slope' | 'hel'): LayerDef[] =>
+    (k === 'hel' && !HEL_ENABLED) || !avail(k) ? [] : [base(k, NATIONAL_LAYERS[k].name)]
+  // Free national overlays: stack with each other and with one base overlay.
+  const overlay = (k: NationalOverlayKey): LayerDef[] => {
+    if (!avail(k)) return []
+    const on = !!p.nationalOn[k]
+    return [{
+      id: k, name: NATIONAL_LAYERS[k].name, desc: NATIONAL_LAYERS[k].desc, preview: NATIONAL_LAYERS[k].preview, on,
+      toggle: () => p.setNationalOn({ [k]: !on }),
+      setOff: () => { if (on) p.setNationalOn({ [k]: false }) },
+    }]
+  }
+
   const soilCrops: LayerDef[] = [
     base('ssurgo', 'Soil Types'),
     base('nccpi', 'NCCPI'),
@@ -275,10 +311,26 @@ export default function LayersPanel(p: LayersPanelProps) {
     // Tillable Map left out of the tile grid: it has no preview image and
     // never renders today (ENGINE_PMTILES_STATES is empty).
     base('fsa', 'FSA'),
+    ...nationalBase('slope'),
+    ...nationalBase('hel'),
   ]
-  const water: LayerDef[] = p.precipAvailable ? [base('precip', 'Annual Precipitation')] : []
-  const land: LayerDef[] = p.savedMaps.available ? [toggleDef('savedMaps', 'My saved maps', p.savedMaps)] : []
-  const markets: LayerDef[] = p.elevators.available ? [toggleDef('elevators', 'Grain elevators', p.elevators)] : []
+  const water: LayerDef[] = [
+    ...(p.precipAvailable ? [base('precip', 'Annual Precipitation')] : []),
+    ...overlay('flood'),
+    ...overlay('wetlands'),
+  ]
+  const land: LayerDef[] = [
+    ...(p.savedMaps.available ? [toggleDef('savedMaps', 'My saved maps', p.savedMaps)] : []),
+    ...overlay('public'),
+    ...overlay('protected'),
+    ...overlay('tribal'),
+    ...overlay('plss'),
+  ]
+  const markets: LayerDef[] = [
+    ...(p.elevators.available ? [toggleDef('elevators', 'Grain elevators', p.elevators)] : []),
+    ...overlay('grazing'),
+  ]
+  const infrastructure: LayerDef[] = [...overlay('airports'), ...overlay('poi'), ...overlay('light')]
 
   const groups: Array<{ id: string; name: string; layers: LayerDef[]; note?: string; extra?: React.ReactNode; alwaysShow?: boolean }> = [
     { id: 'soil', name: 'Soil and crops', layers: soilCrops, note: 'One soil, crop or rain layer at a time.' },
@@ -286,6 +338,7 @@ export default function LayersPanel(p: LayersPanelProps) {
     { id: 'land', name: 'Land and boundaries', layers: land },
     // Markets always shows: the Tract Status legend lives here for everyone.
     { id: 'markets', name: 'Markets', layers: markets, alwaysShow: true },
+    { id: 'infrastructure', name: 'Infrastructure', layers: infrastructure },
   ]
 
   const all = groups.flatMap(g => g.layers)
@@ -293,15 +346,37 @@ export default function LayersPanel(p: LayersPanelProps) {
   const turnAllOff = () => {
     if (p.baseOverlay !== null) p.setBaseOverlay(null)
     for (const l of onLayers) if (l.id === 'savedMaps' || l.id === 'elevators') l.setOff()
+    const off: Partial<Record<NationalOverlayKey, boolean>> = {}
+    for (const k of NATIONAL_OVERLAY_KEYS) if (p.nationalOn[k]) off[k] = false
+    if (Object.keys(off).length) p.setNationalOn(off)
   }
+  // Preset helper: the free overlays a preset turns on, trimmed to what exists.
+  const availOverlays = (keys: NationalOverlayKey[]) => keys.filter(k => avail(k))
+  const allOn = (keys: NationalOverlayKey[]) => keys.every(k => !!p.nationalOn[k])
+  const setAll = (keys: NationalOverlayKey[], on: boolean, extra: Partial<Record<NationalOverlayKey, boolean>> = {}) =>
+    p.setNationalOn({ ...Object.fromEntries(keys.map(k => [k, on])), ...extra })
 
   // Presets — only those whose layers exist for this user.
+  // Due diligence = Soil Types + Flood zones + Wetlands. Slope (and HEL) are
+  // one-at-a-time soil fills like Soil Types, so they cannot stack with it;
+  // they stay one tap away in Soil and crops.
+  const ddOverlays = availOverlays(['flood', 'wetlands'])
+  const huntOverlays = availOverlays(['public', 'protected'])
   const presets: Array<{ id: string; label: string; active: boolean; apply: () => void }> = [
     {
       id: 'due-diligence', label: 'Due diligence',
-      active: p.baseOverlay === 'ssurgo',
-      apply: () => { if (p.baseOverlay !== 'ssurgo') p.setBaseOverlay('ssurgo') },
+      active: p.baseOverlay === 'ssurgo' && allOn(ddOverlays),
+      apply: () => {
+        if (p.baseOverlay !== 'ssurgo') p.setBaseOverlay('ssurgo')
+        if (!allOn(ddOverlays)) setAll(ddOverlays, true)
+      },
     },
+    // Hunting = Public land + Protected areas, light pollution off.
+    ...(huntOverlays.length ? [{
+      id: 'hunting', label: 'Hunting',
+      active: allOn(huntOverlays) && !p.nationalOn.light,
+      apply: () => setAll(huntOverlays, true, p.nationalOn.light ? { light: false } : {}),
+    }] : []),
     ...(p.elevators.available ? [{
       id: 'grain-market', label: 'Grain market',
       active: p.elevators.on,
@@ -382,8 +457,44 @@ export default function LayersPanel(p: LayersPanelProps) {
           ? <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>{p[l.id].status}</div>
           : null
       default:
+        if (isNationalKey(l.id)) return nationalLegend(l.id)
         return null // Soil Types has no legend today (16-colour categorical).
     }
+  }
+
+  const swatch = (r: LegendRow) => {
+    const base: React.CSSProperties = { width: 12, height: 12, borderRadius: 3, flexShrink: 0, border: '1px solid rgba(255,255,255,0.20)' }
+    switch (r.kind) {
+      case 'dot': return <span style={{ ...base, borderRadius: '50%', background: r.color, border: '1.5px solid #fff', width: 10, height: 10 }} />
+      case 'line': return <span style={{ width: 14, height: 3, borderRadius: 1, background: r.color, flexShrink: 0 }} />
+      case 'dash': return <span style={{ width: 14, height: 0, borderTop: `3px dashed ${r.color}`, flexShrink: 0 }} />
+      case 'hatch': return <span style={{ ...base, background: `repeating-linear-gradient(135deg, ${r.color} 0 3px, #fff 3px 4.5px)` }} />
+      default: return <span style={{ ...base, background: r.color }} />
+    }
+  }
+  const nationalLegend = (k: NationalLayerKey): React.ReactNode => {
+    const def = NATIONAL_LAYERS[k]
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {def.gradient && (
+          <div>
+            <div style={{ height: 8, borderRadius: 3, background: def.gradient }} />
+          </div>
+        )}
+        {def.legend.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {def.legend.map(r => (
+              <div key={r.label} style={{ display: 'flex', alignItems: 'center', minHeight: 18, gap: 8 }}>
+                {swatch(r)}
+                <span style={{ color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: 500 }}>{r.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {def.legendNote && <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 9 }}>{def.legendNote}</span>}
+        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8 }}>{def.attribution}</span>
+      </div>
+    )
   }
 
   // Picture tile. OFF: <key>.png static, thin gray border. ON: <key>-base.png
