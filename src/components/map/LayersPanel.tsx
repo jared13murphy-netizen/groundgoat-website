@@ -178,7 +178,7 @@ const TILE_CSS = `
 .gg-lt-on .gg-lt-label { color: ${PINK}; font-weight: 600; }
 .gg-lt:focus-visible { outline: none; }
 .gg-lt:focus-visible .gg-lt-pic { outline: 2px solid #fff; outline-offset: 2px; }
-@keyframes gg-lt-breathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
+@keyframes gg-lt-breathe { 0%, 100% { opacity: 0.82; transform: scale(1); } 50% { opacity: 1; transform: scale(1.04); } }
 @keyframes gg-lt-glow { 0%, 100% { box-shadow: 0 0 4px 1px rgba(245,140,222,0.3); } 50% { box-shadow: 0 0 8px 2px rgba(245,140,222,0.5); } }
 @media (prefers-reduced-motion: reduce) {
   .gg-lt-on .gg-lt-pic, .gg-lt-on .gg-lt-top { animation: none; }
