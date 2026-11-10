@@ -53,6 +53,8 @@ const REDUCED_MOTION_HOLD_MS = 2000
 type Job = {
   job_id: string
   job_type: string
+  // Server label (owner 11/10: one parcel or tract = "Land report").
+  label?: string | null
   delivery: 'download' | 'email'
   status: 'queued' | 'running' | 'done' | 'error'
   filename: string | null
@@ -311,7 +313,7 @@ export default function ReportJobsIndicator() {
         const building = job.status === 'queued' || job.status === 'running'
         const isError = job.status === 'error'
         const p = phase[job.job_id]
-        const name = LABEL[job.job_type] || 'Report'
+        const name = job.label || LABEL[job.job_type] || 'Report'
         const reduced = prefersReducedMotion()
         const stateColor: StateColor = isError ? 'red' : building ? 'sky' : 'emerald'
         const style = STATE_STYLE[stateColor]
