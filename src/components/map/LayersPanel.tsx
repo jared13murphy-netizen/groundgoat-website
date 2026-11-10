@@ -3,8 +3,13 @@
 // ── Map layers panel v2 (owner approved 11/10) ─────────────────────────
 // Spec: ground-goat-backend/docs/layers-panel-v2-spec.md.
 // Top to bottom: header ("N on · Turn all off"), ON NOW chips, basemap
-// tiles, presets, then collapsible groups of layer cards. A card that is
-// on expands in place to its legend/controls + an Opacity slider.
+// tiles, presets, then collapsible groups. REVISION 11/10: no switches —
+// every layer is a picture tile (3 per row); tap toggles. Under each
+// group's grid, every ON layer gets a compact settings strip (name +
+// legend/year chips + Opacity slider). ON tiles "breathe": the layer
+// image fades 0.55→1→0.55 over the satellite-only base image with a
+// pulsing pink glow — CSS @keyframes only, off for prefers-reduced-motion.
+// Previews: public/layer-previews/<key>.png + <key>-base.png (480x320).
 // Holds TODAY's layers only — no new map data, no search bar. The base
 // overlays (Soil Types, NCCPI, Crops by Year, Tillable Map, FSA, Annual
 // Precipitation) stay mutually exclusive exactly as before: they all
@@ -12,7 +17,7 @@
 
 import { useState } from 'react'
 import type maplibregl from 'maplibre-gl'
-import { ChevronDown, X as XIcon, Calendar as CalendarIcon } from 'lucide-react'
+import { ChevronDown, X as XIcon, Check as CheckIcon } from 'lucide-react'
 import { CDL_LEGEND_ROWS } from './mapOverlays'
 
 const PINK = '#F58CDE'
@@ -127,7 +132,7 @@ type LayerDef = {
   id: LayerId
   name: string
   desc: string
-  swatch: string
+  preview: string | null // public/layer-previews/<preview>.png
   on: boolean
   toggle: () => void
   setOff: () => void
@@ -144,16 +149,43 @@ const DESCRIPTIONS: Record<LayerId, string> = {
   elevators: 'Cash bids at nearby elevators',
 }
 
-const SWATCHES: Record<LayerId, string> = {
-  ssurgo: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
-  crops: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
-  nccpi: 'linear-gradient(to right,#d73027,#fee08b,#1a9850)',
-  fsa: '#22d3ee',
-  engine: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
-  precip: 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)',
-  savedMaps: '#2563eb',
-  elevators: '#FFD21F',
+// Preview image key per layer (public/layer-previews/<key>.png and
+// <key>-base.png). Tillable Map has no preview (it never renders today).
+const PREVIEWS: Record<LayerId, string | null> = {
+  ssurgo: 'soil-types',
+  nccpi: 'nccpi',
+  crops: 'crops-by-year',
+  engine: null,
+  fsa: 'fsa',
+  precip: 'precipitation',
+  savedMaps: 'saved-maps',
+  elevators: 'grain-elevators',
 }
+
+const PRECIP_GRADIENT = 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)'
+
+// Tile CSS — @keyframes only, no JS timers. The ON tile's top image
+// breathes over its base image; the border glow pulses in sync.
+const TILE_CSS = `
+.gg-lt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; }
+.gg-lt { background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; gap: 5px; min-width: 0; }
+.gg-lt-pic { position: relative; aspect-ratio: 3 / 2; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.18); background: #1a1a1a; transition: border-color 0.15s; }
+.gg-lt-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.gg-lt-on .gg-lt-pic { border: 2.5px solid ${PINK}; animation: gg-lt-glow 2.5s ease-in-out infinite; }
+.gg-lt-on .gg-lt-top { animation: gg-lt-breathe 2.5s ease-in-out infinite; }
+.gg-lt-check { position: absolute; top: 4px; right: 4px; width: 16px; height: 16px; border-radius: 50%; background: ${PINK}; color: #000; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+.gg-lt-label { color: rgba(255,255,255,0.8); font-size: 11px; line-height: 1.25; text-align: center; overflow: hidden; text-overflow: ellipsis; }
+.gg-lt-on .gg-lt-label { color: ${PINK}; font-weight: 600; }
+.gg-lt:focus-visible { outline: none; }
+.gg-lt:focus-visible .gg-lt-pic { outline: 2px solid #fff; outline-offset: 2px; }
+@keyframes gg-lt-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes gg-lt-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,140,222,0.15); } 50% { box-shadow: 0 0 10px 2px rgba(245,140,222,0.65); } }
+@media (prefers-reduced-motion: reduce) {
+  .gg-lt-on .gg-lt-pic, .gg-lt-on .gg-lt-top { animation: none; }
+  .gg-lt-on .gg-lt-top { opacity: 1; }
+  .gg-lt-on .gg-lt-pic { box-shadow: 0 0 0 2px rgba(245,140,222,0.25); }
+}
+`
 
 const TRACT_STATUS_ROWS = [
   { label: 'Sold', color: '#f58cde' },
@@ -169,26 +201,6 @@ const sectionLabel: React.CSSProperties = {
 }
 
 // ── Small pieces ───────────────────────────────────────────────────────
-function Switch({ on, label, onToggle }: { on: boolean; label: string; onToggle: () => void }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      onClick={e => { e.stopPropagation(); onToggle() }}
-      style={{
-        width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
-        background: on ? PINK : 'rgba(255,255,255,0.18)', position: 'relative', transition: 'background 0.15s',
-      }}
-    >
-      <span style={{
-        position: 'absolute', top: 2, left: on ? 16 : 2, width: 14, height: 14,
-        borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
-      }} />
-    </button>
-  )
-}
-
 function YearChips({ years, selected, onSelect }: { years: number[]; selected: number | null; onSelect: (y: number) => void }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -244,14 +256,14 @@ export default function LayersPanel(p: LayersPanelProps) {
   const base = (key: OpacityLayerKey, name: string): LayerDef => {
     const on = key === 'crops' ? cropsOn : p.baseOverlay === key
     return {
-      id: key, name, desc: DESCRIPTIONS[key], swatch: SWATCHES[key], on,
+      id: key, name, desc: DESCRIPTIONS[key], preview: PREVIEWS[key], on,
       // Radio-exclusive, same as the old buttons: on → this one, on again → none.
       toggle: () => p.setBaseOverlay(on ? null : key),
       setOff: () => { if (on) p.setBaseOverlay(null) },
     }
   }
   const toggleDef = (id: 'savedMaps' | 'elevators', name: string, t: ToggleLayer): LayerDef => ({
-    id, name, desc: DESCRIPTIONS[id], swatch: SWATCHES[id], on: t.on,
+    id, name, desc: DESCRIPTIONS[id], preview: PREVIEWS[id], on: t.on,
     toggle: t.toggle,
     setOff: () => { if (t.on) t.toggle() },
   })
@@ -260,7 +272,8 @@ export default function LayersPanel(p: LayersPanelProps) {
     base('ssurgo', 'Soil Types'),
     base('nccpi', 'NCCPI'),
     base('crops', 'Crops by Year'),
-    ...(p.engineAvailable ? [base('engine', 'Tillable Map')] : []),
+    // Tillable Map left out of the tile grid: it has no preview image and
+    // never renders today (ENGINE_PMTILES_STATES is empty).
     base('fsa', 'FSA'),
   ]
   const water: LayerDef[] = p.precipAvailable ? [base('precip', 'Annual Precipitation')] : []
@@ -327,7 +340,7 @@ export default function LayersPanel(p: LayersPanelProps) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <YearChips years={p.precipYears} selected={p.selectedPrecipYear} onSelect={p.setSelectedPrecipYear} />
             <div>
-              <div style={{ height: 8, borderRadius: 3, background: SWATCHES.precip }} />
+              <div style={{ height: 8, borderRadius: 3, background: PRECIP_GRADIENT }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
                 {['0', '20', '40', '60', '80+'].map(lbl => (
                   <span key={lbl} style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{lbl}</span>
@@ -373,66 +386,62 @@ export default function LayersPanel(p: LayersPanelProps) {
     }
   }
 
-  const card = (l: LayerDef) => {
+  // Picture tile. OFF: <key>.png static, thin gray border. ON: <key>-base.png
+  // under <key>.png (breathing), pink border + glow + check badge.
+  const pictureTile = (opts: { key: string; label: string; title?: string; preview: string; on: boolean; onClick: () => void; overlay?: React.ReactNode }) => (
+    <button
+      key={opts.key}
+      type="button"
+      className={`gg-lt${opts.on ? ' gg-lt-on' : ''}`}
+      onClick={opts.onClick}
+      aria-pressed={opts.on}
+      aria-label={opts.label}
+      title={opts.title}
+    >
+      <div className="gg-lt-pic">
+        {opts.on && <img src={`/layer-previews/${opts.preview}-base.png`} alt="" draggable={false} />}
+        <img className="gg-lt-top" src={`/layer-previews/${opts.preview}.png`} alt="" draggable={false} />
+        {opts.overlay}
+        {opts.on && (
+          <span className="gg-lt-check" aria-hidden="true"><CheckIcon size={11} strokeWidth={3} /></span>
+        )}
+      </div>
+      <span className="gg-lt-label">{opts.label}</span>
+    </button>
+  )
+
+  const layerTile = (l: LayerDef) => l.preview
+    ? pictureTile({ key: l.id, label: l.name, title: l.desc, preview: l.preview, on: l.on, onClick: l.toggle })
+    : null
+
+  // Compact settings strip for an ON layer: name + legend/year chips + Opacity.
+  const settingsStrip = (l: LayerDef) => {
     const opacityKey = (l.id === 'savedMaps' || l.id === 'elevators') ? null : l.id
-    const legend = l.on ? legendFor(l) : null
+    const legend = legendFor(l)
     return (
       <div
         key={l.id}
         style={{
-          borderRadius: 10,
-          border: `1px solid ${l.on ? 'rgba(245,140,222,0.55)' : 'rgba(255,255,255,0.12)'}`,
-          background: l.on ? 'rgba(245,140,222,0.07)' : 'rgba(255,255,255,0.04)',
-          transition: 'border-color 0.15s, background 0.15s',
+          borderRadius: 8, padding: '8px 10px',
+          border: '1px solid rgba(245,140,222,0.35)', background: 'rgba(245,140,222,0.06)',
         }}
       >
-        <div
-          onClick={l.toggle}
-          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer' }}
-        >
-          <span style={{ width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: l.swatch, border: '1px solid rgba(255,255,255,0.2)' }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: '#fff', fontSize: 13, fontWeight: 600 }}>{l.name}</div>
-            <div style={{ color: 'rgba(255,255,255,0.50)', fontSize: 11, marginTop: 1 }}>{l.desc}</div>
-          </div>
-          <Switch on={l.on} label={l.name} onToggle={l.toggle} />
-        </div>
-        {l.on && (legend || opacityKey) && (
-          <div style={{ padding: '0 12px 12px' }}>
-            {legend}
-            {opacityKey && (
-              <OpacitySlider
-                label={l.name}
-                value={p.opacity[opacityKey]}
-                onChange={v => p.onOpacityChange(opacityKey, v)}
-              />
-            )}
-          </div>
+        <div style={{ color: '#fff', fontSize: 12, fontWeight: 600, marginBottom: legend || opacityKey ? 6 : 0 }}>{l.name}</div>
+        {legend}
+        {opacityKey && (
+          <OpacitySlider
+            label={l.name}
+            value={p.opacity[opacityKey]}
+            onChange={v => p.onOpacityChange(opacityKey, v)}
+          />
         )}
       </div>
     )
   }
 
-  const tile = (opts: { label: string; selected: boolean; onClick: () => void; preview: React.ReactNode; bg: string }) => (
-    <button
-      onClick={opts.onClick}
-      aria-pressed={opts.selected}
-      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, width: 92 }}
-    >
-      <div style={{
-        width: 92, height: 60, borderRadius: 10, background: opts.bg,
-        border: `2px solid ${opts.selected ? PINK : 'rgba(255,255,255,0.15)'}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
-        boxShadow: opts.selected ? '0 0 0 2px rgba(245,140,222,0.25)' : 'none',
-      }}>
-        {opts.preview}
-      </div>
-      <span style={{ color: opts.selected ? PINK : 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: opts.selected ? 600 : 400 }}>{opts.label}</span>
-    </button>
-  )
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <style>{TILE_CSS}</style>
       {/* 1. Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
         <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>Map layers</span>
@@ -483,22 +492,23 @@ export default function LayersPanel(p: LayersPanelProps) {
       {/* 3. Basemaps */}
       <div>
         <div style={sectionLabel}>Basemap</div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          {tile({
+        <div className="gg-lt-grid">
+          {pictureTile({
+            key: 'basemap-satellite',
             label: 'Satellite',
-            selected: p.aerialYear === null,
+            preview: 'basemap-satellite',
+            on: p.aerialYear === null,
             onClick: p.onSelectSatellite,
-            bg: 'linear-gradient(135deg,#3f5a2a 0%,#6b7c3a 35%,#8a7a4c 60%,#4a6232 100%)',
-            preview: null,
           })}
-          {tile({
+          {pictureTile({
+            key: 'basemap-aerial-year',
             label: p.aerialYear !== null ? `Aerial ${p.aerialYear}` : 'Aerial year',
-            selected: p.aerialYear !== null,
+            preview: 'basemap-aerial-year',
+            on: p.aerialYear !== null,
             onClick: p.onOpenAerialYear,
-            bg: 'linear-gradient(135deg,#5a4a32 0%,#7c6a48 45%,#a08c62 100%)',
-            preview: p.aerialYear !== null
-              ? <span style={{ fontSize: 15, fontWeight: 700, textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}>{p.aerialYear}</span>
-              : <CalendarIcon size={18} />,
+            overlay: p.aerialYear !== null
+              ? <span style={{ position: 'absolute', left: 6, bottom: 4, color: '#fff', fontSize: 14, fontWeight: 700, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{p.aerialYear}</span>
+              : null,
           })}
         </div>
       </div>
@@ -553,7 +563,10 @@ export default function LayersPanel(p: LayersPanelProps) {
             {!isCollapsed && (
               <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {g.note && <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 11, marginBottom: 2 }}>{g.note}</div>}
-                {g.layers.map(card)}
+                {g.layers.some(l => l.preview) && (
+                  <div className="gg-lt-grid">{g.layers.map(layerTile)}</div>
+                )}
+                {g.layers.filter(l => l.on).map(settingsStrip)}
                 {g.id === 'markets' && (
                   <div style={{ marginTop: g.layers.length ? 6 : 0 }}>
                     <div style={sectionLabel}>Tract Status</div>
