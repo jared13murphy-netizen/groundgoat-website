@@ -165,13 +165,18 @@ export function drawPin(s = 2): ImageData {
   ctx.lineWidth = 1.5 * s
   ctx.strokeStyle = PIN_INK
   ctx.stroke()
-  drawBin(ctx, cx, cy + 2.5 * s, s)
+  drawBin(ctx, cx, cy, s)
   return ctx.getImageData(0, 0, w, h)
 }
 
-/** Black grain bin (domed roof, ribbed body) centred on cx, cy; `u` = px per unit. */
-function drawBin(ctx: CanvasRenderingContext2D, cx: number, cy: number, u: number) {
+/** Black grain bin (domed roof, ribbed body) whose whole outline, roof cap to
+ *  base, is centred on cx, cy; `u` = px per unit. Owner 11/10: centred in
+ *  the tag, not riding high. */
+function drawBin(ctx: CanvasRenderingContext2D, cx: number, cyVisual: number, u: number) {
   ctx.fillStyle = PIN_INK
+  // Measured from the body's own centre cy: cap top at cy - 11u, base at
+  // cy + 4.5u, so the outline's middle is cy - 3.25u.
+  const cy = cyVisual + 3.25 * u
   const bw = 12 * u, bx = cx - bw / 2, top = cy - 4.5 * u, bottom = cy + 4.5 * u
   ctx.beginPath()
   ctx.moveTo(bx - 1 * u, top)
@@ -215,7 +220,7 @@ export function drawTag(s = 2): ImageData {
   ctx.strokeStyle = PIN_INK
   ctx.lineJoin = 'round'
   ctx.stroke()
-  drawBin(ctx, 15 * s, (TAG_BODY / 2 + 1.5) * s, 1.3 * s)
+  drawBin(ctx, 15 * s, (y0 + y1) / 2, 1.3 * s)
   ctx.fillStyle = PIN_INK
   ctx.fillRect(29 * s, 7 * s, 1 * s, (TAG_BODY - 14) * s)
   ctx.font = `${10 * s}px "Open Sans", Arial, sans-serif`
