@@ -26,6 +26,18 @@ const TAG_IMAGE = 'gg-grain-price-tag'
 export const TAG_ZOOM = 10
 const PIN_FILL = '#FFD21F'
 const PIN_INK = '#111111'
+// Owner 11/10: a slight top-to-bottom gradient on the yellow, lighter above,
+// the same yellow through the middle, a touch deeper at the bottom.
+const PIN_FILL_TOP = '#FFE45C'
+const PIN_FILL_BOTTOM = '#F2BF0A'
+
+function yellowFill(ctx: CanvasRenderingContext2D, top: number, bottom: number): CanvasGradient {
+  const g = ctx.createLinearGradient(0, top, 0, bottom)
+  g.addColorStop(0, PIN_FILL_TOP)
+  g.addColorStop(0.5, PIN_FILL)
+  g.addColorStop(1, PIN_FILL_BOTTOM)
+  return g
+}
 
 export interface ElevatorPin {
   id: number
@@ -134,9 +146,9 @@ export function fmtTime(iso: string | null): string | null {
 
 // ── map layer ───────────────────────────────────────────────────────────
 
-/** Yellow teardrop pin, black grain bin (domed roof, ribbed body). */
-function drawPin(): ImageData {
-  const s = 2 // drawn at 2x, registered with pixelRatio 2
+/** Yellow teardrop pin, black grain bin (domed roof, ribbed body). Drawn at
+ *  `s`x (the map registers the 2x one; the app's PNGs are this at 1-3x). */
+export function drawPin(s = 2): ImageData {
   const w = 30 * s, h = 40 * s
   const c = document.createElement('canvas')
   c.width = w; c.height = h
@@ -148,7 +160,7 @@ function drawPin(): ImageData {
   ctx.quadraticCurveTo(cx + r * 0.55, cy + r * 1.25, cx, h - 1.5 * s)
   ctx.quadraticCurveTo(cx - r * 0.55, cy + r * 1.25, cx - r * Math.cos(Math.PI * 0.18), cy + r * Math.sin(Math.PI * 0.18))
   ctx.closePath()
-  ctx.fillStyle = PIN_FILL
+  ctx.fillStyle = yellowFill(ctx, cy - r, h)
   ctx.fill()
   ctx.lineWidth = 1.5 * s
   ctx.strokeStyle = PIN_INK
@@ -180,8 +192,7 @@ const TAG_TEXT_SIZE = 12
 
 /** Yellow tag, black outline, pointer at the bottom centre; bin, divider and
  *  the Corn / Beans labels on the left. */
-function drawTag(): ImageData {
-  const s = 2
+export function drawTag(s = 2): ImageData {
   const w = TAG_W * s, h = (TAG_BODY + TAG_POINTER + 2) * s
   const c = document.createElement('canvas')
   c.width = w; c.height = h
@@ -198,7 +209,7 @@ function drawTag(): ImageData {
   ctx.arcTo(x0, y1, x0, y0, r)
   ctx.arcTo(x0, y0, x1, y0, r)
   ctx.closePath()
-  ctx.fillStyle = PIN_FILL
+  ctx.fillStyle = yellowFill(ctx, y0, y1)
   ctx.fill()
   ctx.lineWidth = lw
   ctx.strokeStyle = PIN_INK
