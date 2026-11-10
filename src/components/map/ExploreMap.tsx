@@ -51,6 +51,7 @@ import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
 import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
 import ElevatorPanel from './ElevatorPanel'
+import LayersPanel, { applyOverlayOpacity, loadOverlayOpacity, saveOverlayOpacity, OVERLAY_DEFAULT_OPACITY, type OpacityLayerKey } from './LayersPanel'
 import { ELEVATOR_LAYER, getElevatorPins, setElevatorPins, type ElevatorPin } from '@/lib/grainBids'
 import { bboxOf } from '@/lib/cmShapes'
 import { deriveParcelDetail, ParcelDetailSections, LandTypeBadges, PARCEL_DISCLAIMER_TEXT, titleCase } from './parcelDetailFields'
@@ -1758,71 +1759,6 @@ interface ExploreMapProps {
 // CDL_PALETTE, CDL_LEGEND_ROWS and buildCropColorExpr moved to mapOverlays.ts
 // (10/6) so the Configurable Mapping screen's Layers button shares them.
 
-// ── OverlayButton — mutually-exclusive overlay row in the Layers panel ──────
-function OverlayButton({
-  active,
-  label,
-  swatchGradient,
-  swatchColor,
-  onClick,
-}: {
-  active: boolean
-  label: string
-  swatchGradient?: string
-  swatchColor?: string
-  onClick: () => void
-}) {
-  const [hovered, setHovered] = useState(false)
-  const base: Record<string, string | number> = active
-    ? {
-        background: 'linear-gradient(135deg,#F58CDE 0%,#C563AD 100%)',
-        border: '1px solid #F58CDE',
-        color: '#0a0a0a',
-        boxShadow: '0 2px 10px rgba(233,30,140,0.40)',
-      }
-    : hovered
-    ? {
-        background: 'rgba(255,255,255,0.10)',
-        border: '1px solid rgba(255,255,255,0.22)',
-        color: 'rgba(255,255,255,0.80)',
-      }
-    : {
-        background: 'rgba(255,255,255,0.05)',
-        border: '1px solid rgba(255,255,255,0.15)',
-        color: 'rgba(255,255,255,0.55)',
-      }
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        height: 32,
-        borderRadius: 7,
-        padding: '0 9px',
-        fontSize: 11,
-        fontWeight: 500,
-        cursor: 'pointer',
-        gap: 7,
-        transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-        ...base,
-      }}
-    >
-      <span style={{
-        width: 12,
-        height: 12,
-        borderRadius: 3,
-        flexShrink: 0,
-        ...(swatchGradient ? { background: swatchGradient } : { backgroundColor: swatchColor }),
-      }} />
-      <span style={{ flex: 1 }}>{label}</span>
-      <span style={{ fontSize: 10, opacity: active ? 1 : 0, transition: 'opacity 0.12s' }}>✓</span>
-    </div>
-  )
-}
-
 // ── UtilityTile — one 3-per-row tile in the Utilities panel (owner
 // 2026-09-08: same look as the mobile app — #111 tile, 1px #333 border,
 // radius 12, icon over a 12px regular-weight label, pink #F58CDE when
@@ -2654,6 +2590,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // separate bottom-left Layers button/panel and Aerial-year button/popup.
   const [utilitiesOpen, setUtilitiesOpen] = useState(false)
   const [utilitiesView, setUtilitiesView] = useState<'menu' | 'layers' | 'year' | 'pin' | 'drawArea'>('menu')
+  // Map Year picker opened from the Layers panel's "Aerial year" basemap
+  // tile returns to Layers after a pick; from the menu tile, to the menu.
+  const [yearReturnView, setYearReturnView] = useState<'menu' | 'layers'>('menu')
 
   // Nav-bar trigger (owner ruling 2026-09-08): PortalNavBar's "Utilities"
   // item bumps utilitiesToggleSignal; this mirrors the removed floating
@@ -9503,6 +9442,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     } catch {/* layer not ready */}
   }, [selectedCropYear, mapLoaded])
 
+  // ── Layer opacity (Layers panel v2, owner 11/10) ──────────────────
+  // One opacity per overlay, remembered per layer in localStorage
+  // (gg_layer_opacity_<key>); default = the paint value each layer has
+  // always had. Only the opacity paint property is touched. Re-applied
+  // whenever the overlay switches (the precip layer is re-added on each
+  // activation) or the year changes.
+  const [overlayOpacity, setOverlayOpacity] = useState<Record<OpacityLayerKey, number>>(() => ({ ...OVERLAY_DEFAULT_OPACITY }))
+  useEffect(() => { setOverlayOpacity(loadOverlayOpacity()) }, [])
+  const overlayOpacityRef = useRef(overlayOpacity)
+  useEffect(() => { overlayOpacityRef.current = overlayOpacity }, [overlayOpacity])
+  const setOverlayOpacityFor = useCallback((key: OpacityLayerKey, value: number) => {
+    setOverlayOpacity(o => ({ ...o, [key]: value }))
+    saveOverlayOpacity(key, value)
+  }, [])
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const states = { soil: SOIL_PMTILES_STATES, fsa: FSA_PMTILES_STATES, engine: ENGINE_PMTILES_STATES }
+    for (const key of Object.keys(overlayOpacity) as OpacityLayerKey[]) {
+      applyOverlayOpacity(map, key, overlayOpacity[key], states)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlayOpacity, mapLoaded, baseOverlay, selectedPrecipYear, layersEnabled])
+
   // ── Annual Precipitation (PRISM) raster overlay ─────────────────────
   // Public PNG raster tiles (z3-10, 256px) from overlayConfig.tiles.precip,
   // a URL template containing a literal "{year}" placeholder swapped for
@@ -9549,7 +9512,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: LAYER,
         type: 'raster',
         source: SRC,
-        paint: { 'raster-opacity': 0.72, 'raster-resampling': 'linear' },
+        paint: { 'raster-opacity': overlayOpacityRef.current.precip, 'raster-resampling': 'linear' },
       })
     }
   }, [mapLoaded, baseOverlay, overlayConfig, selectedPrecipYear])
@@ -11935,7 +11898,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   icon={<CalendarIcon size={20} />}
                   label="Map Year"
                   active={aerialYear !== null}
-                  onClick={() => setUtilitiesView('year')}
+                  onClick={() => { setYearReturnView('menu'); setUtilitiesView('year') }}
                 />
                 <UtilityTile
                   icon={<MapPinIcon size={20} />}
@@ -12115,224 +12078,49 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           )}
 
           {utilitiesView === 'layers' && layersEnabled && (
-            <>
-              {/* ── Overlays (mutually-exclusive buttons) ── */}
-              <div style={{ padding: '0 0 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                Overlays
-              </div>
-              <div style={{ padding: '0 0 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {([
-                  {
-                    key: 'ssurgo' as const,
-                    label: 'Soil Types',
-                    swatchGradient: 'linear-gradient(to right,#c94040,#c4b030,#29a068,#2878c8,#b03890)',
-                  },
-                  {
-                    key: 'crops' as const,
-                    label: 'Crops by Year',
-                    swatchGradient: 'linear-gradient(to right,#FFD400,#267000,#A87000,#FFA8E3)',
-                  },
-                  {
-                    key: 'nccpi' as const,
-                    label: 'NCCPI',
-                    swatchGradient: 'linear-gradient(to right,#d73027,#fee08b,#1a9850)',
-                  },
-                  {
-                    key: 'fsa' as const,
-                    label: 'FSA',
-                    swatchColor: '#22d3ee',
-                  },
-                  ...(ENGINE_PMTILES_STATES.length > 0 ? [{
-                    key: 'engine' as const,
-                    label: 'Tillable Map',
-                    swatchGradient: 'linear-gradient(to right,#3caa28,#eb9620,#e12d23,#d73cc8,#3c6edc)',
-                  }] : []),
-                  // Only shown once the overlay-config fetch confirms this
-                  // caller is entitled to precipitation tiles (backend
-                  // omits tiles.precip entirely for non-entitled callers).
-                  ...(overlayConfig?.tiles?.precip ? [{
-                    key: 'precip' as const,
-                    label: 'Annual Precipitation',
-                    swatchGradient: 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)',
-                  }] : []),
-                ] as Array<{ key: 'crops' | 'ssurgo' | 'csb' | 'nccpi' | 'fsa' | 'engine' | 'precip'; label: string; swatchGradient?: string; swatchColor?: string }>).map(({ key, label, swatchGradient, swatchColor }) => {
-                  const active = baseOverlay === key
-                  return (
-                    <OverlayButton
-                      key={key}
-                      active={active}
-                      label={label}
-                      swatchGradient={swatchGradient}
-                      swatchColor={swatchColor}
-                      onClick={() => {
-                        setBaseOverlay(active ? null : key)
-                        // The persistent zoomTooFar toast handles all overlay
-                        // zoom-gate messaging — no duplicate showZoomToast here.
-                      }}
-                    />
-                  )
-                })}
-              </div>
-
-              {/* NCCPI legend — shown only when nccpi overlay is active */}
-              {baseOverlay === 'nccpi' && (
-                <div style={{ padding: '2px 0 4px' }}>
-                  <div style={{ display: 'flex', gap: 2, marginBottom: 2 }}>
-                    {[['#d73027','0'],['#fc8d59','25'],['#fee08b','50'],['#91cf60','75'],['#1a9850','100']].map(([c, l]) => (
-                      <div key={l} style={{ flex: 1, textAlign: 'center' }}>
-                        <div style={{ height: 5, background: c, borderRadius: 2 }} />
-                        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>Low → High productivity</div>
-                </div>
-              )}
-
-              {/* FSA legend — shown only when fsa overlay is active */}
-              {baseOverlay === 'fsa' && (
-                <div style={{ padding: '2px 0 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 12, height: 3, borderRadius: 1, background: '#22d3ee', flexShrink: 0, marginTop: 1 }} />
-                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>FSA field boundary</span>
-                  </div>
-                  <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, marginTop: 2 }}>2008 snapshot · Not available in AL, FL, AK</span>
-                </div>
-              )}
-
-              {/* Annual Precipitation legend + year picker — shown only when the precip overlay is active */}
-              {baseOverlay === 'precip' && (
-                <div style={{ padding: '2px 0 6px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>PRISM rainfall by year, inches</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {(overlayConfig?.precip_years ?? []).map(yr => {
-                      const sel = selectedPrecipYear === yr
-                      return (
-                        <div
-                          key={yr}
-                          onClick={() => setSelectedPrecipYear(yr)}
-                          style={{
-                            height: 22,
-                            padding: '0 6px',
-                            borderRadius: 5,
-                            fontSize: 10,
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
-                            border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
-                            color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
-                            transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-                          }}
-                        >
-                          {yr}
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div>
-                    <div style={{
-                      height: 8,
-                      borderRadius: 3,
-                      background: 'linear-gradient(to right,#f7f4ec,#e6e0b4,#cfe2a0,#9fd3a3,#5fbfb0,#2f9fc6,#1f6fb5,#14468f,#0b2560)',
-                    }} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-                      {['0', '20', '40', '60', '80+'].map(l => (
-                        <span key={l} style={{ color: 'rgba(255,255,255,0.4)', fontSize: 8 }}>{l}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 8, textAlign: 'center' }}>
-                    Annual precipitation, inches · {overlayConfig?.precip_attribution || 'PRISM Group, Oregon State University'}
-                  </span>
-                </div>
-              )}
-
-              {/* ── CSB year selector + crop legend — Crops by Year only ── */}
-              <div style={{
-                maxHeight: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 400 : 0,
-                opacity: (baseOverlay === 'crops' || baseOverlay === 'csb') ? 1 : 0,
-                overflow: 'hidden',
-                transition: 'max-height 0.18s ease, opacity 0.18s ease',
-              }}>
-                {/* Year chip row — subordinate to Tillable Ground button */}
-                <div style={{ padding: '4px 0 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {[2018,2019,2020,2021,2022,2023,2024,2025].map(yr => {
-                    const sel = selectedCropYear === yr
-                    return (
-                      <div
-                        key={yr}
-                        onClick={() => setSelectedCropYear(yr)}
-                        style={{
-                          height: 22,
-                          padding: '0 6px',
-                          borderRadius: 5,
-                          fontSize: 10,
-                          fontWeight: 500,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          background: sel ? 'rgba(233,30,140,0.25)' : 'rgba(255,255,255,0.05)',
-                          border: sel ? '1px solid rgba(233,30,140,0.70)' : '1px solid rgba(255,255,255,0.15)',
-                          color: sel ? '#f9a8d4' : 'rgba(255,255,255,0.50)',
-                          transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-                        }}
-                        onMouseEnter={e => {
-                          if (!sel) {
-                            (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.10)'
-                            ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.22)'
-                            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.80)'
-                          }
-                        }}
-                        onMouseLeave={e => {
-                          if (!sel) {
-                            (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'
-                            ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.15)'
-                            ;(e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.50)'
-                          }
-                        }}
-                      >
-                        {yr}
-                      </div>
-                    )
-                  })}
-                </div>
-                {/* Divider */}
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
-                {/* Crop legend header */}
-                <div style={{ padding: '0 0 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                  Crop Types
-                </div>
-                {/* Crop legend rows */}
-                {CDL_LEGEND_ROWS.map(({ code, name, color }) => (
-                  <div key={code} style={{ display: 'flex', alignItems: 'center', height: 22, padding: '0 0', gap: 8 }}>
-                    <span style={{ width: 12, height: 12, borderRadius: 3, flexShrink: 0, backgroundColor: color, border: '1px solid rgba(255,255,255,0.20)' }} />
-                    <span style={{ color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: 500 }}>{name}</span>
-                  </div>
-                ))}
-                <div style={{ height: 4 }} />
-              </div>
-
-              <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '6px 0' }} />
-
-              {/* ── Tract Status Legend (non-togglable) ── */}
-              <div style={{ padding: '0 0 6px', color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                Tract Status
-              </div>
-              {[
-                { label: 'Sold',            color: '#f58cde' },
-                { label: 'Auction',         color: '#2563eb' },
-                { label: 'Listed',          color: '#eab308' },
-                { label: "Today's Auctions", color: '#22c55e' },
-                { label: 'No Sale',         color: '#9ca3af' },
-              ].map(({ label, color }) => (
-                <div key={label} style={{ display: 'flex', alignItems: 'center', height: 36, padding: '0 0', gap: 8 }}>
-                  <span style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
-                  <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>{label}</span>
-                </div>
-              ))}
-            </>
+            <LayersPanel
+              baseOverlay={baseOverlay}
+              setBaseOverlay={setBaseOverlay}
+              engineAvailable={ENGINE_PMTILES_STATES.length > 0}
+              // Only once the overlay-config fetch confirms this caller is
+              // entitled to precipitation tiles (backend omits tiles.precip
+              // entirely for non-entitled callers) — same gate as before.
+              precipAvailable={!!overlayConfig?.tiles?.precip}
+              precipYears={overlayConfig?.precip_years ?? []}
+              selectedPrecipYear={selectedPrecipYear}
+              setSelectedPrecipYear={setSelectedPrecipYear}
+              precipAttribution={overlayConfig?.precip_attribution}
+              cropYears={[2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025]}
+              selectedCropYear={selectedCropYear}
+              setSelectedCropYear={setSelectedCropYear}
+              opacity={overlayOpacity}
+              onOpacityChange={setOverlayOpacityFor}
+              savedMaps={{
+                available: canUseProjectMaps,
+                on: myTractsOn,
+                toggle: toggleMyTracts,
+                status: myTractsError
+                  ? myTractsError
+                  : !myTractsLoaded
+                  ? 'Loading your project maps…'
+                  : myTracts.length === 0
+                  ? 'You have not saved any project maps yet.'
+                  : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`,
+              }}
+              elevators={{
+                available: isAdmin,
+                on: elevatorsOn,
+                toggle: toggleElevators,
+                status: elevatorPinsError
+                  ? elevatorPinsError
+                  : !elevatorPins
+                  ? 'Loading elevators…'
+                  : `${elevatorPins.length.toLocaleString()} elevators · zoom in to see pins`,
+              }}
+              aerialYear={aerialYear}
+              onSelectSatellite={() => selectAerialYear(null)}
+              onOpenAerialYear={() => { setYearReturnView('layers'); setUtilitiesView('year') }}
+            />
           )}
 
           {utilitiesView === 'year' && (
@@ -12349,7 +12137,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   return (
                     <button
                       key={label}
-                      onClick={() => { selectAerialYear(year); setUtilitiesView('menu') }}
+                      onClick={() => { selectAerialYear(year); setUtilitiesView(yearReturnView); setYearReturnView('menu') }}
                       aria-pressed={selected}
                       style={{
                         height: 34,
