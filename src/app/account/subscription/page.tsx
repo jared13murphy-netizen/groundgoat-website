@@ -933,17 +933,17 @@ export default function SubscriptionPage() {
                     <div className="relative">
                       <button
                         onClick={() => setShowStateDropdown(!showStateDropdown)}
-                        className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-left text-[#1a1a1a] flex items-center justify-between focus:border-gg-pink focus:outline-none"
                       >
-                        <span className={selectedState ? 'text-white' : 'text-gg-gray-500'}>
+                        <span className={selectedState ? 'text-[#1a1a1a]' : 'text-gray-400'}>
                           {selectedState || 'Select a state...'}
                         </span>
-                        <ChevronDown size={20} className="text-gg-gray-500" />
+                        <ChevronDown size={20} className="text-gray-400" />
                       </button>
                       {showStateDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-60 overflow-y-auto">
                           {loadingStates ? (
-                            <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
+                            <div className="px-4 py-3 text-gray-500 flex items-center gap-2">
                               <Loader2 size={16} className="animate-spin" /> Loading...
                             </div>
                           ) : availableStates.map(state => {
@@ -960,7 +960,7 @@ export default function SubscriptionPage() {
                                   }
                                 }}
                                 disabled={isSubscribed}
-                                className={`w-full px-4 py-3 text-left ${isSubscribed ? 'text-gg-gray-600 cursor-not-allowed' : 'text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white'}`}
+                                className={`w-full px-4 py-3 text-left ${isSubscribed ? 'text-gray-400 cursor-not-allowed' : 'text-[#1a1a1a] hover:bg-gray-100'}`}
                               >
                                 {state} {isSubscribed ? '(subscribed)' : ''}
                               </button>
