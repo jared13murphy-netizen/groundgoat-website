@@ -220,9 +220,15 @@ export interface FarmProjectRef {
   shared?: boolean
 }
 
+/** ?farms=1 on every farm write: the backend gives the farms-in-many-
+ *  projects meaning (merge into the one drawing, link instead of move, delete
+ *  = everywhere) ONLY to callers that send it; an old tab without it keeps
+ *  the old meaning (owner 11/10). */
+const FARMS = 'farms=1'
+
 export function saveParcel(body: SaveBody) {
   return j<{ id: string; project_id: string; name: string; stats: any
-             project_summary: ProjectSummary; merged?: boolean }>('/api/mapping/parcels', {
+             project_summary: ProjectSummary; merged?: boolean }>(`/api/mapping/parcels?${FARMS}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -231,7 +237,7 @@ export function saveParcel(body: SaveBody) {
 
 export function updateParcel(id: string, body: SaveBody) {
   return j<{ id: string; name: string; stats: any
-             project_summary: ProjectSummary }>(`/api/mapping/parcels/${id}`, {
+             project_summary: ProjectSummary }>(`/api/mapping/parcels/${id}?${FARMS}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -360,7 +366,7 @@ export function duplicateProject(id: string) {
 /** Rename a tract. Does not touch its geometry — the full save
  *  recomputes acreage and soil, which is far too much for a name. */
 export function renameParcel(id: string, name: string) {
-  return j<{ id: string; name: string }>(`/api/mapping/parcels/${id}`, {
+  return j<{ id: string; name: string }>(`/api/mapping/parcels/${id}?${FARMS}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -373,7 +379,7 @@ export function renameParcel(id: string, name: string) {
 export function moveParcel(id: string, projectId: string, fromProjectId?: string | null) {
   const body: Record<string, any> = { project_id: projectId }
   if (fromProjectId) body.from_project_id = fromProjectId
-  return j<{ id: string; name: string; project_id: string }>(`/api/mapping/parcels/${id}`, {
+  return j<{ id: string; name: string; project_id: string }>(`/api/mapping/parcels/${id}?${FARMS}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -409,7 +415,7 @@ export function parcelProjects(id: string) {
 /** Delete farm: removes it from EVERY project (archived server-side). */
 export function deleteFarm(id: string) {
   return j<{ ok: true; removed_from?: FarmProjectRef[] }>(
-    `/api/mapping/parcels/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    `/api/mapping/parcels/${encodeURIComponent(id)}?${FARMS}`, { method: 'DELETE' })
 }
 
 /** Same call as deleteFarm (v2: removes the farm from every project). */
