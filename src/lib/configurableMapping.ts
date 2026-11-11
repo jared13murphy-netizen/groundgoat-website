@@ -206,11 +206,29 @@ export interface SavedParcelRow {
   stats: Record<string, any>
   source_ll_uuids: string[]
   updated_at: string
+  /** v2 (owner 11/10): a farm can be in many projects. Every project
+   *  linking this farm that the caller can open. Absent on older APIs. */
+  projects?: FarmProjectRef[]
+  owner_id?: string | null
 }
+
+/** A project a farm (one saved drawing) is linked to. */
+export interface FarmProjectRef {
+  id: string
+  name: string
+  owned?: boolean
+  shared?: boolean
+}
+
+/** ?farms=1 on every farm write: the backend gives the farms-in-many-
+ *  projects meaning (merge into the one drawing, link instead of move, delete
+ *  = everywhere) ONLY to callers that send it; an old tab without it keeps
+ *  the old meaning (owner 11/10). */
+const FARMS = 'farms=1'
 
 export function saveParcel(body: SaveBody) {
   return j<{ id: string; project_id: string; name: string; stats: any
-             project_summary: ProjectSummary }>('/api/mapping/parcels', {
+             project_summary: ProjectSummary; merged?: boolean }>(`/api/mapping/parcels?${FARMS}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -219,7 +237,7 @@ export function saveParcel(body: SaveBody) {
 
 export function updateParcel(id: string, body: SaveBody) {
   return j<{ id: string; name: string; stats: any
-             project_summary: ProjectSummary }>(`/api/mapping/parcels/${id}`, {
+             project_summary: ProjectSummary }>(`/api/mapping/parcels/${id}?${FARMS}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -265,8 +283,11 @@ export interface ProjectTractGeometry {
 }
 
 export interface PortfolioTract extends ProjectTractGeometry {
+  /** The farm's first project (by name) — back-compat. Use `projects` for membership. */
   project_id: string
   project_name: string
+  /** v2: ONE entry per farm; every project it is in. Absent on older APIs. */
+  projects?: FarmProjectRef[]
   /** Carried so the Explore map can build a comparable from a tract
    *  without a second request per tract. */
   tillable_acres?: number | null
@@ -345,31 +366,67 @@ export function duplicateProject(id: string) {
 /** Rename a tract. Does not touch its geometry — the full save
  *  recomputes acreage and soil, which is far too much for a name. */
 export function renameParcel(id: string, name: string) {
-  return j<{ id: string; name: string }>(`/api/mapping/parcels/${id}`, {
+  return j<{ id: string; name: string }>(`/api/mapping/parcels/${id}?${FARMS}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   })
 }
 
-/** Move a tract to another of YOUR projects. */
-export function moveParcel(id: string, projectId: string) {
-  return j<{ id: string; name: string; project_id: string }>(`/api/mapping/parcels/${id}`, {
+/** v2: PATCH project_id LINKS the farm to that project; with
+ *  `fromProjectId` it also unlinks it from that one (= a move). The UI no
+ *  longer offers Move (owner 11/10) — kept for callers that need it. */
+export function moveParcel(id: string, projectId: string, fromProjectId?: string | null) {
+  const body: Record<string, any> = { project_id: projectId }
+  if (fromProjectId) body.from_project_id = fromProjectId
+  return j<{ id: string; name: string; project_id: string }>(`/api/mapping/parcels/${id}?${FARMS}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: projectId }),
+    body: JSON.stringify(body),
   })
 }
 
-export function archiveParcel(id: string) {
-  return j<{ ok: true }>(`/api/mapping/parcels/${id}`, { method: 'DELETE' })
+/** Add to project: LINK farms to a project (they keep their one drawing). */
+export function linkParcels(projectId: string, parcelIds: string[]) {
+  return j<{ ok: true; linked: number; already: number }>(
+    `/api/mapping/projects/${encodeURIComponent(projectId)}/parcels`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parcel_ids: parcelIds }),
+    })
 }
+
+/** Remove from project: unlinks only — the farm, its drawing and its other
+ *  projects are untouched. */
+export function unlinkParcel(projectId: string, parcelId: string) {
+  return j<{ ok: true; remaining_projects: FarmProjectRef[] }>(
+    `/api/mapping/projects/${encodeURIComponent(projectId)}/parcels/${encodeURIComponent(parcelId)}`,
+    { method: 'DELETE' })
+}
+
+/** EVERY project a farm is in (for the Delete farm confirm). `can_open`
+ *  false = a teammate's project the caller cannot open (name still listed). */
+export interface FarmProjectListing { id: string; name: string; owner_name: string | null; owned: boolean; can_open: boolean }
+export function parcelProjects(id: string) {
+  return j<{ projects: FarmProjectListing[]; count: number }>(
+    `/api/mapping/parcels/${encodeURIComponent(id)}/projects`)
+}
+
+/** Delete farm: removes it from EVERY project (archived server-side). */
+export function deleteFarm(id: string) {
+  return j<{ ok: true; removed_from?: FarmProjectRef[] }>(
+    `/api/mapping/parcels/${encodeURIComponent(id)}?${FARMS}`, { method: 'DELETE' })
+}
+
+/** Same call as deleteFarm (v2: removes the farm from every project). */
+export const archiveParcel = deleteFarm
 
 export function getSavedParcel(id: string) {
   return j<{
     id: string; project_id: string; name: string; boundary: any
     polygons: { cls: LandClass; acres: number; geometry: any }[]
     stats: Record<string, any>; source_ll_uuids: string[]
+    projects?: FarmProjectRef[]
   }>(`/api/mapping/parcels/${id}`)
 }
 
@@ -885,7 +942,10 @@ export interface SavedTractSoil {
 export interface SavedTractDetail {
   id: string
   name: string | null
+  /** The farm's first project (back-compat). */
   project?: { id: string; name: string | null } | null
+  /** v2: every project this farm is in (the chips on its panel). */
+  projects?: FarmProjectRef[] | null
   project_tract_count?: number | null
   county?: string | null
   state?: string | null

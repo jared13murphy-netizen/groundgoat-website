@@ -74,6 +74,7 @@ import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 // 2a09575, 8/27); they now live as Utilities-panel tiles instead, plus a
 // "Show My Project Maps" toggle. All three share one gate — see
 // canUseProjectMaps below.
+import { resumePendingProjectSaves } from '@/lib/reportToProject'
 import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract, drawStats, type DrawStats } from '@/lib/configurableMapping'
 
 // Zoom split for the user's project tracts (owner 9/22): below this the
@@ -99,7 +100,9 @@ import {
   Plus as PlusIcon,
   Folder as SavedProjectsIcon,
   Bookmark as SavedReportsIcon,
+  StickyNote,
 } from 'lucide-react'
+import { locateNoteItem } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -1860,6 +1863,11 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
+/** Every project a saved farm is in (v2: `projects`; older API: its one project_id). */
+function tractProjectIds(t: PortfolioTract): string[] {
+  return t.projects?.length ? t.projects.map(p => p.id) : (t.project_id ? [t.project_id] : [])
+}
+
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -2148,6 +2156,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Owner 11/2: bumped by the My Maps "New Project" tile; the panel opens
   // its New Project name box when it changes.
   const [savedPanelNewProject, setSavedPanelNewProject] = useState(0)
+  // Owner 11/10: bumped by the My Maps "Notes" tile — opens the Notes search.
+  const [savedPanelNotes, setSavedPanelNotes] = useState(0)
   // Old /map-portfolio and /configure-map links arrive as /access?project=<id>:
   // open the Saved Projects panel on that project, then drop the param.
   useEffect(() => {
@@ -2236,7 +2246,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // name when the project holds more than one tract; a one-tract
     // project shows the tract name alone.
     const tractsPerProject = new Map<string, number>()
-    for (const t of myTracts) tractsPerProject.set(t.project_id, (tractsPerProject.get(t.project_id) ?? 0) + 1)
+    // v2: a farm can be in many projects — count it in each one.
+    for (const t of myTracts) for (const pid of tractProjectIds(t)) tractsPerProject.set(pid, (tractsPerProject.get(pid) ?? 0) + 1)
     const labelFeats: any[] = shownTracts.filter(t => t.label_point).map(t => ({
       type: 'Feature', geometry: t.label_point,
       properties: {
@@ -3415,7 +3426,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const showSavedProject = useCallback(async (projectId: string) => {
     setMyTractsOn(true)
     let list = myTractsRef.current
-    if (!list.some(t => t.project_id === projectId)) {
+    if (!list.some(t => tractProjectIds(t).includes(projectId))) {
       try {
         const r = await allTractsGeometry(true)
         list = r.tracts
@@ -3426,7 +3437,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map) return
     let w = 180, so = 90, e = -180, n = -90, seen = false
     for (const t of list) {
-      if (t.project_id !== projectId || !t.boundary) continue
+      if (!tractProjectIds(t).includes(projectId) || !t.boundary) continue
       const bb = bboxOf(t.boundary.coordinates)
       if (!bb) continue
       seen = true
@@ -3439,6 +3450,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       maxZoom: 16, duration: 800,
     })
   }, [])
+
+  // Owner 11/10: "Open project" on a report's Save confirmation opens the
+  // Saved Projects panel on that project and shows its items on the
+  // saved-maps layer (fresh geometry: the items were just written).
+  useEffect(() => {
+    const onOpen = (ev: Event) => {
+      const projectId = (ev as CustomEvent<{ projectId?: string }>).detail?.projectId
+      if (!projectId) return
+      void (async () => {
+        try {
+          const r = await allTractsGeometry(true)
+          myTractsRef.current = r.tracts
+          setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null)
+        } catch { /* showSavedProject fetches again */ }
+        setSavedPanelNonce(n => n + 1)
+        setSavedPanelFocus({ projectId, n: Date.now() })
+        setSavedPanelOpen(true)
+        void showSavedProject(projectId)
+      })()
+    }
+    window.addEventListener('gg:open-saved-project', onOpen)
+    // A save a reload interrupted finishes now, on its own.
+    resumePendingProjectSaves(() => setSavedPanelNonce(n => n + 1))
+    return () => window.removeEventListener('gg:open-saved-project', onOpen)
+  }, [showSavedProject])
 
   // Choose Parcel: while armed, the next click on a parcel loads its
   // outline as the tract. The normal parcel handler is suspended
@@ -11741,10 +11777,49 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           onClose={() => setSavedPanelOpen(false)}
           reloadNonce={savedPanelNonce}
           newProjectNonce={savedPanelNewProject}
+          notesNonce={savedPanelNotes}
           focus={savedPanelFocus}
           onShowTract={(id) => { void showSavedTract(id) }}
           onShowProject={(id) => { void showSavedProject(id) }}
           onOpenSavedReport={onOpenSavedReport ? (id) => { setSavedPanelOpen(false); onOpenSavedReport(id) } : undefined}
+          onOpenNoteResult={(r) => {
+            // Owner 11/10: a Notes search result ALWAYS flies to its item and
+            // opens its panel; if the record can't load, the parcel panel
+            // still opens there with the item's notes (never a dead end).
+            const it = r.item
+            setSavedPanelOpen(false)
+            setUtilitiesOpen(false)
+            if (it.kind === 'saved' && it.id) {
+              void showSavedTract(it.id)
+              setLandDetail(null)
+              setTimeout(() => setSavedTractOpen({ id: it.id! }), 0)
+              return
+            }
+            void (async () => {
+              const at = await locateNoteItem(it)
+              if (at && mapRef.current) {
+                mapRef.current.flyTo({ center: [at.lng, at.lat], zoom: Math.max(mapRef.current.getZoom(), 14.5), duration: 900 })
+              }
+              if (it.kind === 'tract' && it.id) {
+                const open = () => {
+                  const t = tractMapRef.current.get(it.id!)
+                  if (!t) return false
+                  const sd = buildTractSaleDetail(t)
+                  setLandDetail(null)
+                  if (portalMode && onTractSelected) { lastPortalSaleRef.current = sd; onTractSelected(sd) } else setSelectedSale(sd)
+                  return true
+                }
+                // The tract loads with the view it flew to.
+                for (let i = 0; i < 10 && !open(); i++) await new Promise((res) => setTimeout(res, 500))
+                if (tractMapRef.current.get(it.id)) return
+              }
+              setLandDetail({
+                parcelProps: null, soilProps: null, csbProps: null, ll_uuid: it.kind === 'parcel' ? it.id : null,
+                clickLng: at?.lng ?? null, clickLat: at?.lat ?? null,
+                activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null, noteKey: it.key,
+              })
+            })()
+          }}
           onChanged={refreshMyTracts}
           onEditTract={(t) => {
             setSavedPanelOpen(false)
@@ -12134,6 +12209,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     icon={<SavedReportsIcon size={20} />}
                     label="Saved Reports"
                     onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(false); setSavedReportsOpen(true) }}
+                  />
+                )}
+                {/* Owner 11/10: search every note (own + firm) across items. */}
+                {canUseProjectMaps && (
+                  <UtilityTile
+                    icon={<StickyNote size={20} />}
+                    label="Notes"
+                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true); setSavedPanelNotes(n => n + 1) }}
                   />
                 )}
                 {/* Owner 11/2: New Project here opens the Saved Projects

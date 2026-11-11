@@ -13,6 +13,9 @@ import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import GroundTruthPanel from './GroundTruthPanel'
 import NdviPanel from './NdviPanel'
 import AuctionCountdown from '../AuctionCountdown'
+import NotesTimeline from '@/components/notes/NotesTimeline'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { DEFAULT_NOTES_PRINT, noteKeyForRow, notesPrintBody, type NotesPrint } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -694,6 +697,16 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           processed this tract). */}
       {tract.tractId && <NdviPanel tractId={tract.tractId} />}
 
+      {/* Notes timeline (owner 11/10): this auction tract's dated entries. */}
+      {noteKeyForRow({ tractId: tract.tractId || tract.id }) && (
+        <div data-testid="tract-notes" className="pt-2">
+          <NotesTimeline theme="dark" itemKey={noteKeyForRow({ tractId: tract.tractId || tract.id })}
+                         label={[tract.companyName, tract.county ? `${tract.county} Co` : null].filter(Boolean).join(' · ') || null}
+                         county={tract.county || null} state={tract.state || null}
+                         latitude={tract.latitude ?? null} longitude={tract.longitude ?? null} />
+        </div>
+      )}
+
       {/* Action buttons are rendered OUTSIDE this component, as a
           separate footer in the slide-out pane (see <TractDetailActionBar/>
           and /access/page.tsx). Lifting them out is the only way to
@@ -754,6 +767,8 @@ export function TractDetailActionBar({
   const [emailMessage, setEmailMessage] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  // "Notes on this report" (owner 11/10): which timeline entries print.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
 
   // Reset transient send/download state when the user switches tracts —
   // the action bar's component instance persists across tract selections
@@ -799,7 +814,7 @@ export function TractDetailActionBar({
     setEmailStatus('sending')
     setEmailMessage(null)
     try {
-      const res = await reportJobEnqueue('tract', 'email', { tract_id: reportTractId })
+      const res = await reportJobEnqueue('tract', 'email', { tract_id: reportTractId, notes_print: notesPrintBody(notesPrint) })
       if (!res.ok) {
         setEmailStatus('error')
         setEmailMessage(await parseErrorMessage(res))
@@ -818,7 +833,7 @@ export function TractDetailActionBar({
     setDownloading(true)
     setDownloadError(null)
     try {
-      const res = await reportJobEnqueue('tract', 'download', { tract_id: reportTractId })
+      const res = await reportJobEnqueue('tract', 'download', { tract_id: reportTractId, notes_print: notesPrintBody(notesPrint) })
       if (!res.ok) {
         setDownloadError(await parseErrorMessage(res))
         setDownloading(false)
@@ -847,6 +862,11 @@ export function TractDetailActionBar({
           Gating is unchanged from before: 3D Map needs boundaries, the
           listing button needs a listing (looser in comp mode), and
           Download / Email / Comps are hidden in comp mode. */}
+      {!compMode && (
+        <div className="-mb-2">
+          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} />
+        </div>
+      )}
       <div className="px-5 pt-4 pb-4 flex flex-col gap-2">
         {onViewListing && (
           compMode

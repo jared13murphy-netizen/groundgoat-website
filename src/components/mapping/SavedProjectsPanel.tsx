@@ -13,11 +13,12 @@
 import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, Trash2, Upload, X,
+  Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, StickyNote, Trash2, Upload, X,
+  Share2,
 } from 'lucide-react'
 import {
-  archiveParcel, createProject, deleteReport, downloadReport, duplicateProject, firmMembers,
-  getProject, listProjects, listReports, moveParcel, projectShares, queueReport, renameParcel,
+  createProject, deleteFarm, deleteReport, downloadReport, duplicateProject, firmMembers,
+  getProject, linkParcels, listProjects, listReports, parcelProjects, projectShares, queueReport, renameParcel, unlinkParcel,
   reportFilename, setProjectShares, updateProject, updateProjectAerialYear,
   REPORT_BUSY_LABEL, REPORT_LABEL, USES_ELEVATION,
   addLibraryLogo, deleteLibraryLogo, fetchLibraryLogoUrl, getBranding, setBranding,
@@ -26,6 +27,11 @@ import {
 } from '@/lib/configurableMapping'
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
 import { SavedReportCard } from '@/components/mapping/SavedReportsPanel'
+import NotesTimeline from '@/components/notes/NotesTimeline'
+import NotesSearch from '@/components/notes/NotesSearch'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
+import type { NoteSearchResult } from '@/lib/notes'
 
 const PINK = '#F58CDE'
 /** Same default the old Configure Map slider started at. */
@@ -56,6 +62,10 @@ interface Props {
   newProjectNonce?: number
   /** Owner 11/3: open a saved comp report (rebuilt live) in the report panel. */
   onOpenSavedReport?: (id: string) => void
+  /** Owner 11/10: open the item a Notes search result points at. */
+  onOpenNoteResult?: (r: NoteSearchResult) => void
+  /** Bumped by the My Maps "Notes" tile: open straight to the Notes search. */
+  notesNonce?: number
 }
 
 const panel: CSSProperties = {
@@ -111,7 +121,13 @@ type Detail = { loading: boolean; error?: string; parcels: SavedParcelRow[] }
 
 export default function SavedProjectsPanel({
   open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged, newProjectNonce = 0, onOpenSavedReport,
+  onOpenNoteResult, notesNonce = 0,
 }: Props) {
+  // Owner 11/10: the cross-item Notes search, and which tract cards show their timeline.
+  const [notesOpen, setNotesOpen] = useState(false)
+  useEffect(() => { if (notesNonce > 0) setNotesOpen(true) }, [notesNonce])
+  const [notesFor, setNotesFor] = useState<Record<string, boolean>>({})
+  const [noteCounts, setNoteCounts] = useState<Record<string, number>>({})
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -129,6 +145,9 @@ export default function SavedProjectsPanel({
     try { setSavedReports((await listSavedReports()).reports || []) } catch { /* panel still works without them */ }
   }, [])
   const reportsForTract = (tractId: string) => savedReports.filter((r) => r.parcel_id === tractId)
+  // Owner 11/10: a report saved together with "Save as project" belongs to
+  // the project: listed in the project's Reports, above its maps.
+  const reportsForProject = (projectId: string) => savedReports.filter((r) => r.project_id === projectId && !r.parcel_id)
   const renameReport = async (r: SavedReportRow) => {
     const name = window.prompt('Report name', r.name)
     if (name == null || !name.trim() || name.trim() === r.name) return
@@ -141,7 +160,20 @@ export default function SavedProjectsPanel({
   const reportLine = (r: SavedReportRow) => (
     <SavedReportCard key={r.id} r={r} onOpen={(id) => onOpenSavedReport?.(id)} onRename={(x) => void renameReport(x)} onDelete={(x) => void removeSavedReport(x)} />
   )
-  const [moving, setMoving] = useState<string | null>(null)    // tract id
+  // v2 (owner 11/10): a farm (one drawing) can be in many projects. Keys are
+  // '<projectId>:<tractId>' because the same farm can show under several
+  // expanded projects at once.
+  const [adding, setAdding] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<{ key: string; id: string; name: string; projects: string[] | null } | null>(null)
+  const askDeleteFarm = async (key: string, t: SavedParcelRow, fallback: string[]) => {
+    setDeleting({ key, id: t.id, name: t.name || 'Untitled', projects: null })
+    let names = fallback
+    try {
+      const r = await parcelProjects(t.id)
+      if (r.projects?.length) names = r.projects.map((x) => x.name)
+    } catch { /* older API / offline: name the projects we already know */ }
+    setDeleting((d) => (d && d.key === key ? { ...d, projects: names } : d))
+  }
   const [creating, setCreating] = useState<string | null>(null) // new project name draft
   useEffect(() => { if (newProjectNonce > 0) setCreating('') }, [newProjectNonce])
 
@@ -214,6 +246,8 @@ export default function SavedProjectsPanel({
   }
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  // "Notes on this report" (owner 11/10): which timeline entries print.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
   const [reportsOpen, setReportsOpen] = useState<Record<string, boolean>>({})
   const [reports, setReports] = useState<Record<string, ReportRow[]>>({})
   const reportsOpenRef = useRef(reportsOpen); reportsOpenRef.current = reportsOpen
@@ -395,7 +429,7 @@ export default function SavedProjectsPanel({
     try {
       await queueReport(
         parcelId ? { parcelId } : { projectId }, kind,
-        USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {})
+        { ...(USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {}), notes_print: notesPrintBody(notesPrint) })
       await loadReports(projectId)
     } catch (e: any) {
       setMsg(e?.message || 'Could not start that report.')
@@ -445,13 +479,30 @@ export default function SavedProjectsPanel({
   const slide = useSlide(open, 240)
   if (!slide.mounted) return null
 
-  const ownProjects = projects.filter((p) => !p.shared)
-
   return (
     <div data-gg-saved-panel="" style={{ ...panel, transform: slide.shown ? 'translateX(0)' : 'translateX(100%)' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+      {notesOpen && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, background: 'rgba(0,0,0,0.97)', padding: 12, display: 'flex', flexDirection: 'column' }}>
+          <NotesSearch onClose={() => setNotesOpen(false)} onOpen={(r) => {
+            if (r.item.kind === 'saved' && r.item.project_id) {
+              // Open the project in this panel and fly to the tract, then hand off.
+              setExpanded((x) => ({ ...x, [r.item.project_id!]: true }))
+              void loadDetail(r.item.project_id, true)
+              if (r.item.id) setNotesFor((x) => ({ ...x, [r.item.id!]: true }))
+            }
+            setNotesOpen(false)
+            onOpenNoteResult?.(r)
+          }} />
+        </div>
+      )}
       <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>Saved Projects</span>
+          <button type="button" data-testid="open-notes-search" title="Search every note"
+                  style={{ ...pinkBtn, background: 'none', color: '#fff', border: '1px solid rgba(255,255,255,0.35)' }}
+                  onClick={() => setNotesOpen(true)}>
+            <StickyNote size={13} /> Notes
+          </button>
           <button type="button" style={pinkBtn} onClick={() => setCreating(creating === null ? '' : null)}>
             <FolderPlus size={13} /> New Project
           </button>
@@ -592,6 +643,13 @@ export default function SavedProjectsPanel({
                     <div style={{ ...muted, color: PINK }}>shared with {p.shared_with!.map((m) => m.name).join(', ')}</div>
                   )}
                 </div>
+                {!p.shared && (members?.length ?? 0) > 0 && (
+                  <button type="button" style={iconBtn} aria-label="Share project" title="Share with your team"
+                          data-testid="project-share"
+                          onClick={(e) => { e.stopPropagation(); if (!expanded[p.id]) toggle(p.id); void openShare(p.id) }}>
+                    <Share2 size={15} />
+                  </button>
+                )}
                 <button type="button" style={iconBtn} aria-label="Project menu"
                         onClick={(e) => { e.stopPropagation(); setMenu(menu === pKey ? null : pKey) }}>
                   <MoreHorizontal size={16} />
@@ -715,6 +773,9 @@ export default function SavedProjectsPanel({
                           <div style={muted}>Add a tract before building a report.</div>
                         ) : (
                           <>
+                            <div style={{ marginBottom: 8 }}>
+                              <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint} />
+                            </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{btn('aerial')}</div>
                             {mapTarget && (
                               <div style={{ marginTop: 8 }}>
@@ -760,11 +821,23 @@ export default function SavedProjectsPanel({
                       </div>
                     )
                   })()}
+                  {reportsForProject(p.id).length > 0 && (
+                    <div data-testid="project-saved-reports" style={{ margin: '4px 0 4px 18px' }}>
+                      <div style={{ ...muted, fontWeight: 600 }}>Reports</div>
+                      {reportsForProject(p.id).map(reportLine)}
+                    </div>
+                  )}
                   {det && !det.loading && !det.error && !det.parcels.length && (
                     <div style={muted}>No maps in this project yet.</div>
                   )}
                   {maps.map((t) => {
                     const tKey = `t:${t.id}`
+                    const rowKey = `${p.id}:${t.id}`
+                    // Every project this farm is in (v2); older APIs: just this one.
+                    const inProjects = t.projects?.length ? t.projects : [{ id: p.id, name: p.name }]
+                    const otherProjects = inProjects.filter((o) => o.id !== p.id)
+                    const inIds = new Set(inProjects.map((o) => o.id))
+                    const addTargets = projects.filter((o) => o.id !== p.id && !inIds.has(o.id))
                     return (
                       <div key={t.id} data-testid="tract-card" style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 4,
                                                margin: '6px 0 6px 18px', padding: '10px 12px', borderRadius: 12,
@@ -788,26 +861,80 @@ export default function SavedProjectsPanel({
                             </div>
                           )}
                           <div style={muted}>{mapLine(t)}</div>
+                          <button type="button" data-testid="tract-notes-toggle"
+                                  onClick={(e) => { e.stopPropagation(); setNotesFor((x) => ({ ...x, [t.id]: !x[t.id] })) }}
+                                  style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, color: PINK, cursor: 'pointer', fontSize: 11,
+                                           display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <StickyNote size={11} /> {notesFor[t.id] ? 'Hide notes' : noteCounts[t.id] ? `Notes (${noteCounts[t.id]})` : 'Notes'}
+                          </button>
+                          {notesFor[t.id] && (
+                            <div style={{ marginTop: 6, cursor: 'default' }} onClick={(e) => e.stopPropagation()}>
+                              <NotesTimeline compact theme="dark" itemKey={`cm:${t.id}`} label={t.name || null}
+                                             onCount={(n) => setNoteCounts((x) => (x[t.id] === n ? x : { ...x, [t.id]: n }))} />
+                            </div>
+                          )}
                           {reportsForTract(t.id).length > 0 && (
                             <div style={{ marginTop: 2 }} onClick={(e) => e.stopPropagation()}>
                               <div style={{ ...muted, fontWeight: 600, marginTop: 6 }}>Comp reports</div>
                               {reportsForTract(t.id).map(reportLine)}
                             </div>
                           )}
-                          {moving === t.id && (
+                          {otherProjects.length > 0 && (
+                            <div data-testid="tract-project-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}
+                                 onClick={(e) => e.stopPropagation()}>
+                              <span style={muted}>Also in</span>
+                              {otherProjects.map((o) => (
+                                <button key={o.id} type="button" title={`Open ${o.name}`}
+                                        onClick={() => { setExpanded((x) => ({ ...x, [o.id]: true })); void loadDetail(o.id) }}
+                                        style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 999, cursor: 'pointer',
+                                                 background: 'rgba(245,140,222,0.14)', color: '#fff', border: '1px solid rgba(245,140,222,0.45)',
+                                                 maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {o.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {adding === rowKey && (
                             <select
                               autoFocus style={{ ...input, marginTop: 4 }} defaultValue=""
+                              data-testid="add-to-project"
                               onClick={(e) => e.stopPropagation()}
-                              onBlur={() => setMoving(null)}
+                              onBlur={() => setAdding(null)}
                               onChange={(e) => {
                                 const target = e.target.value
-                                setMoving(null)
-                                if (target) void run('Moving…', () => moveParcel(t.id, target))
+                                setAdding(null)
+                                if (target) void run('Adding…', () => linkParcels(target, [t.id]))
                               }}>
-                              <option value="" disabled>Move to…</option>
-                              {ownProjects.filter((o) => o.id !== p.id)
-                                .map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                              <option value="" disabled>Add to project…</option>
+                              {addTargets.map((o) => <option key={o.id} value={o.id}>{o.name}{o.shared ? ' (shared)' : ''}</option>)}
                             </select>
+                          )}
+                          {deleting?.key === rowKey && (
+                            <div data-testid="delete-farm-confirm" onClick={(e) => e.stopPropagation()}
+                                 style={{ marginTop: 6, background: 'rgba(0,0,0,0.35)', borderRadius: 8, padding: '8px 10px' }}>
+                              {deleting.projects === null ? (
+                                <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                  <Loader2 size={12} className="animate-spin" /> Checking its projects…
+                                </span>
+                              ) : (
+                                <>
+                                  <div style={{ fontSize: 12 }}>
+                                    This removes <b>{deleting.name}</b> from: {deleting.projects.join(', ') || p.name}. This can&apos;t be undone from here.
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                                    <button type="button" data-testid="delete-farm-yes"
+                                            style={{ ...pinkBtn, background: '#fca5a5', borderColor: '#fca5a5' }}
+                                            onClick={() => { const id = deleting.id; setDeleting(null); void run('Deleting…', () => deleteFarm(id)) }}>
+                                      Delete farm
+                                    </button>
+                                    <button type="button" style={{ ...pinkBtn, background: 'transparent', color: '#fff', borderColor: 'rgba(255,255,255,0.3)' }}
+                                            onClick={() => setDeleting(null)}>
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           )}
                         </div>
                         <button type="button" style={iconBtn} aria-label="Map menu"
@@ -828,19 +955,19 @@ export default function SavedProjectsPanel({
                                     onClick={() => { setMenu(null); setEditing({ key: tKey, text: t.name }) }}>
                               Rename
                             </button>
-                            {!p.shared && ownProjects.length > 1 && (
-                              <button type="button" style={menuItem}
-                                      onClick={() => { setMenu(null); setMoving(t.id) }}>
-                                Move to project…
+                            {addTargets.length > 0 && (
+                              <button type="button" style={menuItem} data-testid="menu-add-to-project"
+                                      onClick={() => { setMenu(null); setDeleting(null); setAdding(rowKey) }}>
+                                Add to project…
                               </button>
                             )}
-                            <button type="button" style={{ ...menuItem, color: '#fca5a5' }}
-                                    onClick={() => {
-                                      setMenu(null)
-                                      if (!window.confirm(`Delete the map "${t.name}"?`)) return
-                                      void run('Deleting…', () => archiveParcel(t.id))
-                                    }}>
-                              Delete
+                            <button type="button" style={menuItem} data-testid="menu-remove-from-project"
+                                    onClick={() => { setMenu(null); void run('Removing…', () => unlinkParcel(p.id, t.id)) }}>
+                              Remove from project
+                            </button>
+                            <button type="button" style={{ ...menuItem, color: '#fca5a5' }} data-testid="menu-delete-farm"
+                                    onClick={() => { setMenu(null); setAdding(null); void askDeleteFarm(rowKey, t, inProjects.map((o) => o.name)) }}>
+                              Delete farm…
                             </button>
                           </div>
                         )}

@@ -1,13 +1,15 @@
 'use client'
 
-import ReportRowNotes from './ReportRowNotes'
+import NotesTimeline from '@/components/notes/NotesTimeline'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { DEFAULT_NOTES_PRINT, noteKeyForRow, notesPrintBody, type NotesPrint } from '@/lib/notes'
 import CardThumb from '@/components/CardThumb'
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, Mail, Trash2, Check, Mountain, ExternalLink, Download, Bookmark } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import useFreshParcelFigures from '@/lib/useFreshParcelFigures'
-import { saveReport } from '@/lib/configurableMapping'
+import SaveReportChooser from './SaveReportChooser'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
@@ -85,6 +87,8 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  // Owner 11/10: what the report prints from each item's notes timeline.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
 
 
   const getPricePerTillable = (t: TractSaleData): number | null => {
@@ -140,8 +144,10 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       owner: t.owner ?? null,
       latitude: t.latitude ?? null,
       longitude: t.longitude ?? null,
-      notes: (t.notes || '').trim() || null,
     })),
+    // Notes timeline (owner 11/10): the server reads each item's timeline
+    // itself; only the print choice goes up. Internal entries never print.
+    notes_print: notesPrintBody(notesPrint),
   })
 
   // Fire-and-forget (owner, 2026-09-01: never trap the user on a
@@ -151,20 +157,21 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
   // free to close this panel or navigate away immediately.
   // Owner 11/3: save this report's recipe (subject + rows + notes) so it
   // can be reopened from Saved Projects. Email/Download save it too.
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const handleSaveReport = async () => {
-    if (saveState === 'saving' || reportTracts.length === 0) return
-    setSaveState('saving')
-    try {
-      const body = buildReportBody() as any
-      await saveReport({ subject: {
+  // Owner 11/10: Save opens a small choice — Save report (the recipe, as
+  // before) and/or Save as project. Saving never shows a failure: see
+  // SaveReportChooser / src/lib/reportToProject.ts.
+  const [chooserOpen, setChooserOpen] = useState(false)
+  const buildRecipe = () => {
+    const body = buildReportBody() as any
+    return {
+      subject: {
         subject_kind: body.subject_cm_id ? 'saved' : body.subject_ll_uuid ? 'parcel' : body.tract_id ? 'tract' : null,
         tract_id: body.tract_id, listing_id: body.listing_id, subject_ll_uuid: body.subject_ll_uuid, subject_cm_id: body.subject_cm_id,
         county: body.subject_county, state: body.subject_state, subject_tract_number: body.subject_tract_number,
         subject_company: body.subject_company, subject_auction_date: body.subject_auction_date,
-      }, items: body.comparables })
-      setSaveState('saved'); setTimeout(() => setSaveState('idle'), 2500)
-    } catch { setSaveState('error'); setTimeout(() => setSaveState('idle'), 2500) }
+      },
+      items: body.comparables,
+    }
   }
   const handleEmail = async () => {
     setSending(true)
@@ -379,12 +386,19 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                     </div>
                   )}
                 
-                  {/* Per-row notes (owner 2026-10-29): typed here, printed at the
-                      top of this row's page in the PDF. */}
-                  <ReportRowNotes
-                    value={t.notes}
-                    onSave={(notes) => onUpdateTract?.(t.id, { notes })}
-                  />
+                  {/* Notes timeline (owner 11/10): dated entries on the land itself —
+                
+                      they follow this parcel/tract into every report and project. */}
+                
+                  <div className="px-4 pb-3 pt-2 border-t border-white/5">
+                
+                    <NotesTimeline compact theme="dark" itemKey={noteKeyForRow(t)}
+                
+                      label={t.companyName || t.owner || null} county={t.county} state={t.state}
+                
+                      latitude={t.latitude ?? null} longitude={t.longitude ?? null} />
+                
+                  </div>
                   </div>
               ))}
             </div>
@@ -400,22 +414,29 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       {/* Footer — Download (web) + Email buttons. Both produce the same PDF
           via the backend; mobile callers only see Email since this panel
           is web-only. */}
+      {reportTracts.length > 0 && chooserOpen && (
+        <div className="px-5 pt-3 shrink-0">
+          <SaveReportChooser
+            subjectInfo={subjectInfo}
+            reportTracts={reportTracts}
+            buildRecipe={buildRecipe}
+            onClose={() => setChooserOpen(false)}
+          />
+        </div>
+      )}
       {reportTracts.length > 0 && (
-        <div className="px-5 py-4 border-t border-white/5 shrink-0 flex gap-2">
+        <div className="border-t border-white/5 shrink-0">
+        <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} />
+        <div className="px-5 py-4 shrink-0 flex gap-2">
           <button
-            onClick={handleSaveReport}
-            disabled={saveState === 'saving'}
-            title="Save this report to Saved Projects so you can open it again"
+            onClick={() => setChooserOpen(v => !v)}
+            title="Save this report, or save its parcels and tracts as a project"
             data-testid="save-report"
             className={`py-3 px-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition border ${
-              saveState === 'saved'
-                ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                : saveState === 'error'
-                  ? 'bg-red-500/20 text-red-300 border-red-500/30'
-                  : 'bg-white/5 border-white/15 text-white hover:bg-white/10'
+              chooserOpen ? 'bg-gg-pink/20 border-gg-pink/40 text-white' : 'bg-white/5 border-white/15 text-white hover:bg-white/10'
             }`}
           >
-            {saveState === 'saved' ? <><Check size={16} /> Saved</> : saveState === 'error' ? 'Not saved' : <><Bookmark size={16} /> Save</>}
+            <Bookmark size={16} /> Save
           </button>
           <button
             onClick={handleDownload}
@@ -449,6 +470,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
               <><Mail size={16} /> Email Report</>
             )}
           </button>
+        </div>
         </div>
       )}
     </motion.div>

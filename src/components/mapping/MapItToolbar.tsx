@@ -24,6 +24,7 @@ import {
 import type { TractEditor } from './useTractEditor'
 import { polygonAcres } from '@/lib/polygonGeometry'
 import useMapReports from '@/lib/useMapReports'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
 
 /** Report buttons in the bar once the tract is saved (owner 11/2: "the
  *  report options need to appear on this screen so I can generate the
@@ -271,6 +272,7 @@ export default function MapItToolbar({
           <span style={{ ...stat, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <FileText size={13} /> Reports
           </span>
+          <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} />
           {BAR_REPORTS.map(({ kind, projectLevel }) => {
             const working = reports.queuing === `${kind}:${projectLevel ? '' : e.savedId || ''}`
               || reports.rows.some((r) => r.kind === kind
