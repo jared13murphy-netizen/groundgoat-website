@@ -202,8 +202,17 @@ function SignUpContent() {
   // Load counties for home location when home state changes
   useEffect(() => {
     if (formData.homeState) {
-      setHomeCounties(getCountiesForState(formData.homeState))
+      // The built-in copy shows at once; the server's county table (the one
+      // source, GET /api/geo/counties) replaces it the moment it answers.
+      const state = formData.homeState
+      setHomeCounties(getCountiesForState(state))
       setFormData(prev => ({ ...prev, homeCounty: '' }))
+      let live = true
+      fetch(`${API_URL}/api/geo/counties?state=${encodeURIComponent(getStateAbbreviation(state))}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (live && d?.counties?.length) setHomeCounties(d.counties) })
+        .catch(() => {})
+      return () => { live = false }
     } else {
       setHomeCounties([])
     }
