@@ -8,6 +8,7 @@ import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/cou
 import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, MAX_STATES, formatPrice, planTotal, cycleUnit } from '@/config/pricing'
 import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
+import NeighborStatesUpsell from '@/components/NeighborStatesUpsell'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -326,6 +327,26 @@ function SignUpContent() {
     setSelectedAreas([...selectedAreas, { state }])
     setError('')
   }
+
+  // Neighboring-state upsell (owner 11/11): opens once, when the first state
+  // is picked; clicks add to this same selection (one checkout).
+  const [upsellFor, setUpsellFor] = useState<string | null>(null)
+  const upsellShown = useRef(false)
+  const pickFirstOrAdd = (state: string) => {
+    const first = selectedAreas.length === 0
+    addArea(state)
+    if (first && !upsellShown.current && selectedPlan !== 'firm') {
+      upsellShown.current = true
+      setUpsellFor(state)
+    }
+  }
+  const toggleUpsellState = (state: string) => {
+    const i = selectedAreas.findIndex(a => a.state === state)
+    if (i >= 0) setSelectedAreas(selectedAreas.filter((_, j) => j !== i))
+    else addArea(state)
+  }
+  const upsellPlan = selectedPlan === 'premium_state' ? 'premium_state' : 'basic_state'
+  const upsellPriceLabel = `$${formatPrice(PRICING[upsellPlan][billingCycle].additional)}/${billingCycle === 'monthly' ? 'month' : 'year'}`
 
   const removeArea = (index: number) => {
     setSelectedAreas(selectedAreas.filter((_, i) => i !== index))
@@ -1446,6 +1467,16 @@ function SignUpContent() {
           )}
 
           {/* Step 3: Territory Selection (for non-firm plans) */}
+          <NeighborStatesUpsell
+            open={!!upsellFor}
+            homeState={upsellFor || ''}
+            selected={selectedAreas.map(a => a.state)}
+            maxStates={MAX_STATES}
+            addPriceLabel={upsellPriceLabel}
+            onToggle={toggleUpsellState}
+            onClose={() => setUpsellFor(null)}
+          />
+
           {step === 3 && selectedPlan !== 'firm' && (
             <div className="space-y-6">
               <div className="card">
@@ -1492,7 +1523,7 @@ function SignUpContent() {
                             <button
                               key={state}
                               onClick={() => {
-                                addArea(state)
+                                pickFirstOrAdd(state)
                                 setShowStateDropdown(false)
                               }}
                               className="w-full px-4 py-3 text-left text-black hover:bg-gray-100 transition-colors"
