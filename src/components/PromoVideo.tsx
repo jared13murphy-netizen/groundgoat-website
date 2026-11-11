@@ -61,9 +61,6 @@ export function PromoVideoSection() {
 
       <div className="relative z-10 max-w-5xl mx-auto px-6">
         <div className="text-center mb-10">
-          <span className="inline-block text-gg-pink text-sm font-semibold tracking-wide uppercase mb-3">
-            Watch — 39 seconds
-          </span>
           <h2 className="font-display text-4xl md:text-5xl font-bold text-white mb-4">
             Land Auctions
             <span className="block text-gradient">Shouldn&apos;t Be Hard</span>
