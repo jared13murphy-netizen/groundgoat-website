@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Loader2, Search, Lock, X } from 'lucide-react'
 import { NOTE_CATEGORIES, fmtNoteDate, searchNotes, type NoteSearchResult } from '@/lib/notes'
+import { titleCase } from '@/components/map/parcelDetailFields'
 
 const PINK = '#F58CDE'
 const input: CSSProperties = {
@@ -81,7 +82,9 @@ export default function NotesSearch({ onOpen, onClose }: { onOpen: (r: NoteSearc
       {error && <div style={{ fontSize: 12, color: '#fca5a5' }}>{error}</div>}
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
         {res?.results.map((r) => {
-          const where = [r.item.county, r.item.state].filter(Boolean).join(', ')
+          // Same place line as the app: "Hancock County, IL" (the server's county can be lowercase).
+          const county = titleCase(r.item.county || '')
+          const where = [county && !/\s(county|parish|borough)$/i.test(county) ? `${county} County` : county, r.item.state].filter(Boolean).join(', ')
           return (
             <button key={r.entry.id} type="button" data-testid="notes-search-result" onClick={() => onOpen(r)}
                     style={{ textAlign: 'left', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 10,
