@@ -86,7 +86,7 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
   }, [])
 
   const href = signupHref(plan, cycle, extra)
-  const features = PRICING[plan].features
+  const features = [...PRICING[plan].features, ...(c.extraFeatures || [])]
 
   const price = isFirm
     ? { amount: `$${formatPrice(PRICING.firm.annualBase)}`, unit: 'year', note: `${PRICING.firm.includedUsers} team members included · +$9.99/mo per user after ${PRICING.firm.includedUsers} (up to ${PRICING.firm.maxUsers}), billed annually` }
@@ -107,14 +107,22 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
     <>
       {/* Hero */}
       <section className="relative mt-20 min-h-[620px] md:min-h-[calc(100vh-80px)] flex items-center overflow-hidden">
-        <div className="absolute inset-0">
-          <Image src="/hero-explore-map.png" alt="Ground Goat map of farmland parcels" fill priority sizes="100vw" className="object-cover object-center" />
-          <div className="absolute inset-0 bg-black/30" />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-gg-black" />
-        </div>
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 w-full py-16">
-          <div className="max-w-2xl">
+        {c.appOnly ? (
+          // App-only plan: no website map behind it, the app itself sits beside the words.
+          <div className="absolute inset-0 bg-gg-black">
+            <div className="absolute top-1/4 right-[8%] w-[520px] h-[520px] bg-gg-pink/15 rounded-full blur-[140px]" />
+            <div className="absolute -bottom-40 -left-40 w-[480px] h-[480px] bg-gg-pink/5 rounded-full blur-[120px]" />
+          </div>
+        ) : (
+          <div className="absolute inset-0">
+            <Image src="/hero-explore-map.png" alt="Ground Goat map of farmland parcels" fill priority sizes="100vw" className="object-cover object-center" />
+            <div className="absolute inset-0 bg-black/30" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-gg-black" />
+          </div>
+        )}
+        <div className={`relative z-10 max-w-7xl mx-auto px-4 sm:px-6 w-full py-16 ${c.appOnly ? 'grid lg:grid-cols-12 gap-12 items-center' : ''}`}>
+          <div className={c.appOnly ? 'lg:col-span-7' : 'max-w-2xl'}>
             <div className="flex flex-wrap items-center gap-3 mb-6 animate-slide-up">
               <span className="bg-gg-pink text-black text-sm font-bold px-4 py-1.5 rounded-full">{FREE_LABEL}</span>
               <span className="text-gg-pink text-sm font-semibold tracking-wide uppercase">{c.eyebrow}</span>
@@ -131,7 +139,17 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
             <p className="mt-5 text-gg-gray-300 text-sm">
               {price.amount}/{price.unit} after your {FREE_LABEL.toLowerCase()} · Cancel anytime
             </p>
+            {c.appOnly && (
+              <p className="mt-3 inline-flex items-center gap-2 text-gg-gray-300 text-sm">
+                <Smartphone size={16} className="text-gg-pink" /> In the Ground Goat app for iPhone and Android
+              </p>
+            )}
           </div>
+          {c.appOnly && c.heroImage && (
+            <div className="lg:col-span-5 animate-slide-up delay-200">
+              <Shot src={c.heroImage} alt={`${c.eyebrow} in the Ground Goat app`} frame="phone" />
+            </div>
+          )}
         </div>
       </section>
 

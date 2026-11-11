@@ -31,6 +31,11 @@ export interface PlanLandingContent {
   audience: string
   highlights: PlanHighlight[]
   faq: { q: string; a: string }[]
+  /** App-only plan (Basic State): the hero shows the app instead of the website map. */
+  appOnly?: boolean
+  heroImage?: string
+  /** Extra lines for this page's price card, on top of pricing.ts (features coming to the plan). */
+  extraFeatures?: string[]
 }
 
 const COMMON_FAQ = [
@@ -43,20 +48,25 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     plan: 'basic_state',
     slug: 'basic-state',
     pageTitle: 'Basic State | Ground Goat',
-    metaDescription: 'Every land auction and sale in your state, with alerts the moment new ground is listed. 30 days free.',
+    metaDescription: 'Every land auction and sale in your state in the Ground Goat app, with Goat Search and alerts the moment new ground is listed. 30 days free.',
     eyebrow: 'Basic State',
     headline: 'Every land sale in your state,',
-    headlineAccent: 'the moment it posts.',
-    subhead: 'Upcoming auctions, sale results and years of history for every county in your state, in one place, with alerts when new ground comes up.',
+    headlineAccent: 'right in your pocket.',
+    subhead: 'Upcoming auctions, sale results and Goat Search for every county in your state, in the Ground Goat app, with alerts when new ground comes up.',
     audience: 'For farmers and land investors watching their state',
+    appOnly: true,
+    heroImage: '/landing/basic-app-home.jpg',
+    extraFeatures: ['Goat Search', 'Save parcels and auctions'],
     highlights: [
-      { icon: 'calendar', title: 'Every upcoming auction', body: 'See every land auction in your state on one map: where it is, who is selling it, and a countdown to sale day.', image: '/landing/basic-auctions.jpg', alt: 'Upcoming land auctions on the Ground Goat map' },
-      { icon: 'history', title: 'What land really sold for', body: 'Sale results with price per acre the day they post, plus years of history, so you know the market before you bid.', image: '/landing/basic-results.jpg', alt: 'Recent auction results with price per acre' },
-      { icon: 'map', title: 'Every detail in one tap', body: 'Acres, tillable acres, soil rating, the boundary on aerial imagery and the auction company, for every tract.', image: '/landing/basic-detail.jpg', alt: 'Auction detail with acres, tillable acres and price per acre' },
-      { icon: 'bell', title: 'In your pocket, with alerts', body: 'The Ground Goat app goes with you to the sale, the field and the bank, and tells you when new ground is listed.', image: '/landing/basic-app.jpg', frame: 'phone', alt: 'Ground Goat app showing upcoming auctions' },
+      { icon: 'calendar', title: 'Every upcoming auction', body: 'Every land auction in your state, with the auction company, the acres and a countdown to sale day. Alerts tell you the moment new ground is listed.', image: '/landing/basic-app-home.jpg', frame: 'phone', alt: 'Upcoming land auctions in the Ground Goat app' },
+      { icon: 'history', title: 'What land really sold for', body: 'Sale results with price per acre the day they post, plus years of history, so you know the market before you bid.', image: '/landing/basic-app-results.jpg', frame: 'phone', alt: 'Auction results with price per acre in the Ground Goat app' },
+      { icon: 'map', title: 'Every detail in one tap', body: 'Total acres, tillable acres, soil rating and the boundary on aerial imagery for every auction, plus the date, time and auction company.', image: '/landing/basic-app-detail.jpg', frame: 'phone', alt: 'Auction detail with acres, tillable acres and soil rating' },
+      { icon: 'search', title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Illinois this month?", and get the answer in seconds.', image: '/landing/basic-app-goat.jpg', frame: 'phone', alt: 'Goat Search answering a question about upcoming Illinois auctions' },
+      { icon: 'folder', title: 'Save the ground you are watching', body: 'Save parcels and auctions with one tap, keep them in one list, and add sale day to your calendar.', image: '/landing/basic-app-saved.jpg', frame: 'phone', alt: 'Saved auctions in the Ground Goat app' },
     ],
     faq: [
       ...COMMON_FAQ,
+      { q: 'Where do I use Basic State?', a: 'In the Ground Goat app on iPhone and Android. Premium State adds the full website, soil maps and comparable sales reports.' },
       { q: 'Can I add more states?', a: 'Yes. Choose up to 5 states. Each state after your first is half price.' },
     ],
   },
