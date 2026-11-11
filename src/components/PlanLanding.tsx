@@ -30,6 +30,46 @@ function signupHref(plan: PlanKey, cycle: BillingCycle, extra: string): string {
   return `/signup?${q.toString()}${extra}`
 }
 
+/** A product screenshot in a clean device frame: a browser window for the
+ *  website, a phone for the app. */
+function Shot({ src, alt, frame }: { src: string; alt: string; frame: 'browser' | 'phone' | 'doc' }) {
+  if (frame === 'doc') {
+    return (
+      <div className="relative mx-auto max-w-md">
+        <div className="absolute -inset-10 bg-gg-pink/10 rounded-full blur-[80px]" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} loading="lazy" className="relative w-full block rounded-md shadow-2xl ring-1 ring-white/10 rotate-[-1.5deg]" />
+      </div>
+    )
+  }
+  if (frame === 'phone') {
+    return (
+      <div className="relative mx-auto w-[260px] sm:w-[300px]">
+        <div className="absolute -inset-10 bg-gg-pink/10 rounded-full blur-[80px]" />
+        <div className="relative rounded-[2.6rem] border border-white/15 bg-black p-2.5 shadow-2xl">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={alt} loading="lazy" className="w-full rounded-[2.1rem] block" />
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="relative">
+      <div className="absolute -inset-8 bg-gg-pink/10 rounded-[3rem] blur-[80px]" />
+      <div className="relative rounded-2xl border border-white/10 bg-gg-gray-800 shadow-2xl overflow-hidden">
+        <div className="flex items-center gap-2 px-4 h-9 bg-gg-gray-800 border-b border-white/5">
+          <span className="w-3 h-3 rounded-full bg-white/15" />
+          <span className="w-3 h-3 rounded-full bg-white/15" />
+          <span className="w-3 h-3 rounded-full bg-white/15" />
+          <span className="ml-3 flex-1 max-w-xs h-5 rounded-md bg-black/40 text-[11px] leading-5 text-gg-gray-400 px-3 truncate">groundgoat.com</span>
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} loading="lazy" className="w-full block" />
+      </div>
+    </div>
+  )
+}
+
 export default function PlanLanding({ plan }: { plan: PlanKey }) {
   const c = PLAN_LANDING[plan]
   const isFirm = plan === 'firm'
@@ -98,23 +138,29 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
       {/* Company video */}
       <PromoVideoSection />
 
-      {/* What you get */}
-      <section className="py-20 md:py-24 bg-gg-gray-900">
+      {/* What you get: each benefit beside a real screenshot of it */}
+      <section className="py-20 md:py-28 bg-gg-gray-900 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12 md:mb-16">
+          <div className="text-center mb-14 md:mb-20">
             <span className="inline-block text-gg-pink text-sm font-semibold tracking-wide uppercase mb-3">{c.audience}</span>
             <h2 className="font-display text-3xl md:text-5xl font-bold text-white">What you get with {c.eyebrow}</h2>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {c.highlights.map(h => {
+          <div className="space-y-20 md:space-y-28">
+            {c.highlights.map((h, i) => {
               const Icon = ICONS[h.icon]
+              const flip = i % 2 === 1
               return (
-                <div key={h.title} className="card">
-                  <div className="w-12 h-12 rounded-xl bg-gg-pink/10 text-gg-pink flex items-center justify-center mb-5">
-                    <Icon size={24} />
+                <div key={h.title} className="grid lg:grid-cols-12 gap-8 lg:gap-14 items-center">
+                  <div className={`lg:col-span-4 ${flip ? 'lg:order-2' : ''}`}>
+                    <div className="w-12 h-12 rounded-xl bg-gg-pink/10 text-gg-pink flex items-center justify-center mb-5">
+                      <Icon size={24} />
+                    </div>
+                    <h3 className="font-display text-2xl md:text-4xl font-bold text-white mb-4">{h.title}</h3>
+                    <p className="text-lg text-gg-gray-300 leading-relaxed">{h.body}</p>
                   </div>
-                  <h3 className="font-display text-xl font-bold text-white mb-2">{h.title}</h3>
-                  <p className="text-gg-gray-400">{h.body}</p>
+                  <div className={`lg:col-span-8 ${flip ? 'lg:order-1' : ''}`}>
+                    {h.image && <Shot src={h.image} alt={h.alt || h.title} frame={h.frame || 'browser'} />}
+                  </div>
                 </div>
               )
             })}
