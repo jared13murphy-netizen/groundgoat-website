@@ -179,7 +179,12 @@ export default function SavedTractPanel({
   const ratingLabel = soilRatingLabel({ soil_rating_type: detail?.soil?.rating_type })
   const rating = detail?.soil?.rating ?? null
   const place = [detail?.county ? `${detail.county} County` : '', detail?.state || ''].filter(Boolean).join(', ')
-  const multi = (detail?.project_tract_count ?? 0) > 1
+  // v2 (owner 11/10): a farm can be in many projects — shown as chips; a tap
+  // opens Saved Projects on that project. Older API: `project` as one chip.
+  const farmProjects: { id: string; name: string }[] = detail?.projects?.length
+    ? detail.projects.map((p) => ({ id: p.id, name: p.name || 'Project' }))
+    : detail?.project?.id ? [{ id: detail.project.id, name: detail.project.name || 'Project' }] : []
+  const multi = farmProjects.length === 1 && (detail?.project_tract_count ?? 0) > 1
   const landRows: [string, number | null | undefined][] = [
     ['Tillable', detail?.tillable_acres], ['Timber', detail?.timber_acres],
     ['Water', detail?.water_acres], ['Other', detail?.other_acres],
@@ -227,9 +232,27 @@ export default function SavedTractPanel({
         <div style={{ fontSize: 18.5, fontWeight: 700, lineHeight: '24px', color: '#1a1a1a', wordBreak: 'break-word' }}>
           {detail ? (detail.name || 'Untitled') : 'Saved tract'}
         </div>
-        {detail?.project?.name && (
-          <div style={{ fontSize: 12.5, color: 'rgba(0,0,0,0.55)', marginTop: 2, lineHeight: 1.3, wordBreak: 'break-word' }}>
-            {detail.project.name}{multi ? ` · ${detail.project_tract_count} tracts` : ''}
+        {farmProjects.length > 0 && (
+          <div data-testid="saved-tract-project-chips" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, marginTop: 6 }}>
+            {farmProjects.map((p) => (
+              <button
+                key={p.id} type="button" disabled={compMode}
+                onClick={() => onOpenProjects(p.id)}
+                title={compMode ? p.name : `Open ${p.name} in Saved Projects`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%',
+                  padding: '3px 9px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+                  background: 'rgba(245,140,222,0.16)', border: '1px solid rgba(197,99,173,0.45)', color: '#1a1a1a',
+                  cursor: compMode ? 'default' : 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                <FolderOpen size={12} style={{ flex: 'none' }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+              </button>
+            ))}
+            {multi && (
+              <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.5)' }}>{detail?.project_tract_count} tracts</span>
+            )}
           </div>
         )}
         {/* Acres are shown once, in the Acres card below (owner 11/5). */}

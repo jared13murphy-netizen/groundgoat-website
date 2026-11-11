@@ -1862,6 +1862,11 @@ const SET_PIN_CURSOR_SVG =
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
 
+/** Every project a saved farm is in (v2: `projects`; older API: its one project_id). */
+function tractProjectIds(t: PortfolioTract): string[] {
+  return t.projects?.length ? t.projects.map(p => p.id) : (t.project_id ? [t.project_id] : [])
+}
+
 export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -2240,7 +2245,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // name when the project holds more than one tract; a one-tract
     // project shows the tract name alone.
     const tractsPerProject = new Map<string, number>()
-    for (const t of myTracts) tractsPerProject.set(t.project_id, (tractsPerProject.get(t.project_id) ?? 0) + 1)
+    // v2: a farm can be in many projects — count it in each one.
+    for (const t of myTracts) for (const pid of tractProjectIds(t)) tractsPerProject.set(pid, (tractsPerProject.get(pid) ?? 0) + 1)
     const labelFeats: any[] = shownTracts.filter(t => t.label_point).map(t => ({
       type: 'Feature', geometry: t.label_point,
       properties: {
@@ -3419,7 +3425,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const showSavedProject = useCallback(async (projectId: string) => {
     setMyTractsOn(true)
     let list = myTractsRef.current
-    if (!list.some(t => t.project_id === projectId)) {
+    if (!list.some(t => tractProjectIds(t).includes(projectId))) {
       try {
         const r = await allTractsGeometry(true)
         list = r.tracts
@@ -3430,7 +3436,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map) return
     let w = 180, so = 90, e = -180, n = -90, seen = false
     for (const t of list) {
-      if (t.project_id !== projectId || !t.boundary) continue
+      if (!tractProjectIds(t).includes(projectId) || !t.boundary) continue
       const bb = bboxOf(t.boundary.coordinates)
       if (!bb) continue
       seen = true

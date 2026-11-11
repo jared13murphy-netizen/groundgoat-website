@@ -39,7 +39,6 @@ export default function SaveReportChooser({ subjectInfo, reportTracts, buildReci
   const nameTouched = useRef(false)
   const [projectId, setProjectId] = useState<string | null>(null)
   const [pickExisting, setPickExisting] = useState(false)
-  const [conflict, setConflict] = useState<'move' | 'leave'>('move')
   const [preview, setPreview] = useState<Preview | null>(null)
   const [checking, setChecking] = useState(false)
   const [phase, setPhase] = useState<Phase>('choose')
@@ -83,7 +82,6 @@ export default function SaveReportChooser({ subjectInfo, reportTracts, buildReci
         idempotency_key: newIdempotencyKey(),
         subject, items, project_id: projectId,
         name: projectId ? null : name.trim(),
-        conflict,
         report: wantReport ? { subject: recipe.subject, items: recipe.items } : null,
       }).catch(() => null)
       if (r) { setResult(r); setPhase('done') } else { setPhase('choose') }
@@ -183,21 +181,14 @@ export default function SaveReportChooser({ subjectInfo, reportTracts, buildReci
               <span style={{ fontWeight: 600 }}>{preview.summary_text}</span>
             )}
           </div>
-          {!checking && preview && !preview.over_cap && preview.conflicts.map((c) => (
-            <div key={c.project_id} data-testid="conflict" style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ marginBottom: 6 }}>{c.text}</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {(['move', 'leave'] as const).map((v) => (
-                  <button key={v} type="button" data-testid={`conflict-${v}`} onClick={() => setConflict(v)}
-                          style={{ padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                                   background: conflict === v ? PINK : 'transparent', color: conflict === v ? '#000' : '#fff',
-                                   border: `1px solid ${conflict === v ? PINK : 'rgba(255,255,255,0.3)'}` }}>
-                    {v === 'move' ? 'Move here' : 'Leave'}
-                  </button>
-                ))}
-              </div>
+          {/* v2 (owner 11/10): a farm can be in many projects. Items already
+              saved are LINKED here and keep their one drawing — no Move/Leave. */}
+          {!checking && preview && !preview.over_cap && (counts?.existing ?? 0) > 0 && (
+            <div style={muted} data-testid="existing-note">
+              {counts!.existing === 1 ? '1 is already one of your saved farms; it will be added here and keep its drawing.'
+                : `${counts!.existing} are already your saved farms; they will be added here and keep their drawings.`}
             </div>
-          ))}
+          )}
           {!checking && preview && !preview.over_cap && preview.unsavable.length > 0 && (
             <div style={muted} data-testid="unsavable-note">
               {preview.unsavable.length === 1 ? '1 item has no boundary on record and will be left out.'
@@ -248,7 +239,7 @@ function SavedConfirmation({ result, reportToo, onClose }: { result: SaveResult;
   }
 
   const c = result.counts
-  const n = c.saved + c.moved + c.already_in_project
+  const n = c.saved + (c.linked ?? 0) + (c.moved ?? 0) + c.already_in_project
   const btn: CSSProperties = {
     flex: 1, padding: '9px 0', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer',
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
