@@ -10,7 +10,34 @@ const input = {
   padding: '5px 8px', fontSize: 12, fontFamily: 'inherit',
 } as const
 
-export default function NotesPrintChoice({ value, onChange }: { value: NotesPrint; onChange: (v: NotesPrint) => void }) {
+export default function NotesPrintChoice({ value, onChange, compact = false }: {
+  value: NotesPrint; onChange: (v: NotesPrint) => void
+  /** One inline row (toolbars): "Notes [select]" + the range dates. */
+  compact?: boolean
+}) {
+  if (compact) {
+    return (
+      <span data-testid="notes-print-choice" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11 }}
+            title="Which notes print on the report. Internal notes never print.">
+        <span style={{ opacity: 0.75 }}>Notes</span>
+        <select data-testid="notes-print-mode" aria-label="Notes on this report" style={input} value={value.mode}
+                onChange={(e) => {
+                  const mode = e.target.value as NotesPrintMode
+                  onChange(mode === 'range' ? { mode, from: value.from || `${todayIso().slice(0, 4)}-01-01`, to: value.to || todayIso() } : { mode })
+                }}>
+          {NOTES_PRINT_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </select>
+        {value.mode === 'range' && (
+          <>
+            <input type="date" aria-label="Notes from" data-testid="notes-print-from" style={input} value={value.from || ''}
+                   onChange={(e) => onChange({ ...value, from: e.target.value || null })} />
+            <input type="date" aria-label="Notes to" data-testid="notes-print-to" style={input} value={value.to || ''}
+                   onChange={(e) => onChange({ ...value, to: e.target.value || null })} />
+          </>
+        )}
+      </span>
+    )
+  }
   return (
     <div data-testid="notes-print-choice" className="px-5 pt-3 flex flex-col gap-2">
       <div className="flex items-center gap-2">

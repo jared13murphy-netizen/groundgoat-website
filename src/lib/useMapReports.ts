@@ -9,6 +9,7 @@ import {
   deleteReport, downloadReport, listReports, queueReport, reportFilename, USES_ELEVATION,
   type ReportKind, type ReportRow,
 } from '@/lib/configurableMapping'
+import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
 
 /** Same default the Saved Projects panel's 3D report starts at. */
 const DEFAULT_EXAGGERATION = 2.5
@@ -20,6 +21,8 @@ export default function useMapReports(enabled: boolean, projectId: string | null
   const [queuing, setQueuing] = useState<string | null>(null)   // '<kind>:<parcelId|"">'
   const [deleting, setDeleting] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  // "Notes on this report" (owner 11/10): which timeline entries print.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
 
@@ -54,7 +57,7 @@ export default function useMapReports(enabled: boolean, projectId: string | null
     try {
       await queueReport(
         projectLevel ? { projectId } : { parcelId: parcelId || undefined }, kind,
-        USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {})
+        { ...(USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {}), notes_print: notesPrintBody(notesPrint) })
       await load()
     } catch (e: any) {
       if (alive.current) setMsg(e?.message || 'Could not start that report.')
@@ -78,5 +81,5 @@ export default function useMapReports(enabled: boolean, projectId: string | null
     } finally { setDeleting(null) }
   }
 
-  return { rows, queuing, deleting, msg, setMsg, pending, queue, download, remove, reload: load }
+  return { rows, queuing, deleting, msg, setMsg, pending, queue, download, remove, reload: load, notesPrint, setNotesPrint }
 }

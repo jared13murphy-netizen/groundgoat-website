@@ -11,6 +11,8 @@ import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from '@/components/portal/SubjectStrip'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -51,6 +53,8 @@ export default function ComparablesReportPage({ params }: { params: { id: string
   const [subject, setSubject] = useState<any>(null)
   const [sending, setSending] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  // "Notes on this report" (owner 11/10): which timeline entries print.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
 
   useEffect(() => {
     // Read from sessionStorage (set by comparables page)
@@ -120,6 +124,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
       auction_date: c.auction_date,
       company_name: c.company_name,
     })),
+    notes_print: notesPrintBody(notesPrint),
   })
 
   // Fire-and-forget (owner, 2026-09-01: never trap the user on a
@@ -254,6 +259,9 @@ export default function ComparablesReportPage({ params }: { params: { id: string
 
         {/* Action buttons. Download is web-only; Email works for both web
             and mobile and produces the same PDF attachment. */}
+        <div className="-mx-5 mb-3">
+          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} />
+        </div>
         <div className="flex gap-3">
           <button
             onClick={handleDownload}

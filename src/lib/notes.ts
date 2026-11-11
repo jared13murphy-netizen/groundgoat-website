@@ -200,3 +200,40 @@ export function fmtNoteDate(iso: string | null | undefined): string {
 export function notesPrintBody(p: NotesPrint): NotesPrint {
   return p.mode === 'range' ? { mode: 'range', from: p.from || null, to: p.to || null } : { mode: p.mode }
 }
+
+/** Where a Notes search result is on the map (owner 11/10: tapping a result
+ *  ALWAYS flies there). The server sends lat/lng; when it can't, a point key
+ *  carries its own, and a parcel / tract is looked up by id. */
+export async function locateNoteItem(item: NoteSearchResult['item']): Promise<{ lat: number; lng: number } | null> {
+  const ok = (lat: any, lng: any) => {
+    const a = Number(lat), o = Number(lng)
+    return lat != null && lng != null && isFinite(a) && isFinite(o) && !(a === 0 && o === 0) ? { lat: a, lng: o } : null
+  }
+  const direct = ok(item.latitude, item.longitude)
+  if (direct) return direct
+  const key = item.key || ''
+  if (key.startsWith('pt:')) {
+    const [lng, lat] = key.slice(3).split(',')
+    return ok(lat, lng)
+  }
+  try {
+    if (item.kind === 'parcel' && item.id) {
+      const res = await fetchWithAuth(`${API_URL}/api/regrid/parcel?ll_uuid=${encodeURIComponent(item.id)}`)
+      if (res.ok) {
+        const p = (await res.json())?.parcel || {}
+        const hit = ok(p.lat ?? p.latitude ?? p.centroid_lat, p.lon ?? p.lng ?? p.longitude ?? p.centroid_lng)
+        if (hit) return hit
+        const g = p._geometry
+        const ring: number[][] | undefined = g?.type === 'Polygon' ? g.coordinates?.[0] : g?.type === 'MultiPolygon' ? g.coordinates?.[0]?.[0] : undefined
+        if (ring?.length) {
+          const xs = ring.map((c) => c[0]), ys = ring.map((c) => c[1])
+          return ok((Math.min(...ys) + Math.max(...ys)) / 2, (Math.min(...xs) + Math.max(...xs)) / 2)
+        }
+      }
+    } else if (item.kind === 'tract' && item.id) {
+      const res = await fetchWithAuth(`${API_URL}/api/tracts/${encodeURIComponent(item.id)}`)
+      if (res.ok) { const t = await res.json(); return ok(t?.latitude, t?.longitude) }
+    }
+  } catch { /* fall through: no location */ }
+  return null
+}

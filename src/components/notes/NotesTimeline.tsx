@@ -90,6 +90,8 @@ export default function NotesTimeline({
   const [tl, setTl] = useState<NoteTimeline | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 403 = this account has no notes (not Premium): show nothing at all.
+  const [denied, setDenied] = useState(false)
   const [expanded, setExpanded] = useState(!compact)
   const [showFilters, setShowFilters] = useState(false)
   const [filters, setFilters] = useState<TimelineFilters>({})
@@ -107,7 +109,10 @@ export default function NotesTimeline({
       const t = filtered ? (await fetchTimelines([itemKey], filters))[itemKey] || { count: 0, entries: [] } : await loadBatched(itemKey)
       if (my === seq.current) setTl(t)
     } catch (e: any) {
-      if (my === seq.current) setError(e?.status === 403 ? null : (e?.message || 'Could not load notes'))
+      if (my === seq.current) {
+        setDenied(e?.status === 403)
+        setError(e?.status === 403 ? null : (e?.message || 'Could not load notes'))
+      }
     } finally { if (my === seq.current) setLoading(false) }
   }, [itemKey, filters, filtered])
 
@@ -178,7 +183,7 @@ export default function NotesTimeline({
     return n === 0 ? 'No notes yet' : `${n} ${n === 1 ? 'note' : 'notes'}`
   }, [tl])
 
-  if (!itemKey) return null
+  if (!itemKey || denied) return null
 
   return (
     <div data-testid="notes-timeline" data-note-key={itemKey} style={{ color: c.text, fontSize: 12 }}>

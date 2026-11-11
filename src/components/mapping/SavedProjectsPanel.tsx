@@ -29,6 +29,8 @@ import { AERIAL_YEARS } from '@/components/map/mapConstants'
 import { SavedReportCard } from '@/components/mapping/SavedReportsPanel'
 import NotesTimeline from '@/components/notes/NotesTimeline'
 import NotesSearch from '@/components/notes/NotesSearch'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
 import type { NoteSearchResult } from '@/lib/notes'
 
 const PINK = '#F58CDE'
@@ -244,6 +246,8 @@ export default function SavedProjectsPanel({
   }
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  // "Notes on this report" (owner 11/10): which timeline entries print.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
   const [reportsOpen, setReportsOpen] = useState<Record<string, boolean>>({})
   const [reports, setReports] = useState<Record<string, ReportRow[]>>({})
   const reportsOpenRef = useRef(reportsOpen); reportsOpenRef.current = reportsOpen
@@ -425,7 +429,7 @@ export default function SavedProjectsPanel({
     try {
       await queueReport(
         parcelId ? { parcelId } : { projectId }, kind,
-        USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {})
+        { ...(USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {}), notes_print: notesPrintBody(notesPrint) })
       await loadReports(projectId)
     } catch (e: any) {
       setMsg(e?.message || 'Could not start that report.')
@@ -769,6 +773,9 @@ export default function SavedProjectsPanel({
                           <div style={muted}>Add a tract before building a report.</div>
                         ) : (
                           <>
+                            <div style={{ marginBottom: 8 }}>
+                              <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint} />
+                            </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{btn('aerial')}</div>
                             {mapTarget && (
                               <div style={{ marginTop: 8 }}>

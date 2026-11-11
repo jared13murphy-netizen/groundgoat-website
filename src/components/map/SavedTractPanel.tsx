@@ -25,6 +25,8 @@ import { formatAcres } from '@/lib/format'
 import { DetailRow, Section } from './parcelDetailFields'
 import { ACTION_BTN, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
 import NotesTimeline from '@/components/notes/NotesTimeline'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { notesPrintBody } from '@/lib/notes'
 
 const PINK = '#F58CDE'
 const MAP_REPORT_KINDS: ReportKind[] = ['soil_map', 'ground_goat', 'elevation_3d']
@@ -129,7 +131,8 @@ export default function SavedTractPanel({
     if (!detail || downloading) return
     setDownloading(true); setActionError(null)
     try {
-      await queueAndDownloadReport({ parcelId: detail.id }, 'ground_goat', projectName)
+      await queueAndDownloadReport({ parcelId: detail.id }, 'ground_goat', projectName,
+        { notes_print: notesPrintBody(reports.notesPrint) })
     } catch (e: any) {
       if (mountedRef.current) setActionError(e?.message || 'Something went wrong — try again')
     } finally { if (mountedRef.current) setDownloading(false) }
@@ -154,6 +157,7 @@ export default function SavedTractPanel({
           source: 'saved', cm_id: detail.id, ll_uuid: null, owner: null,
           latitude: row.latitude, longitude: row.longitude, notes: null,
         }],
+        notes_print: notesPrintBody(reports.notesPrint),
       })
       if (!res.ok) {
         let m = 'Something went wrong — try again'
@@ -351,6 +355,10 @@ export default function SavedTractPanel({
 
             {/* Reports */}
             <Section title="Reports">
+              {/* One choice for every report this panel builds (owner 11/10). */}
+              <div style={{ marginBottom: 8, color: 'rgba(0,0,0,0.6)' }}>
+                <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} />
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {btn('aerial', true)}
                 {MAP_REPORT_KINDS.map((k) => btn(k, false))}
