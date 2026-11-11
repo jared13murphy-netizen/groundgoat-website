@@ -98,7 +98,7 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
 
   const CTA = ({ big = false }: { big?: boolean }) => (
     <Link href={href} className={`btn-primary inline-flex items-center justify-center gap-2 ${big ? 'text-lg' : ''}`}>
-      Get {FREE_LABEL}
+      Start Subscription
       <ArrowRight size={20} />
     </Link>
   )
@@ -129,12 +129,12 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
             </div>
             <h1 className="font-display text-4xl sm:text-5xl md:text-7xl font-bold text-white mb-6 leading-tight animate-slide-up">
               {c.headline}
-              <span className="block text-gradient">{c.headlineAccent}</span>
+              <span className="block text-gradient pb-[0.15em]">{c.headlineAccent}</span>
             </h1>
             <p className="text-lg md:text-2xl text-gray-200 mb-8 animate-slide-up delay-100">{c.subhead}</p>
             <div className="flex flex-col sm:flex-row gap-4 animate-slide-up delay-200">
               <CTA big />
-              <a href="#watch" className="btn-secondary inline-flex items-center justify-center gap-2 text-lg">Watch the video</a>
+              <a href="#watch" className="btn-secondary inline-flex items-center justify-center gap-2 text-lg">Learn More</a>
             </div>
             <p className="mt-5 text-gg-gray-300 text-sm">
               {price.amount}/{price.unit} after your {FREE_LABEL.toLowerCase()} · Cancel anytime
