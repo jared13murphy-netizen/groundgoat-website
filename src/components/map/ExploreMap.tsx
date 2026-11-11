@@ -74,6 +74,7 @@ import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
 // 2a09575, 8/27); they now live as Utilities-panel tiles instead, plus a
 // "Show My Project Maps" toggle. All three share one gate — see
 // canUseProjectMaps below.
+import { resumePendingProjectSaves } from '@/lib/reportToProject'
 import { fetchMappingAccess, allTractsGeometry, CLASS_COLOR, type PortfolioTract, drawStats, type DrawStats } from '@/lib/configurableMapping'
 
 // Zoom split for the user's project tracts (owner 9/22): below this the
@@ -3439,6 +3440,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       maxZoom: 16, duration: 800,
     })
   }, [])
+
+  // Owner 11/10: "Open project" on a report's Save confirmation opens the
+  // Saved Projects panel on that project and shows its items on the
+  // saved-maps layer (fresh geometry: the items were just written).
+  useEffect(() => {
+    const onOpen = (ev: Event) => {
+      const projectId = (ev as CustomEvent<{ projectId?: string }>).detail?.projectId
+      if (!projectId) return
+      void (async () => {
+        try {
+          const r = await allTractsGeometry(true)
+          myTractsRef.current = r.tracts
+          setMyTracts(r.tracts); setMyTractsLoaded(true); setMyTractsError(null)
+        } catch { /* showSavedProject fetches again */ }
+        setSavedPanelNonce(n => n + 1)
+        setSavedPanelFocus({ projectId, n: Date.now() })
+        setSavedPanelOpen(true)
+        void showSavedProject(projectId)
+      })()
+    }
+    window.addEventListener('gg:open-saved-project', onOpen)
+    // A save a reload interrupted finishes now, on its own.
+    resumePendingProjectSaves(() => setSavedPanelNonce(n => n + 1))
+    return () => window.removeEventListener('gg:open-saved-project', onOpen)
+  }, [showSavedProject])
 
   // Choose Parcel: while armed, the next click on a parcel loads its
   // outline as the tract. The normal parcel handler is suspended

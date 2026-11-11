@@ -14,6 +14,7 @@ import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, Trash2, Upload, X,
+  Share2,
 } from 'lucide-react'
 import {
   archiveParcel, createProject, deleteReport, downloadReport, duplicateProject, firmMembers,
@@ -129,6 +130,9 @@ export default function SavedProjectsPanel({
     try { setSavedReports((await listSavedReports()).reports || []) } catch { /* panel still works without them */ }
   }, [])
   const reportsForTract = (tractId: string) => savedReports.filter((r) => r.parcel_id === tractId)
+  // Owner 11/10: a report saved together with "Save as project" belongs to
+  // the project: listed in the project's Reports, above its maps.
+  const reportsForProject = (projectId: string) => savedReports.filter((r) => r.project_id === projectId && !r.parcel_id)
   const renameReport = async (r: SavedReportRow) => {
     const name = window.prompt('Report name', r.name)
     if (name == null || !name.trim() || name.trim() === r.name) return
@@ -592,6 +596,13 @@ export default function SavedProjectsPanel({
                     <div style={{ ...muted, color: PINK }}>shared with {p.shared_with!.map((m) => m.name).join(', ')}</div>
                   )}
                 </div>
+                {!p.shared && (members?.length ?? 0) > 0 && (
+                  <button type="button" style={iconBtn} aria-label="Share project" title="Share with your team"
+                          data-testid="project-share"
+                          onClick={(e) => { e.stopPropagation(); if (!expanded[p.id]) toggle(p.id); void openShare(p.id) }}>
+                    <Share2 size={15} />
+                  </button>
+                )}
                 <button type="button" style={iconBtn} aria-label="Project menu"
                         onClick={(e) => { e.stopPropagation(); setMenu(menu === pKey ? null : pKey) }}>
                   <MoreHorizontal size={16} />
@@ -760,6 +771,12 @@ export default function SavedProjectsPanel({
                       </div>
                     )
                   })()}
+                  {reportsForProject(p.id).length > 0 && (
+                    <div data-testid="project-saved-reports" style={{ margin: '4px 0 4px 18px' }}>
+                      <div style={{ ...muted, fontWeight: 600 }}>Reports</div>
+                      {reportsForProject(p.id).map(reportLine)}
+                    </div>
+                  )}
                   {det && !det.loading && !det.error && !det.parcels.length && (
                     <div style={muted}>No maps in this project yet.</div>
                   )}
