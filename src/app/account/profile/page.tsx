@@ -244,11 +244,11 @@ export default function ProfilePage() {
               <Check className="text-gg-pink flex-shrink-0 mt-0.5" size={22} />
               <div>
                 <h3 className="font-semibold text-white text-lg">
-                  Free trial — {trialInfo.daysRemaining} {trialInfo.daysRemaining === 1 ? 'day' : 'days'} left
+                  30 Days Free — {trialInfo.daysRemaining} {trialInfo.daysRemaining === 1 ? 'day' : 'days'} left
                 </h3>
                 <p className="text-sm text-gg-gray-300 mt-1">
                   Your free trial ends <span className="text-white font-medium">{formatTrialDate(trialInfo.trialEnd)}</span>.
-                  You won&apos;t be charged until then — and changing or upgrading your plan keeps the rest of your free trial.
+                  You won&apos;t be charged until then — and changing or upgrading your plan keeps the rest of your free days.
                 </p>
               </div>
             </div>

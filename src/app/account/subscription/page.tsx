@@ -378,7 +378,7 @@ export default function SubscriptionPage() {
       case 'trialing':
         return (
           <span className="inline-flex items-center gap-1 text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full">
-            <CheckCircle size={12} /> Trial
+            <CheckCircle size={12} /> 30 Days Free
           </span>
         )
       case 'cancelled':
@@ -1081,7 +1081,7 @@ export default function SubscriptionPage() {
 
                     <p className="text-gg-gray-500 text-xs mb-4">
                       {trialingSub
-                        ? <>Nothing is charged today — this state is added to your free trial. When the trial ends, it is billed at ${newPrice.toFixed(2)}/{unit}.</>
+                        ? <>Nothing is charged today — this state is added to your 30 days free. When your free days end, it is billed at ${newPrice.toFixed(2)}/{unit}.</>
                         : <>Your card on file will be charged a prorated amount today based on the days remaining in your current billing cycle. Future invoices will include this state at ${newPrice.toFixed(2)}/{unit}.</>}
                     </p>
 
@@ -1131,9 +1131,9 @@ export default function SubscriptionPage() {
               </p>
               {trialingSub ? (
                 <div className="mb-6 rounded-lg border-2 border-gg-pink/50 bg-gg-pink/10 p-3">
-                  <p className="text-white font-semibold text-sm">You&apos;re on a free trial — upgrading keeps it.</p>
+                  <p className="text-white font-semibold text-sm">You&apos;re in your 30 days free — upgrading keeps them.</p>
                   <p className="text-gg-gray-300 text-sm mt-1">
-                    <span className="text-white font-medium">$0 charged today.</span> Your free trial continues until{' '}
+                    <span className="text-white font-medium">$0 charged today.</span> Your free days continue until{' '}
                     <span className="text-white font-medium">{formatDate(trialingSub.trial_end)}</span>. Only then will you be billed for
                     Premium — <span className="text-white font-medium">${formatPrice(planTotal('premium_state', cycle, activeSubscriptions.length))}/{unit}</span>
                     {activeSubscriptions.length > 1 ? ` (${activeSubscriptions.length} states)` : ''}.

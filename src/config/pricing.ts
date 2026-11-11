@@ -6,11 +6,15 @@
 // state at 50% of it, 1-5 states. The same prices are charged in the app
 // (Apple), so every total is an App Store price point (hence the .99s).
 // Basic annual = 12 x monthly; Premium annual is ~17% below 12 x monthly.
-// 30-day free trial on every plan. Management Firm is unchanged (annual).
+// 30 days free on every plan (owner 11/11: never call it a "trial"). Management Firm is unchanged (annual).
 
 export type BillingCycle = 'monthly' | 'annual'
 
 export const MAX_STATES = 5
+
+// What the 30-day free period is called everywhere a customer reads it
+// (owner 11/11: "30 Days Free", never "trial").
+export const FREE_LABEL = '30 Days Free'
 
 export const PRICING = {
   basic_state: {
@@ -28,7 +32,7 @@ export const PRICING = {
       'Mobile app access',
     ],
     trialDays: 30,
-    trialLabel: '30-day free trial',
+    trialLabel: '30 Days Free',
   },
   premium_state: {
     name: 'Premium State',
@@ -43,7 +47,7 @@ export const PRICING = {
       'Advanced land analytics',
     ],
     trialDays: 30,
-    trialLabel: '30-day free trial',
+    trialLabel: '30 Days Free',
   },
   firm: {
     name: 'Management Firm',
@@ -62,7 +66,7 @@ export const PRICING = {
       'Priority support',
     ],
     trialDays: 30,
-    trialLabel: '30-day free trial',
+    trialLabel: '30 Days Free',
   },
 } as const
 
