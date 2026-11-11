@@ -14,6 +14,9 @@
  */
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { declutterTags, TAG_ZOOM, TAG_W, TAG_BODY, TAG_POINTER } from '@/lib/elevatorTags'
+
+export { TAG_ZOOM }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -21,9 +24,6 @@ export const ELEVATOR_SOURCE = 'grain-elevators'
 export const ELEVATOR_LAYER = 'grain-elevator-pins'
 const PIN_IMAGE = 'gg-grain-bin-pin'
 const TAG_IMAGE = 'gg-grain-price-tag'
-/** Pin below this zoom, price tag at it and above (hundreds of tags overlap
- *  in a zoomed-out Iowa). */
-export const TAG_ZOOM = 10
 const PIN_FILL = '#FFD21F'
 const PIN_INK = '#111111'
 // Owner 11/10: a slight top-to-bottom gradient on the yellow, lighter above,
@@ -190,8 +190,8 @@ function drawBin(ctx: CanvasRenderingContext2D, cx: number, cyVisual: number, u:
 }
 
 // Price tag geometry in CSS px; the map draws the two prices as text, right
-// aligned at TAG_PRICE_RIGHT, so one image serves every elevator.
-const TAG_W = 104, TAG_BODY = 42, TAG_POINTER = 9
+// aligned at TAG_PRICE_RIGHT, so one image serves every elevator. TAG_W,
+// TAG_BODY and TAG_POINTER live in elevatorTags.ts (the declutter uses them).
 const TAG_PRICE_RIGHT = TAG_W - 7
 const TAG_TEXT_SIZE = 12
 
@@ -287,16 +287,26 @@ export function ensureElevatorLayer(map: maplibregl.Map) {
   }
 }
 
+/** Draws `pins` decluttered for the map's current zoom (owner 11/10: two
+ *  tags drawn over each other mixed their prices). Call again when the zoom
+ *  settles; it only resets the source when the kept set changes. */
 export function setElevatorPins(map: maplibregl.Map, pins: ElevatorPin[], visible: boolean) {
   ensureElevatorLayer(map)
-  ;(map.getSource(ELEVATOR_SOURCE) as maplibregl.GeoJSONSource)?.setData({
-    type: 'FeatureCollection',
-    features: pins.map(p => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-      properties: { id: p.id, has_bids: p.has_bids, company: p.company || '', name: p.name || '', tag: tagText(p) },
-    })),
-  } as any)
+  const kept = declutterTags(pins, map.getZoom())
+  const src = map.getSource(ELEVATOR_SOURCE) as (maplibregl.GeoJSONSource & { _ggKey?: string; _ggPins?: ElevatorPin[] }) | undefined
+  const key = kept.map(p => `${p.id}:${p.corn ?? ''}:${p.beans ?? ''}:${p.has_bids ? 1 : 0}`).join(',')
+  if (src && (src._ggPins !== pins || src._ggKey !== key)) {
+    src._ggPins = pins
+    src._ggKey = key
+    src.setData({
+      type: 'FeatureCollection',
+      features: kept.map(p => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+        properties: { id: p.id, has_bids: p.has_bids, company: p.company || '', name: p.name || '', tag: tagText(p) },
+      })),
+    } as any)
+  }
   map.setLayoutProperty(ELEVATOR_LAYER, 'visibility', visible ? 'visible' : 'none')
   // Keep the pins above every other layer (parcels, dots and tract pins are
   // added after the map loads, some of them later than this).

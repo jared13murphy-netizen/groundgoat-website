@@ -3719,6 +3719,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded || !isAdmin || !elevatorPins) return
     setElevatorPins(map, elevatorPins, elevatorsOn)
+    // Owner 11/10: re-declutter the price tags for the new zoom once the map
+    // settles, so two nearby elevators never draw overlapping tags.
+    const onMoveEnd = () => { try { setElevatorPins(map, elevatorPins, elevatorsOn) } catch { /* torn down */ } }
+    map.on('moveend', onMoveEnd)
+    return () => { map.off('moveend', onMoveEnd) }
   }, [mapLoaded, isAdmin, elevatorPins, elevatorsOn])
   useEffect(() => {
     const map = mapRef.current
