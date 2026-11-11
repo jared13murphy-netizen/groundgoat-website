@@ -12104,7 +12104,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {utilitiesView !== 'menu' && (
               <button
-                onClick={() => setUtilitiesView('menu')}
+                // Owner 11/11: Map Year's back goes to Layers.
+                onClick={() => setUtilitiesView(utilitiesView === 'year' && layersEnabled ? 'layers' : 'menu')}
                 aria-label="Back"
                 style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               >
@@ -12138,7 +12139,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   <UtilityTile
                     icon={<LayersIcon size={20} />}
                     label="Layers"
-                    active={baseOverlay !== null}
+                    // Owner 11/11: lit whenever ANY layer in the panel is on.
+                    active={baseOverlay !== null || Object.values(nationalOn).some(Boolean) || (canUseProjectMaps && myTractsOn) || (isAdmin && elevatorsOn)}
                     onClick={() => setUtilitiesView('layers')}
                   />
                 )}

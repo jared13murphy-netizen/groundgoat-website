@@ -3,7 +3,7 @@
 // ── Map layers panel v2 (owner approved 11/10) ─────────────────────────
 // Spec: ground-goat-backend/docs/layers-panel-v2-spec.md.
 // Top to bottom: header ("N on · Turn all off"), ON NOW chips, basemap
-// tiles, presets, then collapsible groups. REVISION 11/10: no switches —
+// tiles, then collapsible groups. REVISION 11/10: no switches —
 // every layer is a picture tile (3 per row); tap toggles. Under each
 // group's grid, every ON layer gets a compact settings strip (name +
 // legend/year chips + Opacity slider). ON tiles "breathe": the layer
@@ -350,40 +350,6 @@ export default function LayersPanel(p: LayersPanelProps) {
     for (const k of NATIONAL_OVERLAY_KEYS) if (p.nationalOn[k]) off[k] = false
     if (Object.keys(off).length) p.setNationalOn(off)
   }
-  // Preset helper: the free overlays a preset turns on, trimmed to what exists.
-  const availOverlays = (keys: NationalOverlayKey[]) => keys.filter(k => avail(k))
-  const allOn = (keys: NationalOverlayKey[]) => keys.every(k => !!p.nationalOn[k])
-  const setAll = (keys: NationalOverlayKey[], on: boolean, extra: Partial<Record<NationalOverlayKey, boolean>> = {}) =>
-    p.setNationalOn({ ...Object.fromEntries(keys.map(k => [k, on])), ...extra })
-
-  // Presets — only those whose layers exist for this user.
-  // Due diligence = Soil Types + Flood zones + Wetlands. Slope (and HEL) are
-  // one-at-a-time soil fills like Soil Types, so they cannot stack with it;
-  // they stay one tap away in Soil and crops.
-  const ddOverlays = availOverlays(['flood', 'wetlands'])
-  const huntOverlays = availOverlays(['public', 'protected'])
-  const presets: Array<{ id: string; label: string; active: boolean; apply: () => void }> = [
-    {
-      id: 'due-diligence', label: 'Due diligence',
-      active: p.baseOverlay === 'ssurgo' && allOn(ddOverlays),
-      apply: () => {
-        if (p.baseOverlay !== 'ssurgo') p.setBaseOverlay('ssurgo')
-        if (!allOn(ddOverlays)) setAll(ddOverlays, true)
-      },
-    },
-    // Hunting = Public land + Protected areas, light pollution off.
-    ...(huntOverlays.length ? [{
-      id: 'hunting', label: 'Hunting',
-      active: allOn(huntOverlays) && !p.nationalOn.light,
-      apply: () => setAll(huntOverlays, true, p.nationalOn.light ? { light: false } : {}),
-    }] : []),
-    ...(p.elevators.available ? [{
-      id: 'grain-market', label: 'Grain market',
-      active: p.elevators.on,
-      apply: () => { if (!p.elevators.on) p.elevators.toggle() },
-    }] : []),
-  ]
-
   const legendFor = (l: LayerDef): React.ReactNode => {
     switch (l.id) {
       case 'nccpi':
@@ -624,31 +590,7 @@ export default function LayersPanel(p: LayersPanelProps) {
         </div>
       </div>
 
-      {/* 4. Presets */}
-      {presets.length > 0 && (
-        <div>
-          <div style={sectionLabel}>Presets</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {presets.map(pr => (
-              <button
-                key={pr.id}
-                onClick={pr.apply}
-                aria-pressed={pr.active}
-                style={{
-                  height: 28, padding: '0 12px', borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  background: pr.active ? PINK : 'rgba(255,255,255,0.08)',
-                  border: `1px solid ${pr.active ? PINK : 'rgba(255,255,255,0.22)'}`,
-                  color: pr.active ? '#000' : 'rgba(255,255,255,0.85)',
-                }}
-              >
-                {pr.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 5. Groups */}
+      {/* 4. Groups */}
       {groups.filter(g => g.layers.length > 0 || g.alwaysShow).map(g => {
         const isCollapsed = !!collapsed[g.id]
         const onCount = g.layers.filter(l => l.on).length
