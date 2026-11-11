@@ -151,7 +151,7 @@ export interface LandDetailClickData {
   clickLng: number | null
   clickLat: number | null
   /** Which overlay was active when the user clicked (drives which section leads) */
-  activeOverlay: 'ssurgo' | 'nccpi' | 'crops' | 'csb' | 'fsa' | 'engine' | 'precip' | null
+  activeOverlay: 'ssurgo' | 'nccpi' | 'crops' | 'csb' | 'fsa' | 'engine' | 'precip' | 'slope' | 'hel' | null
   /** Task #26: distinguishes a direct parcel/dot click (auto-dismiss if the
       fetch resolves nothing — an empty shell is worse than no panel) from an
       informational overlay click (soil/CSB — the "no additional data"
@@ -174,6 +174,10 @@ export interface LandDetailClickData {
 interface LandDetailPanelProps {
   clickData: LandDetailClickData | null
   onClose: () => void
+  /** National map layers under this click (owner 11/10) — one line per ON
+      layer ("Flood zone: AE (1% annual chance) · SFHA"), read from the
+      rendered tiles by ExploreMap's click handler. Shown under the header. */
+  mapLayersHere?: Array<{ key: string; line: string }> | null
   /** Parcel Spotlight veil (2026-08-15): fired once this click's own
       /api/regrid/parcel fetch has settled (success, miss, or error) with
       the record's authoritative `_geometry` — or null if none is
@@ -265,7 +269,7 @@ export const ACTION_BTN: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-export default function LandDetailPanel({ clickData, onClose, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround, onFindComparables, onMapIt }: LandDetailPanelProps) {
+export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onGeometryResolved, onToggleReport, reportIds, canUseReports = true, compMode = false, onShowOwnedGround, onFindComparables, onMapIt }: LandDetailPanelProps) {
   // Show Owned Ground fetch is async and can take a moment on a large
   // owner; without a spinner the button looks dead and gets double-clicked
   // (owner 2026-08-20). Mobile already had one — this brings web to parity.
@@ -901,6 +905,23 @@ export default function LandDetailPanel({ clickData, onClose, onGeometryResolved
 
         {/* ── Scrollable body ─────────────────────────────────────── */}
         <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 24 }}>
+          {/* Map layers here (owner 11/10): the ON national layers under the click. */}
+          {mapLayersHere && mapLayersHere.length > 0 && (
+            <div
+              data-testid="map-layers-here"
+              style={{
+                margin: '12px 18px 2px', padding: '8px 12px', borderRadius: 10,
+                background: 'rgba(245,140,222,0.12)', border: '1px solid rgba(245,140,222,0.55)',
+              }}
+            >
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.8, color: 'rgba(0,0,0,0.5)', textTransform: 'uppercase', marginBottom: 3 }}>
+                Map layers here
+              </div>
+              {mapLayersHere.map(({ key, line }) => (
+                <div key={`${key}-${line}`} style={{ fontSize: 13, color: '#111', fontWeight: 500, lineHeight: 1.4 }}>{line}</div>
+              ))}
+            </div>
+          )}
           {/* LAST SALE sits ABOVE the cards, matching the app's sheet —
               owner 2026-08-22. Rendered here rather than in the section list
               below, which is why that list is passed hideLastSale. */}
