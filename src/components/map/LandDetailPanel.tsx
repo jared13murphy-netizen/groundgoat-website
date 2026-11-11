@@ -20,6 +20,9 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Mail, Download, Check, Loader2, Layers, BarChart3, Plus } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobEnqueue from '@/lib/reportJobs'
+import NotesTimeline from '@/components/notes/NotesTimeline'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
@@ -169,6 +172,9 @@ export interface LandDetailClickData {
       tile, not the parcel polygon) — those rely on `onGeometryResolved`
       alone. */
   tileGeometry?: GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+  /** Opened from a Notes search result (owner 11/10): never auto-close, so
+      the notes timeline shows even when the parcel record can't load. */
+  noteKey?: string | null
 }
 
 interface LandDetailPanelProps {
@@ -327,6 +333,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
   const [emailMessage, setEmailMessage] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  // "Notes on this report" (owner 11/10): which timeline entries print.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
 
   // Prefer the tile-carried ll_uuid (durable-dot clicks, which keep
   // working exactly as before). Fall back to the id captured off the
@@ -407,8 +415,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
     setEmailMessage(null)
     try {
       const res = llUuid
-        ? await reportJobEnqueue('parcel', 'email', { ll_uuid: llUuid })
-        : await reportJobEnqueue('parcel_by_point', 'email', reportPoint!)
+        ? await reportJobEnqueue('parcel', 'email', { ll_uuid: llUuid, notes_print: notesPrintBody(notesPrint) })
+        : await reportJobEnqueue('parcel_by_point', 'email', { ...reportPoint!, notes_print: notesPrintBody(notesPrint) })
       if (!res.ok) {
         setEmailStatus('error')
         setEmailMessage(await parseReportError(res))
@@ -429,8 +437,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
     setDownloadError(null)
     try {
       const res = llUuid
-        ? await reportJobEnqueue('parcel', 'download', { ll_uuid: llUuid })
-        : await reportJobEnqueue('parcel_by_point', 'download', reportPoint!)
+        ? await reportJobEnqueue('parcel', 'download', { ll_uuid: llUuid, notes_print: notesPrintBody(notesPrint) })
+        : await reportJobEnqueue('parcel_by_point', 'download', { ...reportPoint!, notes_print: notesPrintBody(notesPrint) })
       if (!res.ok) {
         setDownloadError(await parseReportError(res))
         setDownloading(false)
@@ -706,7 +714,7 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
   // data available" empty state below. Undefined source (shouldn't happen —
   // every open site sets it) defaults to the safer 'parcel' behavior.
   const fetchSettledForThisClick = settledForRef.current === clickData
-  const shouldAutoClose = isOpen && fetchSettledForThisClick && isEmptyResult && clickData?.source !== 'overlay'
+  const shouldAutoClose = isOpen && fetchSettledForThisClick && isEmptyResult && clickData?.source !== 'overlay' && !clickData?.noteKey
 
   // Task #26 defect 2: once the fetch settles, if this was a dot/parcel
   // click and it resolved to nothing meaningful, close the panel instead of
@@ -1160,6 +1168,16 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
             </div>
           )}
 
+          {/* Notes timeline (owner 11/10): this parcel's dated entries. */}
+          {(clickData?.noteKey || llUuid) && clickData?.source !== 'overlay' && (
+            <div data-testid="parcel-notes" style={{ padding: '14px 16px 4px' }}>
+              <NotesTimeline theme="light" itemKey={clickData?.noteKey || `p:${String(llUuid).toLowerCase()}`}
+                             label={owner || null} county={county && county !== 'Unknown' ? county : null}
+                             state={state && state !== 'Unknown' ? state : null}
+                             latitude={ownedGroundLat} longitude={ownedGroundLng} />
+            </div>
+          )}
+
           {/* ── Disclaimer — owner-requested (2026-08-14), always renders
               as the last item in the scroll area regardless of which
               sections above are present. Verbatim text (shared constant,
@@ -1193,6 +1211,11 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
                 is unchanged: Configure Map and Find Comps need a resolved
                 ll_uuid; Download / Email / Find Comps need report access;
                 in comp mode only the Report toggle shows. */}
+            {canUseReports && !compMode && (
+              <div style={{ marginBottom: 8, color: 'rgba(0,0,0,0.6)' }}>
+                <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint} />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 6 }}>
               {llUuid && !compMode && onMapIt && (
                 <button

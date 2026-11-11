@@ -101,6 +101,7 @@ import {
   Bookmark as SavedReportsIcon,
   StickyNote,
 } from 'lucide-react'
+import { locateNoteItem } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -11750,7 +11751,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           onShowProject={(id) => { void showSavedProject(id) }}
           onOpenSavedReport={onOpenSavedReport ? (id) => { setSavedPanelOpen(false); onOpenSavedReport(id) } : undefined}
           onOpenNoteResult={(r) => {
-            // Owner 11/10: a Notes search result opens its item.
+            // Owner 11/10: a Notes search result ALWAYS flies to its item and
+            // opens its panel; if the record can't load, the parcel panel
+            // still opens there with the item's notes (never a dead end).
             const it = r.item
             setSavedPanelOpen(false)
             setUtilitiesOpen(false)
@@ -11760,19 +11763,30 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               setTimeout(() => setSavedTractOpen({ id: it.id! }), 0)
               return
             }
-            const lat = it.latitude, lng = it.longitude
-            if (lat != null && lng != null && mapRef.current) {
-              mapRef.current.flyTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 14.5), duration: 900 })
-            }
-            if (it.kind === 'tract') {
-              if (it.listing_id && onViewListing) onViewListing(it.listing_id)
-              return
-            }
-            setLandDetail({
-              parcelProps: null, soilProps: null, csbProps: null, ll_uuid: it.kind === 'parcel' ? it.id : null,
-              clickLng: lng ?? null, clickLat: lat ?? null,
-              activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null,
-            })
+            void (async () => {
+              const at = await locateNoteItem(it)
+              if (at && mapRef.current) {
+                mapRef.current.flyTo({ center: [at.lng, at.lat], zoom: Math.max(mapRef.current.getZoom(), 14.5), duration: 900 })
+              }
+              if (it.kind === 'tract' && it.id) {
+                const open = () => {
+                  const t = tractMapRef.current.get(it.id!)
+                  if (!t) return false
+                  const sd = buildTractSaleDetail(t)
+                  setLandDetail(null)
+                  if (portalMode && onTractSelected) { lastPortalSaleRef.current = sd; onTractSelected(sd) } else setSelectedSale(sd)
+                  return true
+                }
+                // The tract loads with the view it flew to.
+                for (let i = 0; i < 10 && !open(); i++) await new Promise((res) => setTimeout(res, 500))
+                if (tractMapRef.current.get(it.id)) return
+              }
+              setLandDetail({
+                parcelProps: null, soilProps: null, csbProps: null, ll_uuid: it.kind === 'parcel' ? it.id : null,
+                clickLng: at?.lng ?? null, clickLat: at?.lat ?? null,
+                activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null, noteKey: it.key,
+              })
+            })()
           }}
           onChanged={refreshMyTracts}
           onEditTract={(t) => {
