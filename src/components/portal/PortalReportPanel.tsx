@@ -116,7 +116,8 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       company_name: t.companyName,
       source: t.savedId ? 'saved' : t.tractId ? 'tract' : 'parcel',
       cm_id: t.savedId || null,
-      ll_uuid: t.tractId || t.savedId ? null : asRealUuid(t.id),
+      // Owner 11/11: the parcel's real ll_uuid first (same rule as noteKeyForRow), so its notes print.
+      ll_uuid: t.tractId || t.savedId ? null : (asRealUuid(t.llUuid) || asRealUuid(t.id)),
       owner: t.owner ?? null,
       latitude: t.latitude ?? null,
       longitude: t.longitude ?? null,
