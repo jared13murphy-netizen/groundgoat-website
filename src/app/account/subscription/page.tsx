@@ -442,6 +442,30 @@ export default function SubscriptionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, subscriptionData, user])
 
+  // Arriving from the Account page's "Add a State" (?addState=1): open the
+  // Add State picker. Apple-billed plans can only change in the app.
+  const addStateParamHandled = useRef(false)
+  useEffect(() => {
+    if (loading || addStateParamHandled.current || typeof window === 'undefined') return
+    if (new URLSearchParams(window.location.search).get('addState') !== '1') return
+    if (!subscriptionData || !user) return
+    addStateParamHandled.current = true
+    router.replace('/account/subscription')
+    const active = subscriptionData.areas?.filter((sub: any) => sub.status === 'active' || sub.status === 'trialing') || []
+    if (active.some((sub: any) => sub.payment_platform === 'apple')) {
+      setError('You subscribed in the Ground Goat app, so Apple handles your billing. Add states in the app: Profile → Add a State.')
+    } else if (active.length >= MAX_STATES) {
+      setError(`Your plan already covers ${MAX_STATES} states, the most a subscription can include.`)
+    } else if (active.length > 0 && canManageSubscription()) {
+      setShowAddModal(true)
+      setError('')
+      setAddStateStep('select')
+      setSelectedState('')
+      fetchAvailableStates()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, subscriptionData, user])
+
   // Arriving from /upgrade with a state to add (?add=Iowa): open the Add
   // State modal on that state, so it goes through the confirm-and-charge
   // add-state flow rather than a second checkout.
@@ -459,7 +483,7 @@ export default function SubscriptionPage() {
     if (owned) {
       setSuccessMessage(`${add} is already on your plan.`)
     } else if (apple) {
-      setError('Your subscription is managed through the App Store. Add states in the Ground Goat app.')
+      setError(`You subscribed in the Ground Goat app, so Apple handles your billing. Add ${add} in the app: Profile → Add a State.`)
     } else if (active.length >= MAX_STATES) {
       setError(`Your plan already covers ${MAX_STATES} states, the most a subscription can include.`)
     } else if (active.length > 0 && canManageSubscription()) {
@@ -510,7 +534,7 @@ export default function SubscriptionPage() {
   const cycle: BillingCycle = currentBillingCycle === 'monthly' ? 'monthly' : 'annual'
   const unit = cycleUnit(cycle)
   const statePlan = currentPlanType === 'premium_state' ? 'premium_state' : 'basic_state'
-  const extraRow = activeSubscriptions.find(sub => !sub.is_primary && sub.monthly_price > 0)
+  const extraRow = activeSubscriptions.find(sub => sub.is_primary === false && sub.monthly_price > 0)
   const firstRowPrice = activeSubscriptions.find(sub => sub.is_primary)?.monthly_price ?? activeSubscriptions[0]?.monthly_price
   const perStatePrice = extraRow
     ? extraRow.monthly_price
@@ -578,10 +602,10 @@ export default function SubscriptionPage() {
               <div>
                 <h3 className="font-semibold text-white">Managed through the App Store</h3>
                 <p className="text-gg-gray-400 text-sm mt-1">
-                  You subscribed through the Ground Goat iOS app, so billing is handled by Apple.
-                  To change your plan, update your payment method, or cancel, open
-                  <span className="text-white"> Settings &gt; [your name] &gt; Subscriptions</span> on
-                  your iPhone, or manage it in the Ground Goat app.
+                  You subscribed through the Ground Goat iPhone app, so billing is handled by Apple.
+                  To add a state or upgrade to Premium, open the Ground Goat app and go to
+                  <span className="text-white"> Profile</span>. To update your payment method or cancel, open
+                  <span className="text-white"> Settings &gt; [your name] &gt; Subscriptions</span> on your iPhone.
                 </p>
                 {applePastDue && (
                   <p className="text-gg-gray-400 text-sm mt-2">
@@ -909,17 +933,17 @@ export default function SubscriptionPage() {
                     <div className="relative">
                       <button
                         onClick={() => setShowStateDropdown(!showStateDropdown)}
-                        className="w-full bg-gg-gray-800 border border-gg-gray-700 rounded-lg px-4 py-3 text-left text-white flex items-center justify-between"
+                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-left text-[#1a1a1a] flex items-center justify-between focus:border-gg-pink focus:outline-none"
                       >
-                        <span className={selectedState ? 'text-white' : 'text-gg-gray-500'}>
+                        <span className={selectedState ? 'text-[#1a1a1a]' : 'text-gray-400'}>
                           {selectedState || 'Select a state...'}
                         </span>
-                        <ChevronDown size={20} className="text-gg-gray-500" />
+                        <ChevronDown size={20} className="text-gray-400" />
                       </button>
                       {showStateDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-gg-gray-800 border border-gg-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl max-h-60 overflow-y-auto">
                           {loadingStates ? (
-                            <div className="px-4 py-3 text-gg-gray-400 flex items-center gap-2">
+                            <div className="px-4 py-3 text-gray-500 flex items-center gap-2">
                               <Loader2 size={16} className="animate-spin" /> Loading...
                             </div>
                           ) : availableStates.map(state => {
@@ -936,7 +960,7 @@ export default function SubscriptionPage() {
                                   }
                                 }}
                                 disabled={isSubscribed}
-                                className={`w-full px-4 py-3 text-left ${isSubscribed ? 'text-gg-gray-600 cursor-not-allowed' : 'text-gg-gray-300 hover:bg-gg-gray-700 hover:text-white'}`}
+                                className={`w-full px-4 py-3 text-left ${isSubscribed ? 'text-gray-400 cursor-not-allowed' : 'text-[#1a1a1a] hover:bg-gray-100'}`}
                               >
                                 {state} {isSubscribed ? '(subscribed)' : ''}
                               </button>

@@ -30,6 +30,14 @@ function AccountContent() {
   // Premium State subscribers also get the website map for their state(s)
   // (owner 2026-09-15, item 18). The app CTA below must not tell them their
   // plan lives only in the app.
+  // Plan actions right on the Account page (owner 11/11): Add a State and, for
+  // Basic State, Upgrade to Premium. Apple-billed plans change in the app.
+  const activeStateAreas = (subscriptionData?.areas || []).filter(
+    (a: any) => ['basic_state', 'premium_state'].includes(a.subscription_type) && ['active', 'trialing'].includes(a.status),
+  )
+  const appleBilled = activeStateAreas.some((a: any) => a.payment_platform === 'apple')
+  const onBasic = activeStateAreas.length > 0 && activeStateAreas.every((a: any) => a.subscription_type === 'basic_state')
+  const canAddState = activeStateAreas.length > 0 && activeStateAreas.length < 5
   const hasWebMap = isRestrictedIndividual(user)
   const webMapStates = hasWebMap ? formatStateList(getAllowedStates(user) || []) : ''
   const [sendingVerification, setSendingVerification] = useState(false)
@@ -296,6 +304,39 @@ const handleResendVerification = async () => {
             </div>
           )
         })()}
+
+        {/* Plan actions: Add a State / Upgrade to Premium */}
+        {activeStateAreas.length > 0 && (canAddState || onBasic) && (
+          <div className="mb-6 card">
+            <h3 className="font-semibold text-white mb-1">Grow your plan</h3>
+            {appleBilled ? (
+              <p className="text-gg-gray-400 text-sm">
+                You subscribed in the Ground Goat app, so Apple handles your billing. To add a state
+                {onBasic ? ' or upgrade to Premium' : ''}, open the app and go to <span className="text-white">Profile</span>.
+              </p>
+            ) : (
+              <>
+                <p className="text-gg-gray-400 text-sm mb-4">
+                  Add another state for every county in it{onBasic ? ', or upgrade to Premium for soil ratings, comparable sales and Land Reports' : ''}.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {canAddState && (
+                    <Link href="/account/subscription?addState=1" className="btn-secondary inline-flex items-center justify-center gap-2 text-sm py-2.5">
+                      <MapPin size={16} />
+                      Add a State
+                    </Link>
+                  )}
+                  {onBasic && (
+                    <Link href="/account/subscription?upgrade=premium" className="btn-primary inline-flex items-center justify-center gap-2 text-sm py-2.5">
+                      Upgrade to Premium
+                      <ChevronRight size={16} />
+                    </Link>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Download App CTA */}
         <div className="mb-6 bg-gradient-to-r from-gg-pink/10 to-gg-pink-dark/10 border-2 border-gg-pink/40 rounded-xl p-6">
