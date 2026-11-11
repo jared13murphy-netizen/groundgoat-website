@@ -534,7 +534,7 @@ export default function SubscriptionPage() {
   const cycle: BillingCycle = currentBillingCycle === 'monthly' ? 'monthly' : 'annual'
   const unit = cycleUnit(cycle)
   const statePlan = currentPlanType === 'premium_state' ? 'premium_state' : 'basic_state'
-  const extraRow = activeSubscriptions.find(sub => !sub.is_primary && sub.monthly_price > 0)
+  const extraRow = activeSubscriptions.find(sub => sub.is_primary === false && sub.monthly_price > 0)
   const firstRowPrice = activeSubscriptions.find(sub => sub.is_primary)?.monthly_price ?? activeSubscriptions[0]?.monthly_price
   const perStatePrice = extraRow
     ? extraRow.monthly_price
