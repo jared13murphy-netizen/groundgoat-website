@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { PRICING, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
+import { PRICING, FREE_LABEL, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
+import { PLAN_LANDING_PATH } from '@/config/planLanding'
 import Image from 'next/image'
 import { 
   MapPin, 
@@ -96,6 +97,15 @@ export default function Home() {
   const [pricingCycle, setPricingCycle] = useState<BillingCycle>('monthly')
   const [currentSlide, setCurrentSlide] = useState(0)
   const [userLocation, setUserLocation] = useState<string | null>(null)
+
+  // Arriving with a hash (e.g. "Compare all plans" → /#pricing): this page renders
+  // on the client, so the browser's own jump fires before the section exists.
+  useEffect(() => {
+    const id = window.location.hash.slice(1)
+    if (!id) return
+    const t = setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }), 300)
+    return () => clearTimeout(t)
+  }, [])
 
   // Redirect logged-in management/admin users to /access
   useEffect(() => {
@@ -511,7 +521,7 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             {/* Basic State Plan */}
             <div className="card relative flex flex-col">
-              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">30-day free trial</span>
+              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">{FREE_LABEL}</span>
               <h3 className="font-display text-2xl font-bold text-white mb-2">Basic State</h3>
               <p className="text-gg-gray-400 mb-6">For active land investors</p>
               <div className="mb-1">
@@ -549,8 +559,8 @@ export default function Home() {
                   Interactive Map
                 </li>
               </ul>
-              <Link href={`/signup?plan=basic_state&cycle=${pricingCycle}`} className="btn-secondary w-full text-center block">
-                Start 30-Day Free Trial
+              <Link href={`${PLAN_LANDING_PATH.basic_state}?cycle=${pricingCycle}`} className="btn-secondary w-full text-center block">
+                Get {FREE_LABEL}
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
                 {pricingCycle === 'monthly' ? 'Billed monthly' : 'Billed annually'} • Cancel anytime
@@ -562,7 +572,7 @@ export default function Home() {
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gg-pink text-black text-sm font-semibold px-4 py-1 rounded-full">
                 Most Popular
               </div>
-              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">30-day free trial</span>
+              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">{FREE_LABEL}</span>
               <h3 className="font-display text-2xl font-bold text-white mb-2">Premium State</h3>
               <p className="text-gg-gray-400 mb-6">For data-driven land professionals</p>
               <div className="mb-1">
@@ -592,8 +602,8 @@ export default function Home() {
                   Advanced land analytics
                 </li>
               </ul>
-              <Link href={`/signup?plan=premium_state&cycle=${pricingCycle}`} className="btn-primary w-full text-center block">
-                Start 30-Day Free Trial
+              <Link href={`${PLAN_LANDING_PATH.premium_state}?cycle=${pricingCycle}`} className="btn-primary w-full text-center block">
+                Get {FREE_LABEL}
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
                 {pricingCycle === 'monthly' ? 'Billed monthly' : 'Billed annually'} • Cancel anytime
@@ -602,7 +612,7 @@ export default function Home() {
 
             {/* Management Firm Plan */}
             <div className="card relative flex flex-col">
-              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">30-day free trial</span>
+              <span className="inline-block text-gg-pink text-sm font-semibold mb-3">{FREE_LABEL}</span>
               <h3 className="font-display text-2xl font-bold text-white mb-2">Management Firm</h3>
               <p className="text-gg-gray-400 mb-6">For teams and professionals</p>
               <div className="mb-1">
@@ -640,8 +650,8 @@ export default function Home() {
                   Priority support
                 </li>
               </ul>
-              <Link href="/signup?plan=firm" className="btn-secondary w-full text-center block">
-                Start 30-Day Free Trial
+              <Link href={PLAN_LANDING_PATH.firm} className="btn-secondary w-full text-center block">
+                Get {FREE_LABEL}
               </Link>
               <p className="text-center text-gg-gray-500 text-sm mt-4">
                 Billed annually • Cancel anytime

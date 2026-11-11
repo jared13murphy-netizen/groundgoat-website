@@ -1600,7 +1600,7 @@ function SignUpContent() {
                   disabled={selectedAreas.length === 0}
                   className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Start Free Trial
+                  Start My 30 Days Free
                   <ArrowRight size={20} />
                 </button>
               </div>
@@ -1804,7 +1804,7 @@ function SignUpContent() {
                   onClick={handleContinue}
                   className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
-                  Start Free Trial
+                  Start My 30 Days Free
                   <ArrowRight size={20} />
                 </button>
               </div>

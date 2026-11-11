@@ -663,7 +663,7 @@ export default function TeamPage() {
                 <h2 className="font-display text-xl font-semibold text-white mb-2">Add users to your plan</h2>
                 <p className="text-gg-gray-400 text-sm mb-4">
                   You are using {teamMembers.length + 1} of {maxSeats} users. Each additional user is {seatPriceLabel}, up to {maxTotalUsers} users total.
-                  {trialDate ? ` Nothing is charged until your trial ends on ${trialDate}; new users are then billed with your plan.` : ' New users are prorated for the rest of your current billing period.'}
+                  {trialDate ? ` Nothing is charged until your free days end on ${trialDate}; new users are then billed with your plan.` : ' New users are prorated for the rest of your current billing period.'}
                 </p>
                 <label className="block text-sm font-medium text-gg-gray-300 mb-2">How many users to add?</label>
                 <div className="flex items-center gap-3 mb-6">
