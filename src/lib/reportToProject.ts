@@ -39,7 +39,24 @@ export interface ReportItem {
 }
 
 export interface ProjectChoice { id: string; name: string; shared: boolean; shared_by: string | null; parcels: number; updated_at: string }
-export interface PreviewConflict { project_id: string; project_name: string; count: number; keys: string[]; text: string }
+export interface ProjectRef { id: string; name: string }
+/** v2 (owner 11/10): a farm can be in many projects — there are no conflicts.
+ *  `existing` = already a farm in the user's scope: it is LINKED, keeping its drawing. */
+export type PreviewItemStatus = 'new' | 'existing' | 'in_target' | 'unsavable'
+export interface PreviewItem {
+  key: string
+  kind: 'tract' | 'parcel' | 'saved'
+  subject: boolean
+  status: PreviewItemStatus
+  reason: string | null
+  label: string | null
+  in_projects?: ProjectRef[]
+  acres?: number | null
+  tillable_acres?: number | null
+  pct_tillable?: number | null
+  soil_rating?: number | null
+  sale_price?: number | null
+}
 export interface Preview {
   ok_to_save: boolean
   over_cap: boolean
@@ -48,21 +65,33 @@ export interface Preview {
   note: string | null
   default_name: string
   duplicates_removed: number
-  counts: { parcels: number; tracts: number; total: number; new: number; conflicts: number; already_in_project: number; unsavable: number } | null
+  counts: {
+    parcels: number; tracts: number; total: number; new: number; existing?: number
+    already_in_project: number; unsavable: number
+    /** v1 only; always 0 in v2. */
+    conflicts?: number
+  } | null
   summary_text: string | null
-  conflicts: PreviewConflict[]
+  /** v1 only; always [] in v2 — never shown. */
+  conflicts?: unknown[]
   unsavable: { key: string; kind: string; reason: string }[]
-  items: any[]
+  items: PreviewItem[]
   projects: ProjectChoice[]
   target: { owner_id: string; project_id: string | null; name: string | null }
   share_available: boolean
 }
+export type SaveItemStatus = 'saved' | 'linked' | 'already_in_project' | 'skipped'
 export interface SaveResult {
   ok: boolean
   project: { id: string; name: string; created: boolean; owned: boolean }
-  counts: { saved: number; moved: number; left: number; already_in_project: number; skipped: number; duplicates_removed: number }
+  counts: {
+    saved: number; linked?: number; already_in_project: number; skipped: number; duplicates_removed: number
+    /** v1 only; always 0 in v2. */
+    moved?: number; left?: number
+  }
   summary_text: string
   item_ids: string[]
+  items?: { key: string; status: SaveItemStatus; id: string | null }[]
   saved_report: { id: string; name: string } | null
   share_available: boolean
   idempotency_key: string
@@ -185,7 +214,6 @@ export interface SaveBody {
   items: ReportItem[]
   project_id: string | null
   name: string | null
-  conflict: 'move' | 'leave'
   report?: { name?: string | null; subject: Record<string, any>; items: any[] } | null
 }
 
