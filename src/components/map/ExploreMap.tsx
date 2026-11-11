@@ -11745,6 +11745,31 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           onShowTract={(id) => { void showSavedTract(id) }}
           onShowProject={(id) => { void showSavedProject(id) }}
           onOpenSavedReport={onOpenSavedReport ? (id) => { setSavedPanelOpen(false); onOpenSavedReport(id) } : undefined}
+          onOpenNoteResult={(r) => {
+            // Owner 11/10: a Notes search result opens its item.
+            const it = r.item
+            setSavedPanelOpen(false)
+            setUtilitiesOpen(false)
+            if (it.kind === 'saved' && it.id) {
+              void showSavedTract(it.id)
+              setLandDetail(null)
+              setTimeout(() => setSavedTractOpen({ id: it.id! }), 0)
+              return
+            }
+            const lat = it.latitude, lng = it.longitude
+            if (lat != null && lng != null && mapRef.current) {
+              mapRef.current.flyTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 14.5), duration: 900 })
+            }
+            if (it.kind === 'tract') {
+              if (it.listing_id && onViewListing) onViewListing(it.listing_id)
+              return
+            }
+            setLandDetail({
+              parcelProps: null, soilProps: null, csbProps: null, ll_uuid: it.kind === 'parcel' ? it.id : null,
+              clickLng: lng ?? null, clickLat: lat ?? null,
+              activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null,
+            })
+          }}
           onChanged={refreshMyTracts}
           onEditTract={(t) => {
             setSavedPanelOpen(false)

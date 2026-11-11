@@ -24,6 +24,7 @@ import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { formatAcres } from '@/lib/format'
 import { DetailRow, Section } from './parcelDetailFields'
 import { ACTION_BTN, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
+import NotesTimeline from '@/components/notes/NotesTimeline'
 
 const PINK = '#F58CDE'
 const MAP_REPORT_KINDS: ReportKind[] = ['soil_map', 'ground_goat', 'elevation_3d']
@@ -316,6 +317,14 @@ export default function SavedTractPanel({
                 ))}
               </Section>
             )}
+
+            {/* Notes timeline (owner 11/10): this tract's own entries plus the
+                history of the parcels / auction tract it was saved from. */}
+            <div data-testid="saved-tract-notes" style={{ padding: '12px 18px 4px' }}>
+              <NotesTimeline theme="light" itemKey={`cm:${detail.id}`} label={detail.name || null}
+                             county={detail.county || null} state={detail.state || null}
+                             latitude={lat} longitude={lng} />
+            </div>
 
             {/* Reports */}
             <Section title="Reports">

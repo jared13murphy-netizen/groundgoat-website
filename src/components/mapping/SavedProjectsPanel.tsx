@@ -13,7 +13,7 @@
 import useSlide from '@/lib/useSlide'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, Trash2, Upload, X,
+  Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, StickyNote, Trash2, Upload, X,
 } from 'lucide-react'
 import {
   archiveParcel, createProject, deleteReport, downloadReport, duplicateProject, firmMembers,
@@ -26,6 +26,9 @@ import {
 } from '@/lib/configurableMapping'
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
 import { SavedReportCard } from '@/components/mapping/SavedReportsPanel'
+import NotesTimeline from '@/components/notes/NotesTimeline'
+import NotesSearch from '@/components/notes/NotesSearch'
+import type { NoteSearchResult } from '@/lib/notes'
 
 const PINK = '#F58CDE'
 /** Same default the old Configure Map slider started at. */
@@ -56,6 +59,8 @@ interface Props {
   newProjectNonce?: number
   /** Owner 11/3: open a saved comp report (rebuilt live) in the report panel. */
   onOpenSavedReport?: (id: string) => void
+  /** Owner 11/10: open the item a Notes search result points at. */
+  onOpenNoteResult?: (r: NoteSearchResult) => void
 }
 
 const panel: CSSProperties = {
@@ -111,7 +116,12 @@ type Detail = { loading: boolean; error?: string; parcels: SavedParcelRow[] }
 
 export default function SavedProjectsPanel({
   open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged, newProjectNonce = 0, onOpenSavedReport,
+  onOpenNoteResult,
 }: Props) {
+  // Owner 11/10: the cross-item Notes search, and which tract cards show their timeline.
+  const [notesOpen, setNotesOpen] = useState(false)
+  const [notesFor, setNotesFor] = useState<Record<string, boolean>>({})
+  const [noteCounts, setNoteCounts] = useState<Record<string, number>>({})
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -449,9 +459,28 @@ export default function SavedProjectsPanel({
 
   return (
     <div data-gg-saved-panel="" style={{ ...panel, transform: slide.shown ? 'translateX(0)' : 'translateX(100%)' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+      {notesOpen && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, background: 'rgba(0,0,0,0.97)', padding: 12, display: 'flex', flexDirection: 'column' }}>
+          <NotesSearch onClose={() => setNotesOpen(false)} onOpen={(r) => {
+            if (r.item.kind === 'saved' && r.item.project_id) {
+              // Open the project in this panel and fly to the tract, then hand off.
+              setExpanded((x) => ({ ...x, [r.item.project_id!]: true }))
+              void loadDetail(r.item.project_id, true)
+              if (r.item.id) setNotesFor((x) => ({ ...x, [r.item.id!]: true }))
+            }
+            setNotesOpen(false)
+            onOpenNoteResult?.(r)
+          }} />
+        </div>
+      )}
       <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>Saved Projects</span>
+          <button type="button" data-testid="open-notes-search" title="Search every note"
+                  style={{ ...pinkBtn, background: 'none', color: '#fff', border: '1px solid rgba(255,255,255,0.35)' }}
+                  onClick={() => setNotesOpen(true)}>
+            <StickyNote size={13} /> Notes
+          </button>
           <button type="button" style={pinkBtn} onClick={() => setCreating(creating === null ? '' : null)}>
             <FolderPlus size={13} /> New Project
           </button>
@@ -788,6 +817,18 @@ export default function SavedProjectsPanel({
                             </div>
                           )}
                           <div style={muted}>{mapLine(t)}</div>
+                          <button type="button" data-testid="tract-notes-toggle"
+                                  onClick={(e) => { e.stopPropagation(); setNotesFor((x) => ({ ...x, [t.id]: !x[t.id] })) }}
+                                  style={{ background: 'none', border: 'none', padding: 0, marginTop: 4, color: PINK, cursor: 'pointer', fontSize: 11,
+                                           display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <StickyNote size={11} /> {notesFor[t.id] ? 'Hide notes' : noteCounts[t.id] ? `Notes (${noteCounts[t.id]})` : 'Notes'}
+                          </button>
+                          {notesFor[t.id] && (
+                            <div style={{ marginTop: 6, cursor: 'default' }} onClick={(e) => e.stopPropagation()}>
+                              <NotesTimeline compact theme="dark" itemKey={`cm:${t.id}`} label={t.name || null}
+                                             onCount={(n) => setNoteCounts((x) => (x[t.id] === n ? x : { ...x, [t.id]: n }))} />
+                            </div>
+                          )}
                           {reportsForTract(t.id).length > 0 && (
                             <div style={{ marginTop: 2 }} onClick={(e) => e.stopPropagation()}>
                               <div style={{ ...muted, fontWeight: 600, marginTop: 6 }}>Comp reports</div>

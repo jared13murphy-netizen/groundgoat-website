@@ -1,6 +1,8 @@
 'use client'
 
-import ReportRowNotes from './ReportRowNotes'
+import NotesTimeline from '@/components/notes/NotesTimeline'
+import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import { DEFAULT_NOTES_PRINT, noteKeyForRow, notesPrintBody, type NotesPrint } from '@/lib/notes'
 import CardThumb from '@/components/CardThumb'
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
@@ -80,6 +82,8 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  // Owner 11/10: what the report prints from each item's notes timeline.
+  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
 
   // Build the request body shared by the email + download endpoints. Both
   // endpoints take the same shape; only the response handling differs.
@@ -116,8 +120,10 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       owner: t.owner ?? null,
       latitude: t.latitude ?? null,
       longitude: t.longitude ?? null,
-      notes: (t.notes || '').trim() || null,
     })),
+    // Notes timeline (owner 11/10): the server reads each item's timeline
+    // itself; only the print choice goes up. Internal entries never print.
+    notes_print: notesPrintBody(notesPrint),
   })
 
 
@@ -343,12 +349,19 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                       </div>
                     )}
                   
-                  {/* Per-row notes (owner 2026-10-29): typed here, printed at the
-                      top of this row's page in the PDF. */}
-                  <ReportRowNotes
-                    value={t.notes}
-                    onSave={(notes) => onUpdateTract?.(t.id, { notes })}
-                  />
+                  {/* Notes timeline (owner 11/10): dated entries on the land itself —
+                  
+                      they follow this parcel/tract into every report and project. */}
+                  
+                  <div className="px-4 pb-3 pt-2 border-t border-white/5">
+                  
+                    <NotesTimeline compact theme="dark" itemKey={noteKeyForRow(t)}
+                  
+                      label={t.companyName || t.owner || null} county={t.county} state={t.state}
+                  
+                      latitude={t.latitude ?? null} longitude={t.longitude ?? null} />
+                  
+                  </div>
                     </div>
                   </div>
                 ))}
@@ -361,7 +374,9 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       {/* Sticky Footer — Download + Email buttons. Download is web-only;
           Email works for both web and mobile and produces the same PDF. */}
       {tracts.length > 0 && (
-        <div className="px-5 py-4 border-t border-white/5 shrink-0 flex gap-2">
+        <div className="border-t border-white/5 shrink-0">
+        <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} />
+        <div className="px-5 py-4 shrink-0 flex gap-2">
           <button
             onClick={handleSaveReport}
             disabled={saveState === 'saving'}
@@ -409,6 +424,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
               <><Mail size={16} /> Email Report</>
             )}
           </button>
+        </div>
         </div>
       )}
     </motion.div>
