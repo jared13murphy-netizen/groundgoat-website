@@ -232,7 +232,7 @@ export default function NotesTimeline({
         <div data-testid="notes-form" style={{ marginTop: 8, padding: 10, borderRadius: 10, background: c.card, border: `1px solid ${c.line}`,
                                               display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', gap: 6 }}>
-            <label style={{ flex: 1, fontSize: 10, color: c.muted }}>Date of the work
+            <label style={{ flex: 1, fontSize: 10, color: c.muted }}>Date
               <input type="date" style={input} value={draft.entry_date} data-testid="notes-date"
                      onChange={(e) => setDraft({ ...draft, entry_date: e.target.value })} />
             </label>
