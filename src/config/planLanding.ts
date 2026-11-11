@@ -28,20 +28,13 @@ export interface PlanLandingContent {
   headline: string
   headlineAccent: string
   subhead: string
-  audience: string
   highlights: PlanHighlight[]
-  faq: { q: string; a: string }[]
   /** App-only plan (Basic State): the hero shows the app instead of the website map. */
   appOnly?: boolean
   heroImage?: string
   /** Extra lines for this page's price card, on top of pricing.ts (features coming to the plan). */
   extraFeatures?: string[]
 }
-
-const COMMON_FAQ = [
-  { q: 'When am I charged?', a: 'Not for 30 days. Your first charge comes when your 30 days free end, and you can cancel any time before then.' },
-  { q: 'Can I cancel?', a: 'Yes, any time from your account. You keep access until the end of the period you have paid for.' },
-]
 
 export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
   basic_state: {
@@ -53,7 +46,6 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     headline: 'Every land sale in your state,',
     headlineAccent: 'right in your pocket.',
     subhead: 'Upcoming auctions, sale results and Goat Search for every county in your state, in the Ground Goat app, with alerts when new ground comes up.',
-    audience: 'For farmers and land investors watching their state',
     appOnly: true,
     heroImage: '/landing/basic-app-home.jpg',
     extraFeatures: ['Goat Search', 'Save parcels and auctions'],
@@ -64,11 +56,6 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
       { icon: 'search', title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Illinois this month?", and get the answer in seconds.', image: '/landing/basic-app-goat.jpg', frame: 'phone', alt: 'Goat Search answering a question about upcoming Illinois auctions' },
       { icon: 'folder', title: 'Save the ground you are watching', body: 'Save parcels and auctions with one tap, keep them in one list, and add sale day to your calendar.', image: '/landing/basic-app-saved.jpg', frame: 'phone', alt: 'Saved auctions in the Ground Goat app' },
     ],
-    faq: [
-      ...COMMON_FAQ,
-      { q: 'Where do I use Basic State?', a: 'In the Ground Goat app on iPhone and Android. Premium State adds the full website, soil maps and comparable sales reports.' },
-      { q: 'Can I add more states?', a: 'Yes. Choose up to 5 states. Each state after your first is half price.' },
-    ],
   },
   premium_state: {
     plan: 'premium_state',
@@ -78,18 +65,12 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     eyebrow: 'Premium State',
     headline: 'Know what the ground is worth',
     headlineAccent: 'before you bid.',
-    subhead: 'Everything in Basic State, plus soil ratings, tillable acres, comparable sales reports and Goat Search, so you can price any farm in minutes.',
-    audience: 'For data-driven buyers, sellers and land professionals',
+    subhead: 'Everything in Basic State, plus soil ratings, tillable acres, comparable sales reports and Goat Search, so you can price any farm in seconds.',
     highlights: [
       { icon: 'layers', title: 'Soil and tillable acres for any parcel', body: 'Tap any parcel to see its owner, tillable acres, soil rating and crops planted, with soil maps and map layers on top.', image: '/landing/premium-soils.jpg', alt: 'Soil map with parcel details: tillable acres, soil rating and crops planted' },
-      { icon: 'chart', title: 'Comparable sales in minutes', body: 'Pick nearby sales on the map. Totals and averages for price per acre, per tillable acre and per soil point build as you go.', image: '/landing/premium-comps.jpg', alt: 'Comparable sales report with averages' },
+      { icon: 'chart', title: 'Comparable sales in seconds', body: 'Pick nearby sales on the map. Totals and averages for price per acre, per tillable acre and per soil point build as you go.', image: '/landing/premium-comps.jpg', alt: 'Comparable sales report with averages' },
       { icon: 'report', title: 'A Land Report you can hand to anyone', body: 'Download or email a professional PDF with maps, soils, sale details and your notes.', image: '/landing/premium-land-report.jpg', frame: 'doc', alt: 'Ground Goat Land Report PDF' },
       { icon: 'search', title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Nebraska this month?", and get the answer.', image: '/landing/premium-goat-search.jpg', alt: 'Goat Search answering a question about upcoming auctions' },
-    ],
-    faq: [
-      ...COMMON_FAQ,
-      { q: 'Can I add more states?', a: 'Yes. Choose up to 5 states. Each state after your first is half price.' },
-      { q: 'Is the app included?', a: 'Yes. Your subscription works on the website and in the Ground Goat app.' },
     ],
   },
   firm: {
@@ -101,17 +82,11 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     headline: 'One subscription',
     headlineAccent: 'for your whole team.',
     subhead: 'Every state and county, comparable sales reports, saved projects and shared notes, built for farm managers, lenders and appraisers.',
-    audience: 'For farm management, lending and appraisal teams',
     highlights: [
-      { icon: 'map', title: 'Unlimited states and counties', body: 'Your whole team sees every auction, sale and parcel, in every state we cover.', image: '/landing/firm-map.jpg', alt: 'Ground Goat map across the Midwest' },
+      { icon: 'map', title: 'Unlimited states and counties', body: 'Your whole team sees every auction, sale and parcel, in every state.', image: '/landing/firm-map.jpg', alt: 'Ground Goat map across the Midwest' },
       { icon: 'folder', title: 'Saved projects, shared', body: 'Save a report as a project: the subject farm, its comparable sales and the report, together on the map and shared with your team.', image: '/landing/firm-projects.jpg', alt: 'Saved project with its farms and Land Report' },
       { icon: 'notes', title: 'Notes your whole team can see', body: 'Dated notes on every parcel and tract: field visits, harvest, loan reviews. Visible to your firm and printed on your reports.', image: '/landing/firm-notes.jpg', alt: 'Dated team notes on a parcel' },
       { icon: 'users', title: '3 team members included', body: 'Add up to 10 people and manage them yourself. Everyone works from the same data.', image: '/landing/firm-team.jpg', alt: 'Team management page' },
-    ],
-    faq: [
-      ...COMMON_FAQ,
-      { q: 'How many people can use it?', a: '3 team members are included. Add more, up to 10, for $9.99 a month each, billed annually.' },
-      { q: 'Can we pay by invoice or ACH?', a: 'Yes. Firms can pay by card or bank transfer (ACH).' },
     ],
   },
 }

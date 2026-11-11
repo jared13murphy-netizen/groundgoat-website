@@ -98,6 +98,15 @@ export default function Home() {
   const [currentSlide, setCurrentSlide] = useState(0)
   const [userLocation, setUserLocation] = useState<string | null>(null)
 
+  // Arriving with a hash (e.g. "Compare all plans" → /#pricing): this page renders
+  // on the client, so the browser's own jump fires before the section exists.
+  useEffect(() => {
+    const id = window.location.hash.slice(1)
+    if (!id) return
+    const t = setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }), 300)
+    return () => clearTimeout(t)
+  }, [])
+
   // Redirect logged-in management/admin users to /access
   useEffect(() => {
     const token = localStorage.getItem('auth_token')

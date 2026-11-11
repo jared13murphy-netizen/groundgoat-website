@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import {
-  ArrowRight, Bell, Calendar, Check, ChevronDown, FileText, Folder, History,
+  ArrowRight, Bell, Calendar, Check, FileText, Folder, History,
   Layers, LineChart, Map as MapIcon, Search, Smartphone, StickyNote, Users,
 } from 'lucide-react'
 import { PRICING, FREE_LABEL, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
@@ -75,7 +75,6 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
   const isFirm = plan === 'firm'
   const [cycle, setCycle] = useState<BillingCycle>('monthly')
   const [extra, setExtra] = useState('')
-  const [openFaq, setOpenFaq] = useState<number | null>(0)
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search)
@@ -160,7 +159,6 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
       <section className="py-20 md:py-28 bg-gg-gray-900 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-14 md:mb-20">
-            <span className="inline-block text-gg-pink text-sm font-semibold tracking-wide uppercase mb-3">{c.audience}</span>
             <h2 className="font-display text-3xl md:text-5xl font-bold text-white">What you get with {c.eyebrow}</h2>
           </div>
           <div className="space-y-20 md:space-y-28">
@@ -230,31 +228,8 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
             </p>
           </div>
           <p className="text-center mt-6">
-            <Link href="/#pricing" className="text-gg-gray-400 hover:text-gg-pink text-sm transition-colors">Compare all plans</Link>
+            <a href="/#pricing" className="text-gg-gray-400 hover:text-gg-pink text-sm transition-colors">Compare all plans</a>
           </p>
-        </div>
-      </section>
-
-      {/* Questions */}
-      <section className="py-20 md:py-24 bg-gg-gray-900">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6">
-          <h2 className="font-display text-3xl md:text-4xl font-bold text-white text-center mb-10">Questions</h2>
-          <div className="space-y-3">
-            {c.faq.map((f, i) => (
-              <div key={f.q} className="bg-gg-gray-800 border border-gg-gray-700 rounded-2xl">
-                <button
-                  type="button"
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                  aria-expanded={openFaq === i}
-                  className="w-full flex items-center justify-between gap-4 text-left px-6 py-5 text-white font-semibold"
-                >
-                  {f.q}
-                  <ChevronDown size={20} className={`text-gg-pink flex-shrink-0 transition-transform ${openFaq === i ? 'rotate-180' : ''}`} />
-                </button>
-                {openFaq === i && <p className="px-6 pb-5 text-gg-gray-400">{f.a}</p>}
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
