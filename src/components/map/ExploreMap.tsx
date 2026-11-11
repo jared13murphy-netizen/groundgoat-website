@@ -99,6 +99,7 @@ import {
   Plus as PlusIcon,
   Folder as SavedProjectsIcon,
   Bookmark as SavedReportsIcon,
+  StickyNote,
 } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -2148,6 +2149,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Owner 11/2: bumped by the My Maps "New Project" tile; the panel opens
   // its New Project name box when it changes.
   const [savedPanelNewProject, setSavedPanelNewProject] = useState(0)
+  // Owner 11/10: bumped by the My Maps "Notes" tile — opens the Notes search.
+  const [savedPanelNotes, setSavedPanelNotes] = useState(0)
   // Old /map-portfolio and /configure-map links arrive as /access?project=<id>:
   // open the Saved Projects panel on that project, then drop the param.
   useEffect(() => {
@@ -11741,6 +11744,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           onClose={() => setSavedPanelOpen(false)}
           reloadNonce={savedPanelNonce}
           newProjectNonce={savedPanelNewProject}
+          notesNonce={savedPanelNotes}
           focus={savedPanelFocus}
           onShowTract={(id) => { void showSavedTract(id) }}
           onShowProject={(id) => { void showSavedProject(id) }}
@@ -12159,6 +12163,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     icon={<SavedReportsIcon size={20} />}
                     label="Saved Reports"
                     onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(false); setSavedReportsOpen(true) }}
+                  />
+                )}
+                {/* Owner 11/10: search every note (own + firm) across items. */}
+                {canUseProjectMaps && (
+                  <UtilityTile
+                    icon={<StickyNote size={20} />}
+                    label="Notes"
+                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true); setSavedPanelNotes(n => n + 1) }}
                   />
                 )}
                 {/* Owner 11/2: New Project here opens the Saved Projects

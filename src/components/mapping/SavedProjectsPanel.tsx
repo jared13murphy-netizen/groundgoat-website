@@ -61,6 +61,8 @@ interface Props {
   onOpenSavedReport?: (id: string) => void
   /** Owner 11/10: open the item a Notes search result points at. */
   onOpenNoteResult?: (r: NoteSearchResult) => void
+  /** Bumped by the My Maps "Notes" tile: open straight to the Notes search. */
+  notesNonce?: number
 }
 
 const panel: CSSProperties = {
@@ -116,10 +118,11 @@ type Detail = { loading: boolean; error?: string; parcels: SavedParcelRow[] }
 
 export default function SavedProjectsPanel({
   open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged, newProjectNonce = 0, onOpenSavedReport,
-  onOpenNoteResult,
+  onOpenNoteResult, notesNonce = 0,
 }: Props) {
   // Owner 11/10: the cross-item Notes search, and which tract cards show their timeline.
   const [notesOpen, setNotesOpen] = useState(false)
+  useEffect(() => { if (notesNonce > 0) setNotesOpen(true) }, [notesNonce])
   const [notesFor, setNotesFor] = useState<Record<string, boolean>>({})
   const [noteCounts, setNoteCounts] = useState<Record<string, number>>({})
   const [projects, setProjects] = useState<Project[]>([])
