@@ -608,7 +608,9 @@ function SignUpContent() {
       const res = await fetch(`${API_URL}/api/promo-codes/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: promoCode.trim(), subscription_type: 'firm' }),
+        // The plan actually being bought — not always 'firm' (audit 11/12: a
+        // firm-only code was shown as valid on a Basic sign-up).
+        body: JSON.stringify({ code: promoCode.trim(), subscription_type: selectedPlan }),
       })
       const data = await res.json()
       setPromoValidation(data)
