@@ -225,7 +225,7 @@ export default function ElevatorPanel({ elevatorId, onClose, onSelect }: Props) 
               )}
             </Section>
 
-            <Section title={`${detail.nearby.length} closest elevators · within ${Math.round(detail.radius_mi)} mi`}>
+            <Section title={`${detail.nearby.length} closest elevators`}>
               {detail.nearby.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'rgba(0,0,0,0.5)', fontStyle: 'italic' }}>
                   No other elevators within {Math.round(detail.radius_mi)} miles.
