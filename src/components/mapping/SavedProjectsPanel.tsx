@@ -11,6 +11,7 @@
  * onChanged and owns what "Edit in Map It" and "Add a New Tract" do.
  */
 import useSlide from '@/lib/useSlide'
+import CardThumb from '@/components/CardThumb'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, StickyNote, Trash2, Upload, X,
@@ -843,6 +844,12 @@ export default function SavedProjectsPanel({
                       <div key={t.id} data-testid="tract-card" style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 4,
                                                margin: '6px 0 6px 18px', padding: '10px 12px', borderRadius: 12,
                                                background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.22)' }}>
+                        {/* The tract's own outline in pink (owner 11/11), the same card
+                            image the report panel shows — drawn from the saved drawing,
+                            so a multi-parcel or partial tract shows its real shape. */}
+                        <div style={{ flex: 'none', marginRight: 6, cursor: 'pointer' }} onClick={() => onShowTract(t.id)}>
+                          <CardThumb kind="saved" id={t.id} size={56} />
+                        </div>
                         <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
                              onClick={() => { if (editing?.key !== tKey) onShowTract(t.id) }}>
                           {editing?.key === tKey ? (
