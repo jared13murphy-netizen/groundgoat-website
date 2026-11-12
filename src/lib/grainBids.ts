@@ -18,6 +18,10 @@ import { declutterTags, TAG_ZOOM, TAG_W, TAG_BODY, TAG_POINTER } from '@/lib/ele
 
 export { TAG_ZOOM }
 
+/** Owner 11/12: elevator pins first show just before the black Regrid parcel
+ *  boundaries (ExploreMap REGRID_MIN_ZOOM = 11), not from z7. */
+export const ELEVATOR_MIN_ZOOM = 10.5
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
 export const ELEVATOR_SOURCE = 'grain-elevators'
@@ -251,7 +255,7 @@ export function ensureElevatorLayer(map: maplibregl.Map) {
       id: ELEVATOR_LAYER,
       type: 'symbol',
       source: ELEVATOR_SOURCE,
-      minzoom: 7,
+      minzoom: ELEVATOR_MIN_ZOOM,
       layout: {
         // One layer, so every click / hover / layer-order rule that names
         // ELEVATOR_LAYER covers the tag too.
