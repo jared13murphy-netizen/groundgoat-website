@@ -23,6 +23,7 @@ import {
   normalizeGeometry, parcelsUnder, previewSoil, saveParcel, splitGeometry, updateParcel,
   type LandClass, type ParcelDetail,
 } from '@/lib/configurableMapping'
+import { savedTractNeedsEngine } from '@/lib/savedTractLandTypes'
 import {
   SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, stripInsertedVertices,
   pointInRing, dropDegenerateHoles, pointInBoundary, ringCentre, polysToGeometry,
@@ -347,15 +348,25 @@ export function useTractEditor({
         const t = await getSavedParcel(startTractId)
         if (seq !== loadSeq.current) return
         const rings = geometryToPolys(t.boundary)
-        const loaded = simplifyShapes(explodeShapes(t.polygons as any))
+        // No stored land types (e.g. saved to a project from a comp report):
+        // the Land Types step asks the engine, exactly like a first draw.
+        const needsEngine = savedTractNeedsEngine(t.polygons)
+        const loaded = needsEngine ? [] : simplifyShapes(explodeShapes(t.polygons as any))
+        startStateRef.current = t.state ?? null
+        if (needsEngine && rings.length) {
+          prewarmRef.current = {
+            key: JSON.stringify(polysToGeometry(rings)),
+            p: classifyBoundary(polysToGeometry(rings) as any, t.state ?? null).catch(() => null),
+          }
+        }
         savedIdRef.current = t.id; setSavedId(t.id)
         sourceRef.current = t.source_ll_uuids || []
         sourceTractRef.current = Array.isArray((t.stats as any)?.source_tract_ids) ? (t.stats as any).source_tract_ids : []
         refAcresRef.current = ((t.stats?.acres_source === 'regrid' || (t.stats as any)?.acres_source === 'listing') && t.stats?.acres > 0 && t.stats?.acres_drawn > 0)
           ? { regrid: Number(t.stats.acres), drawn: Number(t.stats.acres_drawn) } : null
-        boundaryRef.current = rings; shapesRef.current = loaded; classifiedRef.current = true
+        boundaryRef.current = rings; shapesRef.current = loaded; classifiedRef.current = !needsEngine
         setBoundaryState(rings)
-        setShapesState(loaded); setClassified(true)
+        setShapesState(loaded); setClassified(!needsEngine)
         setDefaultNameSaved(t.name || '')
         markClean(loaded, rings)
         fitMap(bboxOf(t.boundary?.coordinates))

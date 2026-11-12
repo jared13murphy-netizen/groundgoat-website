@@ -424,6 +424,7 @@ export const archiveParcel = deleteFarm
 export function getSavedParcel(id: string) {
   return j<{
     id: string; project_id: string; name: string; boundary: any
+    state?: string | null; county?: string | null
     polygons: { cls: LandClass; acres: number; geometry: any }[]
     stats: Record<string, any>; source_ll_uuids: string[]
     projects?: FarmProjectRef[]
