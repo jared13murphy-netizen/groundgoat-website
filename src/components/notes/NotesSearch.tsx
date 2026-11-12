@@ -5,8 +5,9 @@
 // county/state, date, category and a snippet; tapping it opens that item.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Loader2, Search, Lock, X } from 'lucide-react'
-import { NOTE_CATEGORIES, fmtNoteDate, searchNotes, type NoteSearchResult } from '@/lib/notes'
+import { fmtNoteDate, searchNotes, type NoteSearchResult } from '@/lib/notes'
 import { titleCase } from '@/components/map/parcelDetailFields'
+import { useNoteCategories } from './NoteCategorySelect'
 
 const PINK = '#F58CDE'
 const input: CSSProperties = {
@@ -31,6 +32,7 @@ function Snippet({ html }: { html: string }) {
 }
 
 export default function NotesSearch({ onOpen, onClose }: { onOpen: (r: NoteSearchResult) => void; onClose: () => void }) {
+  const cats = useNoteCategories()
   const [q, setQ] = useState('')
   const [category, setCategory] = useState('')
   const [from, setFrom] = useState('')
@@ -71,7 +73,7 @@ export default function NotesSearch({ onOpen, onClose }: { onOpen: (r: NoteSearc
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
         <select style={{ ...input, gridColumn: '1 / -1' }} value={category} data-testid="notes-search-category" onChange={(e) => setCategory(e.target.value)}>
           <option value="">All categories</option>
-          {NOTE_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          {cats.categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
         <label style={muted}>From<input type="date" style={input} value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label style={muted}>To<input type="date" style={input} value={to} onChange={(e) => setTo(e.target.value)} /></label>

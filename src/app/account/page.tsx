@@ -5,7 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift, Tags } from 'lucide-react'
 
 import { isRestrictedIndividual, getAllowedStates, formatStateList } from '@/lib/stateAccess'
 
@@ -460,6 +460,17 @@ const handleResendVerification = async () => {
               label="Team Management"
               description="Add and manage your firm's team members"
               href="/account/team"
+            />
+          )}
+
+          {/* Note Categories (owner 11/11) - Only for Firm Admins: rename or
+              delete the firm's own categories in the notes dropdown. */}
+          {user?.account_type === 'firm_admin' && (
+            <MenuItem
+              icon={<Tags size={20} />}
+              label="Note Categories"
+              description="Edit or delete your firm's note categories"
+              href="/account/note-categories"
             />
           )}
 
