@@ -306,7 +306,9 @@ const handleResendVerification = async () => {
         })()}
 
         {/* Plan actions: Add a State / Upgrade to Premium */}
-        {activeStateAreas.length > 0 && (canAddState || onBasic) && (
+        {/* Owner 11/12: accounts upgraded by hand (manual_access) are treated
+            like staff and get no plan offers. */}
+        {activeStateAreas.length > 0 && (canAddState || onBasic) && !subscriptionData?.manual_access && (
           <div className="mb-6 card">
             <h3 className="font-semibold text-white mb-1">Grow your plan</h3>
             {appleBilled ? (

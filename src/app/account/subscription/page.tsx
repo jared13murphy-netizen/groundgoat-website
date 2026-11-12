@@ -30,6 +30,7 @@ interface Subscription {
 interface SubscriptionData {
   unlimited: boolean
   areas: Subscription[]
+  manual_access?: boolean
 }
 
 interface PromoValidation {
@@ -134,6 +135,10 @@ export default function SubscriptionPage() {
   }
 
   const isFirmMember = () => user?.account_type === 'firm_user'
+
+  // Owner 11/12: an account Ground Goat upgraded by hand is treated like
+  // staff — never offered Add a State or Upgrade (the API refuses both too).
+  const canBuyMore = () => canManageSubscription() && !subscriptionData?.manual_access
 
   const fetchSubscriptions = async (token: string) => {
     try {
@@ -436,7 +441,7 @@ export default function SubscriptionPage() {
     const active = subscriptionData?.areas?.filter((sub: any) => sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due') || []
     const basic = active[0]?.subscription_type === 'basic_state'
     const apple = active.some((sub: any) => sub.payment_platform === 'apple')
-    if (basic && active.length > 0 && !apple && canManageSubscription()) setShowUpgradeConfirm(true)
+    if (basic && active.length > 0 && !apple && canBuyMore()) setShowUpgradeConfirm(true)
     // Re-run when the signed-in user arrives too: coming from the app's
     // link, the subscription can load before the user object does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -456,7 +461,7 @@ export default function SubscriptionPage() {
       setError('You subscribed in the Ground Goat app, so Apple handles your billing. Add states in the app: Profile → Add a State.')
     } else if (active.length >= MAX_STATES) {
       setError(`Your plan already covers ${MAX_STATES} states, the most a subscription can include.`)
-    } else if (active.length > 0 && canManageSubscription()) {
+    } else if (active.length > 0 && canBuyMore()) {
       setShowAddModal(true)
       setError('')
       setAddStateStep('select')
@@ -486,7 +491,7 @@ export default function SubscriptionPage() {
       setError(`You subscribed in the Ground Goat app, so Apple handles your billing. Add ${add} in the app: Profile → Add a State.`)
     } else if (active.length >= MAX_STATES) {
       setError(`Your plan already covers ${MAX_STATES} states, the most a subscription can include.`)
-    } else if (active.length > 0 && canManageSubscription()) {
+    } else if (active.length > 0 && canBuyMore()) {
       setSelectedState(add)
       setAddStateStep('select')
       setShowAddModal(true)
@@ -750,7 +755,7 @@ export default function SubscriptionPage() {
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-white">Your States</h2>
-              {canManageSubscription() && !isAppleManaged && !atStateLimit && (
+              {canBuyMore() && !isAppleManaged && !atStateLimit && (
                 <button
                   onClick={() => {
                     setShowAddModal(true)
@@ -836,7 +841,7 @@ export default function SubscriptionPage() {
         )}
 
         {/* Upgrade Plan Card */}
-        {isBasicPlan && canManageSubscription() && activeSubscriptions.length > 0 && !isAppleManaged && (
+        {isBasicPlan && canBuyMore() && activeSubscriptions.length > 0 && !isAppleManaged && (
           <div className="card mb-8 bg-gradient-to-r from-purple-500/10 to-gg-pink/10 border-purple-500/20">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
