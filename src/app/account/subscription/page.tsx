@@ -1176,8 +1176,13 @@ export default function SubscriptionPage() {
                   )}
                 </p>
               )}
+              {/* A failed upgrade (e.g. card declined) must show HERE — the
+                  page-level error sits behind this modal's overlay. */}
+              {error && (
+                <p className="text-red-400 text-sm mb-4">{error}</p>
+              )}
               <div className="flex gap-3">
-                <button onClick={() => setShowUpgradeConfirm(false)} className="btn-secondary flex-1" disabled={upgrading}>
+                <button onClick={() => { setShowUpgradeConfirm(false); setError('') }} className="btn-secondary flex-1" disabled={upgrading}>
                   Cancel
                 </button>
                 <button
