@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -54,6 +54,10 @@ interface Company {
 
 interface Listing {
   id: string
+  // Status as last loaded from / saved to the server (client-only). `status`
+  // can be changed on screen before saving; this is what the save sends as
+  // expected_status so a stale screen can't overwrite a result.
+  server_status?: string
   title: string
   description: string
   county: string
@@ -110,6 +114,10 @@ interface TractState {
   originalTotalAcres: number
   originalTillableAcres: number
   originalSoilRating: number | null
+  // Whole-dollar price/acre as last loaded from (or saved to) the server.
+  // Sent as `expected` with every tract save so a screen that is out of date
+  // can never overwrite someone else's result (11/12 McDonough / Coles).
+  originalPricePerAcre: number | null
 }
 
 export default function ControlCenterPage() {
@@ -203,6 +211,136 @@ export default function ControlCenterPage() {
     }
   }
 
+  const buildTractState = (tract: Tract): TractState => {
+    const ppa = tract.price_per_acre || 0
+    // Display dollars-only by default — no cents. Auctions are
+    // never priced in fractions of a cent, but our DB used to
+    // contain 99999.99999998 because of float division. Round
+    // hard so the input field shows a clean integer string.
+    const initialStr = ppa > 0 ? Math.round(ppa).toString() : ''
+    const status = normalizeStatus(tract.sale_status || 'listed')
+    return {
+      enteredPriceStr: initialStr,
+      originalEnteredPriceStr: initialStr,
+      bidIncrement: 1000,
+      status,
+      saving: false,
+      bidMode: 'per_acre',
+      totalAcres: tract.total_acres || 0,
+      tillableAcres: tract.tillable_acres || 0,
+      soilRating: tract.soil_rating,
+      originalStatus: status,
+      originalTotalAcres: tract.total_acres || 0,
+      originalTillableAcres: tract.tillable_acres || 0,
+      originalSoilRating: tract.soil_rating,
+      originalPricePerAcre: ppa > 0 ? Math.round(ppa) : null,
+    }
+  }
+
+  // What this screen last loaded/saved for a tract — the backend refuses the
+  // save (409) if someone else has changed any of these since.
+  const expectedFor = (ts: TractState) => ({
+    sale_status: toDbStatus(ts.originalStatus),
+    price_per_acre: ts.originalPricePerAcre,
+    total_acres: ts.originalTotalAcres,
+    tillable_acres: ts.originalTillableAcres,
+    soil_rating: ts.originalSoilRating,
+  })
+
+  const isTractDirty = (ts: TractState | undefined): boolean =>
+    !!ts && (
+      ts.enteredPriceStr !== ts.originalEnteredPriceStr ||
+      ts.status !== ts.originalStatus ||
+      ts.totalAcres !== ts.originalTotalAcres ||
+      ts.tillableAcres !== ts.originalTillableAcres ||
+      ts.soilRating !== ts.originalSoilRating
+    )
+
+  // Live refresh: several staff work the Control Center at once. Every 20 s
+  // pull the day's auctions and take the server's version of every tract
+  // this screen has NOT edited, plus each listing's status / lock, so a
+  // result someone else saved shows up here without a manual Refresh.
+  // `forceListingId` (after a 409) takes the server's version of that whole
+  // listing, edits included.
+  const tractStatesRef = useRef(tractStates)
+  tractStatesRef.current = tractStates
+  const savingListingRef = useRef<string | null>(null)
+  const selectedDayRef = useRef<'today' | 'tomorrow'>('today')
+
+  const fetchFreshListings = async (): Promise<Listing[] | null> => {
+    const token = localStorage.getItem('auth_token')
+    if (!token) return null
+    const date = getDateParam(selectedDayRef.current)
+    const url = date ? `${API_URL}/api/listings/today?date=${date}` : `${API_URL}/api/listings/today`
+    try {
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
+      return res.ok ? await res.json() : null
+    } catch {
+      return null
+    }
+  }
+
+  const applyFreshListings = (fresh: Listing[], forceListingId?: string) => {
+    const current = tractStatesRef.current
+    const keepLocal = (listingId: string, tractId: string) =>
+      listingId !== forceListingId &&
+      (savingListingRef.current === listingId || isTractDirty(current[tractId]))
+    const serverChanged = (ts: TractState | undefined, t: Tract) => {
+      if (!ts) return true
+      const fresh = buildTractState(t)
+      return (
+        fresh.originalStatus !== ts.originalStatus ||
+        fresh.originalPricePerAcre !== ts.originalPricePerAcre ||
+        fresh.originalTotalAcres !== ts.originalTotalAcres ||
+        fresh.originalTillableAcres !== ts.originalTillableAcres ||
+        fresh.originalSoilRating !== ts.originalSoilRating
+      )
+    }
+    setListings(prev => {
+      const byId = new Map(prev.map(l => [l.id, l]))
+      return fresh.map(f => {
+        const old = byId.get(f.id)
+        if (!old) return { ...f, server_status: f.status }
+        if (f.id !== forceListingId && savingListingRef.current === f.id) return old
+        // A status picked on screen but not saved yet stays on screen.
+        const keepPicked = f.id !== forceListingId && old.server_status !== undefined && old.status !== old.server_status
+        return {
+          ...f,
+          server_status: f.status,
+          status: keepPicked ? old.status : f.status,
+          tracts: (f.tracts || []).map(t =>
+            keepLocal(f.id, t.id) ? (old.tracts?.find(o => o.id === t.id) || t) : t
+          ),
+        }
+      })
+    })
+    setTractStates(prev => {
+      const next = { ...prev }
+      fresh.forEach(f => {
+        f.tracts?.forEach(t => {
+          if (keepLocal(f.id, t.id)) return
+          if (f.id === forceListingId || serverChanged(prev[t.id], t)) {
+            next[t.id] = { ...buildTractState(t), bidIncrement: prev[t.id]?.bidIncrement ?? 1000 }
+          }
+        })
+      })
+      return next
+    })
+    setExpandedListings(prev => {
+      const known = new Set(Array.from(prev))
+      fresh.forEach(f => known.add(f.id))
+      return known.size === prev.size ? prev : known
+    })
+  }
+
+  // Called when the backend refuses a save as stale (409): pull the
+  // server's version of this auction so the screen shows what was saved.
+  const reloadAfterConflict = async (listingId: string, detail: string) => {
+    setError(detail)
+    const fresh = await fetchFreshListings()
+    if (fresh) applyFreshListings(fresh, listingId)
+  }
+
   const fetchTodaysAuctions = async (token: string, date?: string) => {
     try {
       const url = date
@@ -213,35 +351,14 @@ export default function ControlCenterPage() {
       })
 
       if (response.ok) {
-        const listingsWithTracts = await response.json()
+        const listingsWithTracts = (await response.json()).map((l: Listing) => ({ ...l, server_status: l.status }))
         setListings(listingsWithTracts)
 
         const initialStates: Record<string, TractState> = {}
         const expandedIds: string[] = []
         listingsWithTracts.forEach((listing: Listing) => {
           listing.tracts?.forEach((tract: Tract) => {
-            const ppa = tract.price_per_acre || 0
-            // Display dollars-only by default — no cents. Auctions are
-            // never priced in fractions of a cent, but our DB used to
-            // contain 99999.99999998 because of float division. Round
-            // hard so the input field shows a clean integer string.
-            const initialStr = ppa > 0 ? Math.round(ppa).toString() : ''
-            const status = normalizeStatus(tract.sale_status || 'listed')
-            initialStates[tract.id] = {
-              enteredPriceStr: initialStr,
-              originalEnteredPriceStr: initialStr,
-              bidIncrement: 1000,
-              status,
-              saving: false,
-              bidMode: 'per_acre',
-              totalAcres: tract.total_acres || 0,
-              tillableAcres: tract.tillable_acres || 0,
-              soilRating: tract.soil_rating,
-              originalStatus: status,
-              originalTotalAcres: tract.total_acres || 0,
-              originalTillableAcres: tract.tillable_acres || 0,
-              originalSoilRating: tract.soil_rating,
-            }
+            initialStates[tract.id] = buildTractState(tract)
           })
           expandedIds.push(listing.id)
         })
@@ -266,6 +383,20 @@ export default function ControlCenterPage() {
   const toDbStatus = (status: string): string => {
     return status.toLowerCase().replace(' ', '_')
   }
+
+  savingListingRef.current = savingListing
+  selectedDayRef.current = selectedDay
+
+  useEffect(() => {
+    if (loading) return
+    const id = setInterval(async () => {
+      if (document.visibilityState !== 'visible') return
+      const fresh = await fetchFreshListings()
+      if (fresh) applyFreshListings(fresh)
+    }, 20_000)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, selectedDay])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -739,8 +870,15 @@ export default function ControlCenterPage() {
             total_acres: tState.totalAcres,
             tillable_acres: tState.tillableAcres,
             soil_rating: tState.soilRating,
+            expected: expectedFor(tState),
           }),
         })
+        if (tractRes.status === 409) {
+          const b = await tractRes.json().catch(() => ({}))
+          await reloadAfterConflict(listingId, `${b.detail || 'Someone else saved this auction.'} Notification NOT sent.`)
+          setSavingListing(null)
+          return
+        }
         if (!tractRes.ok) {
           const b = await tractRes.json().catch(() => ({}))
           setError(`Tract ${tract.tract_number} save failed — notification NOT sent: ${b.detail || `HTTP ${tractRes.status}`}`)
@@ -754,8 +892,14 @@ export default function ControlCenterPage() {
       const listingRes = await fetch(`${API_URL}/api/listings/${listingId}`, {
         method: 'PATCH',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, expected_status: listing.server_status ?? listing.status }),
       })
+      if (listingRes.status === 409) {
+        const b = await listingRes.json().catch(() => ({}))
+        await reloadAfterConflict(listingId, `${b.detail || 'Someone else saved this auction.'} Notification NOT sent.`)
+        setSavingListing(null)
+        return
+      }
       if (!listingRes.ok) {
         const b = await listingRes.json().catch(() => ({}))
         setError(`Listing save failed — notification NOT sent: ${b.detail || `HTTP ${listingRes.status}`}`)
@@ -785,6 +929,7 @@ export default function ControlCenterPage() {
           return {
             ...l,
             status: toDbStatus(listingStatus),
+            server_status: toDbStatus(listingStatus),
             total_acres: newListingTotalAcres,
             control_center_locked: true,
             notified_at: new Date().toISOString(),
@@ -811,8 +956,10 @@ export default function ControlCenterPage() {
       for (const tract of allTracts) {
         const tState = tractStates[tract.id]
         if (tState) {
+          const { pricePerAcre: savedPpa } = computePrices(tState, tState.totalAcres)
           updateTractState(tract.id, {
             originalEnteredPriceStr: tState.enteredPriceStr,
+            originalPricePerAcre: savedPpa > 0 ? savedPpa : null,
             originalStatus: tState.status,
             originalTotalAcres: tState.totalAcres,
             originalTillableAcres: tState.tillableAcres,
@@ -863,8 +1010,15 @@ export default function ControlCenterPage() {
             total_acres: tState.totalAcres,
             tillable_acres: tState.tillableAcres,
             soil_rating: tState.soilRating,
+            expected: expectedFor(tState),
           }),
         })
+        if (tractRes.status === 409) {
+          const b = await tractRes.json().catch(() => ({}))
+          await reloadAfterConflict(listingId, b.detail || 'Someone else saved this auction.')
+          setSavingListing(null)
+          return
+        }
         if (!tractRes.ok) {
           const b = await tractRes.json().catch(() => ({}))
           setError(`Tract ${tract.tract_number} save failed: ${b.detail || `HTTP ${tractRes.status}`}`)
@@ -877,8 +1031,14 @@ export default function ControlCenterPage() {
       const listingRes = await fetch(`${API_URL}/api/listings/${listingId}`, {
         method: 'PATCH',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...body, expected_status: listing.server_status ?? listing.status }),
       })
+      if (listingRes.status === 409) {
+        const b = await listingRes.json().catch(() => ({}))
+        await reloadAfterConflict(listingId, b.detail || 'Someone else saved this auction.')
+        setSavingListing(null)
+        return
+      }
       if (!listingRes.ok) {
         const b = await listingRes.json().catch(() => ({}))
         setError(`Listing save failed: ${b.detail || `HTTP ${listingRes.status}`}`)
@@ -893,6 +1053,7 @@ export default function ControlCenterPage() {
           return {
             ...l,
             status: toDbStatus(listingStatus),
+            server_status: toDbStatus(listingStatus),
             total_acres: newListingTotalAcres,
             tracts: l.tracts.map(t => {
               const ts = tractStates[t.id]
@@ -917,8 +1078,10 @@ export default function ControlCenterPage() {
       for (const tract of allTracts) {
         const tState = tractStates[tract.id]
         if (tState) {
+          const { pricePerAcre: savedPpa } = computePrices(tState, tState.totalAcres)
           updateTractState(tract.id, {
             originalEnteredPriceStr: tState.enteredPriceStr,
+            originalPricePerAcre: savedPpa > 0 ? savedPpa : null,
             originalStatus: tState.status,
             originalTotalAcres: tState.totalAcres,
             originalTillableAcres: tState.tillableAcres,
@@ -1249,6 +1412,7 @@ export default function ControlCenterPage() {
                         originalTotalAcres: tract.total_acres || 0,
                         originalTillableAcres: tract.tillable_acres || 0,
                         originalSoilRating: tract.soil_rating,
+                        originalPricePerAcre: null,
                       }
                       const state = tractStates[tract.id] || fallback
                       const tractAcres = state.totalAcres || tract.total_acres || 0
