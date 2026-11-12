@@ -357,7 +357,7 @@ export default function SavedTractPanel({
             <Section title="Reports">
               {/* One choice for every report this panel builds (owner 11/10). */}
               <div style={{ marginBottom: 8, color: 'rgba(0,0,0,0.6)' }}>
-                <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} />
+                <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} items={reports.noteItems} />
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {btn('aerial', true)}
