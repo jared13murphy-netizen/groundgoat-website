@@ -74,14 +74,18 @@ export default function NoteCategorySelect({
         {cats.can_add && <option value={ADD}>+ Add New Category…</option>}
       </select>
       {adding && (
-        <span data-testid="notes-category-add" style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-          <input style={{ ...inputStyle, flex: 1 }} autoFocus maxLength={FIRM_CATEGORY_MAX} placeholder="New category"
+        <span data-testid="notes-category-add" style={{ display: 'block', marginTop: 4 }}>
+          {/* Input on its own line, buttons under it: the Category column is
+              narrow in the side panels, and a side-by-side row cut the typed
+              name off after a few letters. */}
+          <input style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }} autoFocus maxLength={FIRM_CATEGORY_MAX} placeholder="New category"
                  value={label} data-testid="notes-category-new"
                  onChange={(e) => setLabel(e.target.value)}
                  onKeyDown={(e) => {
                    if (e.key === 'Enter') { e.preventDefault(); void save() }
                    if (e.key === 'Escape') { setAdding(false); setLabel(''); setErr(null) }
                  }} />
+          <span style={{ display: 'flex', gap: 4, marginTop: 4 }}>
           <button type="button" disabled={saving} data-testid="notes-category-save" onClick={() => void save()}
                   style={{ padding: '4px 10px', fontSize: 11, fontWeight: 700, borderRadius: 7, cursor: 'pointer',
                            background: PINK, color: '#0a0a0a', border: `1px solid ${PINK}`, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -92,6 +96,7 @@ export default function NoteCategorySelect({
                            color: mutedColor || 'inherit', border: '1px solid rgba(128,128,128,0.4)' }}>
             Cancel
           </button>
+          </span>
         </span>
       )}
       {adding && <span style={{ display: 'block', fontSize: 10, color: err ? '#f87171' : mutedColor, marginTop: 2 }}>
