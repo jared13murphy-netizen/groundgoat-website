@@ -27,6 +27,11 @@ interface Subscription {
   trial_days_remaining: number | null
 }
 
+// Add State / Upgrade wait on Stripe (charge + subscription changes, 3-8 s
+// measured 11/12). The 20 s default could abort a slow-but-successful
+// payment and show an error after the card was charged; give them 60 s.
+const PAYMENT_TIMEOUT_MS = 60_000
+
 interface SubscriptionData {
   unlimited: boolean
   areas: Subscription[]
@@ -228,7 +233,7 @@ export default function SubscriptionPage() {
           state: stateAbbr,
           promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
         })
-      })
+      }, PAYMENT_TIMEOUT_MS)
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
@@ -310,7 +315,7 @@ export default function SubscriptionPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_type: 'premium_state' })
-      })
+      }, PAYMENT_TIMEOUT_MS)
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
