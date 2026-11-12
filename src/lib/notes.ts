@@ -17,7 +17,82 @@ export const NOTE_CATEGORIES = [
   { value: 'loan_review', label: 'Loan review' },
   { value: 'other', label: 'Other' },
 ] as const
-export type NoteCategory = (typeof NOTE_CATEGORIES)[number]['value']
+/** A built-in key, or a firm's own category: 'firm:<uuid>' (owner 11/11). */
+export type NoteCategory = (typeof NOTE_CATEGORIES)[number]['value'] | `firm:${string}`
+
+export interface NoteCategoryOption { value: string; label: string; custom: boolean }
+export interface FirmNoteCategory {
+  id: string; value: string; label: string; custom: true
+  created_by: string | null; created_at: string | null; updated_at: string | null; used?: number
+}
+export interface NoteCategoriesState {
+  categories: NoteCategoryOption[]
+  custom: FirmNoteCategory[]
+  /** Any member of a management firm may add a category. */
+  can_add: boolean
+  /** The firm admin renames / deletes them (Account → Note Categories). */
+  can_manage: boolean
+}
+const BUILTIN_STATE: NoteCategoriesState = {
+  categories: NOTE_CATEGORIES.map((c) => ({ ...c, custom: false })), custom: [], can_add: false, can_manage: false,
+}
+export const FIRM_CATEGORY_MAX = 40
+
+// One shared copy for every dropdown on the page: a category added in one
+// timeline shows at once in all the others.
+let catState: NoteCategoriesState = BUILTIN_STATE
+let catLoad: Promise<NoteCategoriesState> | null = null
+const catListeners = new Set<(s: NoteCategoriesState) => void>()
+function setCatState(s: NoteCategoriesState) { catState = s; catListeners.forEach((f) => f(s)) }
+export function noteCategoriesSnapshot(): NoteCategoriesState { return catState }
+export function subscribeNoteCategories(f: (s: NoteCategoriesState) => void): () => void {
+  catListeners.add(f)
+  return () => { catListeners.delete(f) }
+}
+
+/** The dropdown's categories (built-ins + the firm's own). Cached; `force`
+ *  re-reads. Falls back to the built-ins if the server can't be reached. */
+export function loadNoteCategories(force = false): Promise<NoteCategoriesState> {
+  if (catLoad && !force) return catLoad
+  catLoad = (async () => {
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/notes/categories`)
+      const s = await json<NoteCategoriesState>(res)
+      setCatState(s)
+      return s
+    } catch (e: any) {
+      if (e?.status !== 403 && e?.status !== 401) catLoad = null   // no notes for this account: don't keep asking
+      return catState
+    }
+  })()
+  return catLoad
+}
+
+export async function addNoteCategory(label: string): Promise<FirmNoteCategory> {
+  const res = await fetchWithAuth(`${API_URL}/api/notes/categories`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }),
+  })
+  const cat = (await json<{ category: FirmNoteCategory }>(res)).category
+  await loadNoteCategories(true)
+  return cat
+}
+
+export async function renameNoteCategory(id: string, label: string): Promise<FirmNoteCategory> {
+  const res = await fetchWithAuth(`${API_URL}/api/notes/categories/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }),
+  })
+  const cat = (await json<{ category: FirmNoteCategory }>(res)).category
+  await loadNoteCategories(true)
+  return cat
+}
+
+/** Entries filed under it move to "Note". */
+export async function deleteNoteCategory(id: string): Promise<{ moved_to_note: number }> {
+  const out = await json<{ moved_to_note: number }>(
+    await fetchWithAuth(`${API_URL}/api/notes/categories/${encodeURIComponent(id)}`, { method: 'DELETE' }))
+  await loadNoteCategories(true)
+  return out
+}
 
 export type NotesPrintMode = 'none' | 'latest' | 'all' | 'range'
 export interface NotesPrint { mode: NotesPrintMode; from?: string | null; to?: string | null }
