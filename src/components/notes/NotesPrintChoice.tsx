@@ -121,6 +121,17 @@ export default function NotesPrintChoice({ value, onChange, compact = false, ite
   items?: NotePickItem[] | null
 }) {
   const [open, setOpen] = useState(false)
+  // Compact pickers mostly sit in a panel's bottom action bar, where a list
+  // opening downward runs off the screen: open upward when there's no room.
+  const anchor = useRef<HTMLSpanElement | null>(null)
+  const [up, setUp] = useState(false)
+  const [alignRight, setAlignRight] = useState(false)
+  useEffect(() => {
+    if (!open || !anchor.current) return
+    const r = anchor.current.getBoundingClientRect()
+    setUp(window.innerHeight - r.bottom < 340 && r.top > window.innerHeight - r.bottom)
+    setAlignRight(r.left + 340 > window.innerWidth - 8)
+  }, [open])
   const modes = items ? [...NOTES_PRINT_MODES, { value: 'pick' as NotesPrintMode, label: PICK_LABEL }] : NOTES_PRINT_MODES
   const mode: NotesPrintMode = value.mode === 'pick' && !items ? 'latest' : value.mode
   const pick = (m: NotesPrintMode) => {
@@ -131,7 +142,7 @@ export default function NotesPrintChoice({ value, onChange, compact = false, ite
 
   if (compact) {
     return (
-      <span data-testid="notes-print-choice" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, position: 'relative' }}
+      <span ref={anchor} data-testid="notes-print-choice" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, position: 'relative' }}
             title="Which notes print on the report. Internal notes never print.">
         <span style={{ opacity: 0.75 }}>Notes</span>
         <select data-testid="notes-print-mode" aria-label="Notes on this report" style={input} value={mode}
@@ -152,7 +163,8 @@ export default function NotesPrintChoice({ value, onChange, compact = false, ite
               {(value.ids || []).length} chosen {open ? '▴' : '▾'}
             </button>
             {/* Kept mounted while closed so the first load seeds the defaults. */}
-            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 340, maxWidth: '80vw', zIndex: 60,
+            <div style={{ position: 'absolute', ...(up ? { bottom: '100%', marginBottom: 4 } : { top: '100%', marginTop: 4 }),
+                          ...(alignRight ? { right: 0 } : { left: 0 }), width: 340, maxWidth: '80vw', zIndex: 60,
                           boxShadow: '0 6px 20px rgba(0,0,0,0.18)', borderRadius: 8, display: open ? 'block' : 'none' }}>
               <NotesPicker items={items} value={value} onChange={onChange} />
               <div style={{ textAlign: 'right', marginTop: 4 }}>
