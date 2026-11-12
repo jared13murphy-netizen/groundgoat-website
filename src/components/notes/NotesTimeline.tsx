@@ -12,10 +12,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Plus, Filter, Pencil, Trash2, Paperclip, X, Lock, FileText, Loader2, ChevronDown, ChevronUp, Search } from 'lucide-react'
 import {
-  NOTE_CATEGORIES, MAX_NOTE_FILES, MAX_NOTE_FILE_MB, NOTE_FILE_ACCEPT,
+  MAX_NOTE_FILES, MAX_NOTE_FILE_MB, NOTE_FILE_ACCEPT,
   createNote, deleteNote, fetchTimelines, fmtNoteDate, removeNoteFile, todayIso, updateNote, uploadNoteFiles,
   type NoteCategory, type NoteEntry, type NoteTimeline, type TimelineFilters,
 } from '@/lib/notes'
+import NoteCategorySelect, { useNoteCategories } from './NoteCategorySelect'
 
 // ── batched loading: every timeline mounted in the same tick shares ONE request ──
 let pending: { keys: Set<string>; waiters: { key: string; res: (t: NoteTimeline) => void; rej: (e: any) => void }[] } | null = null
@@ -87,6 +88,7 @@ export default function NotesTimeline({
   itemKey, label, county, state, latitude, longitude, theme = 'dark', compact = false, onCount,
 }: NotesTimelineProps) {
   const c = palette(theme)
+  const cats = useNoteCategories()
   const [tl, setTl] = useState<NoteTimeline | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -210,7 +212,7 @@ export default function NotesTimeline({
           <select style={{ ...input, gridColumn: '1 / -1' }} value={filters.category || ''} data-testid="notes-filter-category"
                   onChange={(e) => setFilters({ ...filters, category: e.target.value || null })}>
             <option value="">All categories</option>
-            {NOTE_CATEGORIES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+            {cats.categories.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
           </select>
           <label style={{ fontSize: 10, color: c.muted }}>From
             <input type="date" style={input} value={filters.from || ''} data-testid="notes-filter-from"
@@ -237,10 +239,8 @@ export default function NotesTimeline({
                      onChange={(e) => setDraft({ ...draft, entry_date: e.target.value })} />
             </label>
             <label style={{ flex: 1, fontSize: 10, color: c.muted }}>Category
-              <select style={input} value={draft.category} data-testid="notes-category"
-                      onChange={(e) => setDraft({ ...draft, category: e.target.value as NoteCategory })}>
-                {NOTE_CATEGORIES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
-              </select>
+              <NoteCategorySelect inputStyle={input} mutedColor={c.muted} value={draft.category}
+                                  onChange={(v) => setDraft((d) => (d ? { ...d, category: v as NoteCategory } : d))} />
             </label>
           </div>
           <textarea style={{ ...input, minHeight: 64, resize: 'vertical' }} rows={3} autoFocus placeholder="What happened?"
