@@ -89,7 +89,8 @@ function SignUpContent() {
   }, [step])
   const [selectedPlan, setSelectedPlan] = useState(initialPlan)
   // ?cycle=monthly from the homepage pricing cards; annual otherwise.
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>(searchParams.get('cycle') === 'monthly' ? 'monthly' : 'annual')
+  // Monthly is what we promote (owner 11/11); annual only when a pricing card asked for it.
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>(searchParams.get('cycle') === 'annual' ? 'annual' : 'monthly')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(cancelled ? 'Payment was cancelled. Please try again.' : '')
