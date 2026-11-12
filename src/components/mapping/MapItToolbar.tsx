@@ -272,7 +272,7 @@ export default function MapItToolbar({
           <span style={{ ...stat, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <FileText size={13} /> Reports
           </span>
-          <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} />
+          <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} items={reports.noteItems} />
           {BAR_REPORTS.map(({ kind, projectLevel }) => {
             const working = reports.queuing === `${kind}:${projectLevel ? '' : e.savedId || ''}`
               || reports.rows.some((r) => r.kind === kind
