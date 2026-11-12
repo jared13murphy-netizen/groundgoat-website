@@ -348,9 +348,9 @@ export function useTractEditor({
         const t = await getSavedParcel(startTractId)
         if (seq !== loadSeq.current) return
         const rings = geometryToPolys(t.boundary)
-        // No stored land types (e.g. saved to a project from a comp report):
-        // the Land Types step asks the engine, exactly like a first draw.
-        const needsEngine = savedTractNeedsEngine(t.polygons)
+        // Open what is saved. Only a tract saved from a comp report that has
+        // never been drawn in Map It asks the engine (see savedTractLandTypes).
+        const needsEngine = savedTractNeedsEngine(t.polygons, t.stats)
         const loaded = needsEngine ? [] : simplifyShapes(explodeShapes(t.polygons as any))
         startStateRef.current = t.state ?? null
         if (needsEngine && rings.length) {
