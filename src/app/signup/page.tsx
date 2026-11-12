@@ -101,6 +101,10 @@ function SignUpContent() {
     if (!cancelled) return
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
     if (!token) return
+    // Their account already exists and they are signed in: go back to the
+    // plan step (checkout reuses the session there). Step 1 would make them
+    // re-enter details and fail with "This email is already registered".
+    setStep(2)
     fetch(`${API_URL}/api/signup-events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
