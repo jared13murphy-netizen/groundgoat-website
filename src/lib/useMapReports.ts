@@ -4,12 +4,12 @@
 // building, queue, download, delete. Same API calls and behaviour as the
 // Reports section of SavedProjectsPanel; used by the saved-tract slide-out.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  deleteReport, downloadReport, listReports, queueReport, reportFilename, USES_ELEVATION,
+  deleteReport, downloadReport, getProject, listReports, queueReport, reportFilename, USES_ELEVATION,
   type ReportKind, type ReportRow,
 } from '@/lib/configurableMapping'
-import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
+import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotePickItem, type NotesPrint } from '@/lib/notes'
 
 /** Same default the Saved Projects panel's 3D report starts at. */
 const DEFAULT_EXAGGERATION = 2.5
@@ -25,6 +25,24 @@ export default function useMapReports(enabled: boolean, projectId: string | null
   const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+  // "Choose notes" (owner 11/11): this map first, then the project's other
+  // maps (the Aerial Map prints every one). Loaded only when the user picks.
+  const [projectMaps, setProjectMaps] = useState<NotePickItem[] | null>(null)
+  useEffect(() => { setProjectMaps(null) }, [projectId])
+  useEffect(() => {
+    if (!enabled || notesPrint.mode !== 'pick' || !projectId || projectMaps) return
+    let live = true
+    getProject(projectId)
+      .then((r) => { if (live) setProjectMaps((r.parcels || []).map((p) => ({ key: `cm:${String(p.id).toLowerCase()}`, label: p.name || 'Untitled' }))) })
+      .catch(() => { if (live) setProjectMaps([]) })
+    return () => { live = false }
+  }, [enabled, notesPrint.mode, projectId, projectMaps])
+  const noteItems = useMemo<NotePickItem[]>(() => {
+    const own = parcelId ? [{ key: `cm:${parcelId.toLowerCase()}`, label: 'This map' }] : []
+    const rest = (projectMaps || []).filter((m) => !own.some((o) => o.key === m.key))
+    const mine = parcelId && projectMaps?.find((m) => m.key === own[0].key)
+    return [...own.map((o) => (mine ? { ...o, label: mine.label } : o)), ...rest]
+  }, [parcelId, projectMaps])
 
   const load = useCallback(async () => {
     if (!projectId) return
@@ -81,5 +99,5 @@ export default function useMapReports(enabled: boolean, projectId: string | null
     } finally { setDeleting(null) }
   }
 
-  return { rows, queuing, deleting, msg, setMsg, pending, queue, download, remove, reload: load, notesPrint, setNotesPrint }
+  return { rows, queuing, deleting, msg, setMsg, pending, queue, download, remove, reload: load, notesPrint, setNotesPrint, noteItems }
 }

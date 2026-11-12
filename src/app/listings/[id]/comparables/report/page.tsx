@@ -12,7 +12,7 @@ import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from '@/components/portal/SubjectStrip'
 import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
+import { DEFAULT_NOTES_PRINT, noteItemsForReportBody, notesPrintBody, type NotesPrint } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -260,7 +260,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
         {/* Action buttons. Download is web-only; Email works for both web
             and mobile and produces the same PDF attachment. */}
         <div className="-mx-5 mb-3">
-          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} />
+          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} items={noteItemsForReportBody(buildReportBody())} />
         </div>
         <div className="flex gap-3">
           <button

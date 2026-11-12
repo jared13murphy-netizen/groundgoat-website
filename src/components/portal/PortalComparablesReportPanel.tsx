@@ -2,7 +2,7 @@
 
 import NotesTimeline from '@/components/notes/NotesTimeline'
 import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-import { DEFAULT_NOTES_PRINT, noteKeyForRow, notesPrintBody, type NotesPrint } from '@/lib/notes'
+import { DEFAULT_NOTES_PRINT, noteKeyForRow, noteItemsForReportBody, notesPrintBody, type NotesPrint } from '@/lib/notes'
 import CardThumb from '@/components/CardThumb'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
@@ -427,7 +427,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       )}
       {reportTracts.length > 0 && (
         <div className="border-t border-white/5 shrink-0">
-        <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} />
+        <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} items={noteItemsForReportBody(buildReportBody())} />
         <div className="px-5 py-4 shrink-0 flex gap-2">
           <button
             onClick={() => setChooserOpen(v => !v)}

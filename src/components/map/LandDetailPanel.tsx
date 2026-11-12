@@ -1213,7 +1213,12 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
                 in comp mode only the Report toggle shows. */}
             {canUseReports && !compMode && (
               <div style={{ marginBottom: 8, color: 'rgba(0,0,0,0.6)' }}>
-                <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint} />
+                <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint}
+                                  items={(() => {
+                                    // the key the server prints from (by-point resolves to the parcel's p: key)
+                                    const k = llUuid ? `p:${String(llUuid).toLowerCase()}` : clickData?.noteKey
+                                    return k ? [{ key: k, label: 'This parcel' }] : null
+                                  })()} />
               </div>
             )}
             <div style={{ display: 'flex', gap: 6 }}>

@@ -774,7 +774,8 @@ export default function SavedProjectsPanel({
                         ) : (
                           <>
                             <div style={{ marginBottom: 8 }}>
-                              <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint} />
+                              <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint}
+                                                items={(det?.parcels || []).map((x) => ({ key: `cm:${String(x.id).toLowerCase()}`, label: x.name || 'Untitled' }))} />
                             </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{btn('aerial')}</div>
                             {mapTarget && (

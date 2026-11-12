@@ -864,7 +864,8 @@ export function TractDetailActionBar({
           Download / Email / Comps are hidden in comp mode. */}
       {!compMode && (
         <div className="-mb-2">
-          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} />
+          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint}
+                            items={reportTractId ? [{ key: `t:${String(reportTractId).toLowerCase()}`, label: 'This tract' }] : null} />
         </div>
       )}
       <div className="px-5 pt-4 pb-4 flex flex-col gap-2">

@@ -19,8 +19,13 @@ export const NOTE_CATEGORIES = [
 ] as const
 export type NoteCategory = (typeof NOTE_CATEGORIES)[number]['value']
 
-export type NotesPrintMode = 'none' | 'latest' | 'all' | 'range'
-export interface NotesPrint { mode: NotesPrintMode; from?: string | null; to?: string | null }
+export type NotesPrintMode = 'none' | 'latest' | 'all' | 'range' | 'pick'
+/** `ids` (mode 'pick', owner 11/11): the entries the user ticked. The server
+ *  re-checks every id against the item's own timeline under the user's
+ *  visibility, so a stray / internal / foreign id never prints. */
+export interface NotesPrint { mode: NotesPrintMode; from?: string | null; to?: string | null; ids?: string[] | null }
+/** One item a report covers, for the "Choose notes" list. */
+export interface NotePickItem { key: string; label: string }
 export const NOTES_PRINT_MODES: { value: NotesPrintMode; label: string }[] = [
   { value: 'none', label: 'None' },
   { value: 'latest', label: 'Latest note only' },
@@ -196,9 +201,50 @@ export function fmtNoteDate(iso: string | null | undefined): string {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-/** The print choice for a report body; omitted fields mean "latest". */
+/** The print choice for a report body; omitted fields mean "latest".
+ *  'pick' before its list has loaded (no ids yet) sends 'latest' — the
+ *  same entries the list starts with ticked. */
 export function notesPrintBody(p: NotesPrint): NotesPrint {
-  return p.mode === 'range' ? { mode: 'range', from: p.from || null, to: p.to || null } : { mode: p.mode }
+  if (p.mode === 'range') return { mode: 'range', from: p.from || null, to: p.to || null }
+  if (p.mode === 'pick') return Array.isArray(p.ids) ? { mode: 'pick', ids: p.ids } : { mode: 'latest' }
+  return { mode: p.mode }
+}
+
+/** The items a comparables report body covers, keyed exactly as the server
+ *  keys them (notes_timeline.item_key_of / subject_key_of). */
+export function noteItemsForReportBody(body: {
+  tract_id?: string | null; subject_cm_id?: string | null; subject_ll_uuid?: string | null
+  comparables?: Array<{ source?: string | null; tract_id?: string | null; cm_id?: string | null; ll_uuid?: string | null
+    latitude?: number | null; longitude?: number | null; owner?: string | null; company_name?: string | null
+    county?: string | null; state?: string | null }>
+}, subjectLabel = 'Subject'): NotePickItem[] {
+  const out: NotePickItem[] = []
+  const seen = new Set<string>()
+  const add = (key: string | null, label: string) => {
+    if (!key) return
+    const k = key.toLowerCase()
+    if (seen.has(k)) return
+    seen.add(k); out.push({ key: k, label })
+  }
+  const real = (v: string | null | undefined) => (v && UUID_RE.test(v) ? v : null)
+  const sKey = real(body.subject_cm_id) ? `cm:${body.subject_cm_id}`
+    : real(body.subject_ll_uuid) ? `p:${body.subject_ll_uuid}`
+    : real(body.tract_id) ? `t:${body.tract_id}` : null
+  add(sKey, subjectLabel)
+  for (const c of body.comparables || []) {
+    const src = c.source || 'tract'
+    let key: string | null = null
+    if (src === 'saved' && real(c.cm_id)) key = `cm:${c.cm_id}`
+    else if (src === 'parcel') {
+      if (real(c.ll_uuid)) key = `p:${c.ll_uuid}`
+      else if (c.latitude != null && c.longitude != null && isFinite(c.latitude) && isFinite(c.longitude)) {
+        key = `pt:${Number(c.longitude).toFixed(6)},${Number(c.latitude).toFixed(6)}`
+      }
+    } else if (real(c.tract_id)) key = `t:${c.tract_id}`
+    const place = [c.county, c.state].filter(Boolean).join(', ')
+    add(key, (c.owner || c.company_name || '').trim() || place || 'Comparable')
+  }
+  return out
 }
 
 /** Where a Notes search result is on the map (owner 11/10: tapping a result
