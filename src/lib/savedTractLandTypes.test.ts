@@ -9,20 +9,23 @@ let passed = 0
 function test(name: string, fn: () => void) { fn(); passed++; console.log(`ok - ${name}`) }
 
 const sq = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] }
+const report = { source: 'report' }
 
-test('report-saved tract (no polygons) goes to the engine', () => {
-  assert.equal(savedTractNeedsEngine([]), true)
+test('report-saved tract never drawn in Map It goes to the engine', () => {
+  assert.equal(savedTractNeedsEngine([], report), true)
+  assert.equal(savedTractNeedsEngine(undefined, report), true)
+  assert.equal(savedTractNeedsEngine([{ geometry: null }], report), true)
 })
-test('missing polygons field goes to the engine', () => {
-  assert.equal(savedTractNeedsEngine(undefined), true)
-  assert.equal(savedTractNeedsEngine(null), true)
+test('saved polygons always open as saved', () => {
+  assert.equal(savedTractNeedsEngine([{ geometry: sq }], report), false)
+  assert.equal(savedTractNeedsEngine([{ geometry: sq }], {}), false)
 })
-test('polygons without geometry go to the engine', () => {
-  assert.equal(savedTractNeedsEngine([{ geometry: null }]), true)
+test('a report tract saved once in Map It keeps its (even empty) drawing', () => {
+  assert.equal(savedTractNeedsEngine([], { source: 'report', land_types_saved: true }), false)
 })
-test('a Map It drawing keeps its stored polygons', () => {
-  assert.equal(savedTractNeedsEngine([{ geometry: sq }]), false)
-  assert.equal(savedTractNeedsEngine([{ geometry: null }, { geometry: sq }]), false)
+test('a Map It tract with no polygons is never re-run through the engine', () => {
+  assert.equal(savedTractNeedsEngine([], {}), false)
+  assert.equal(savedTractNeedsEngine([], null), false)
 })
 
 console.log(`\n${passed} passed`)
