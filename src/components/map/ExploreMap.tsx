@@ -768,6 +768,10 @@ const STATE_TIER_MAX = 6
 const COUNTY_TIER_MIN = 6
 const COUNTY_TIER_MAX = 9
 const TRACT_TIER_MIN = 9
+// Owner 11/12: tract pins (circle + price label + comp "+") first show at the
+// same zoom as the pink parcel-sale dots (= parcel owner labels). The pink
+// tract OUTLINES keep TRACT_TIER_MIN.
+const TRACT_PIN_MIN_ZOOM = 12
 
 // Town vector labels (phase 2, 2026-08-17). Layer minzoom — below this the
 // 'town-labels' filter (see below) always evaluates false anyway, but
@@ -5606,7 +5610,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-circles',
         type: 'circle',
         source: 'tract-pins',
-        minzoom: TRACT_TIER_MIN,
+        minzoom: TRACT_PIN_MIN_ZOOM,
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
           // In the comp report -> green, exactly like a selected parcel
@@ -5628,7 +5632,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-labels',
         type: 'symbol',
         source: 'tract-pins',
-        minzoom: TRACT_TIER_MIN,
+        minzoom: TRACT_PIN_MIN_ZOOM,
         layout: {
           'text-field': ['get', 'pinLabel'],
           'text-font': ['Open Sans Bold'],
@@ -5660,7 +5664,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-plus',
         type: 'symbol',
         source: 'tract-pins',
-        minzoom: TRACT_TIER_MIN,
+        minzoom: TRACT_PIN_MIN_ZOOM,
         layout: {
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
@@ -7349,7 +7353,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // point, so that layer's existing onClick (below) already fires for
   // clicks on the glyph.
   const DURABLE_DOT_PLUS_LAYER = 'parcel-sale-dots-durable-symbol'
-  const DURABLE_DOT_MIN_ZOOM = 9
+  // Owner 11/12: the pink parcel-sale dots appeared "too soon" at z9; they
+  // now first show at the same zoom as the parcel owner labels. The green
+  // today's-auction dots (today-pin-*) stay visible at every zoom.
+  const DURABLE_DOT_MIN_ZOOM = REGRID_OWNER_LABEL_MIN_ZOOM
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   // Selected comps recolour their dot (owner, 2026-08-05: "when I add a
@@ -7466,8 +7473,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           'circle-radius': 6,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
-          'circle-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
-          'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], 8.8, 0, 9.3, 1],
+          'circle-opacity': ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1],
+          'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1],
         },
       })
     }
