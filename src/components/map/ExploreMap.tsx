@@ -7066,7 +7066,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           type: 'symbol',
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
-          minzoom: REGRID_MIN_ZOOM,
+          minzoom: REGRID_OWNER_LABEL_MIN_ZOOM, // owner 11/12: sale dots wait for the parcel labels
           filter: filterExpr,
           layout: {
             'icon-image': buildParcelSaleDotIconExpr(reportIds),
