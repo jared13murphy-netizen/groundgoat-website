@@ -14,13 +14,13 @@
  */
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import { declutterTags, TAG_ZOOM, TAG_W, TAG_BODY, TAG_POINTER } from '@/lib/elevatorTags'
+import { declutterTags, pinsInView, TAG_ZOOM, TAG_W, TAG_BODY, TAG_POINTER } from '@/lib/elevatorTags'
 
 export { TAG_ZOOM }
 
-/** Owner 11/12: elevator pins first show just before the black Regrid parcel
- *  boundaries (ExploreMap REGRID_MIN_ZOOM = 11), not from z7. */
-export const ELEVATOR_MIN_ZOOM = 10.5
+/** Owner 11/13: elevator pins first show with the pink tract outlines
+ *  (ExploreMap TRACT_TIER_MIN = 9); 10.5 hid them from most people. */
+export const ELEVATOR_MIN_ZOOM = 9
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -296,7 +296,12 @@ export function ensureElevatorLayer(map: maplibregl.Map) {
  *  settles; it only resets the source when the kept set changes. */
 export function setElevatorPins(map: maplibregl.Map, pins: ElevatorPin[], visible: boolean) {
   ensureElevatorLayer(map)
-  const kept = declutterTags(pins, map.getZoom())
+  // Only the elevators on screen (plus half a view on every side so a short
+  // pan has them ready) go to the map: handing it all ~4,200 made every stop
+  // of the map re-declutter and re-lay-out thousands of off-screen tags
+  // (owner 11/13: "they take forever to load").
+  const zoom = map.getZoom()
+  const kept = zoom < ELEVATOR_MIN_ZOOM ? [] : declutterTags(pinsInView(pins, map.getBounds()), zoom)
   const src = map.getSource(ELEVATOR_SOURCE) as (maplibregl.GeoJSONSource & { _ggKey?: string; _ggPins?: ElevatorPin[] }) | undefined
   const key = kept.map(p => `${p.id}:${p.corn ?? ''}:${p.beans ?? ''}:${p.has_bids ? 1 : 0}`).join(',')
   if (src && (src._ggPins !== pins || src._ggKey !== key)) {
