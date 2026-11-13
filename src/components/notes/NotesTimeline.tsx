@@ -13,10 +13,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Plus, Filter, Pencil, Trash2, Paperclip, X, Lock, FileText, Loader2, ChevronDown, ChevronUp, Search } from 'lucide-react'
 import {
   MAX_NOTE_FILES, MAX_NOTE_FILE_MB, NOTE_FILE_ACCEPT,
-  createNote, deleteNote, fetchTimelines, fmtNoteDate, removeNoteFile, todayIso, updateNote, uploadNoteFiles,
-  type NoteCategory, type NoteEntry, type NoteTimeline, type TimelineFilters,
+  createNote, deleteNote, fetchTimelines, fmtNoteDate, loadNotesMeta, noteProductsBody, removeNoteFile, todayIso, updateNote, uploadNoteFiles,
+  type NoteCategory, type NoteDraft, type NoteEntry, type NoteProductLine, type NotesMeta, type NoteTimeline, type TimelineFilters,
 } from '@/lib/notes'
 import NoteCategorySelect, { useNoteCategories } from './NoteCategorySelect'
+import NoteProductsEditor from './NoteProductsEditor'
+import NoteProductsList from './NoteProductsList'
 
 // ── batched loading: every timeline mounted in the same tick shares ONE request ──
 let pending: { keys: Set<string>; waiters: { key: string; res: (t: NoteTimeline) => void; rej: (e: any) => void }[] } | null = null
@@ -80,15 +82,24 @@ interface Draft {
   internal: boolean
   files: File[]
   existing: NoteEntry['attachments']
+  /** Firm products (owner 11/12) and whether the user changed them: an edit
+   *  sends the list only when changed (sending it replaces the note's list). */
+  products: NoteProductLine[]
+  productsDirty: boolean
 }
 
-const blankDraft = (): Draft => ({ id: null, entry_date: todayIso(), category: 'note', text: '', internal: false, files: [], existing: [] })
+const blankDraft = (): Draft => ({ id: null, entry_date: todayIso(), category: 'note', text: '', internal: false, files: [], existing: [],
+                                   products: [], productsDirty: false })
 
 export default function NotesTimeline({
   itemKey, label, county, state, latitude, longitude, theme = 'dark', compact = false, onCount,
 }: NotesTimelineProps) {
   const c = palette(theme)
   const cats = useNoteCategories()
+  // Firm products (owner 11/12): management firms only; individuals never see them.
+  const [meta, setMeta] = useState<NotesMeta | null>(null)
+  useEffect(() => { let live = true; void loadNotesMeta().then((m) => { if (live) setMeta(m) }); return () => { live = false } }, [])
+  const useProducts = !!meta?.can_use_products
   const [tl, setTl] = useState<NoteTimeline | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -130,7 +141,8 @@ export default function NotesTimeline({
 
   const startEdit = (e: NoteEntry) => {
     setFormError(null)
-    setDraft({ id: e.id, entry_date: e.entry_date, category: e.category, text: e.text, internal: e.internal, files: [], existing: e.attachments })
+    setDraft({ id: e.id, entry_date: e.entry_date, category: e.category, text: e.text, internal: e.internal, files: [], existing: e.attachments,
+               products: e.products || [], productsDirty: false })
   }
 
   const addFiles = (list: FileList | null) => {
@@ -146,10 +158,17 @@ export default function NotesTimeline({
 
   const save = async () => {
     if (!draft || !itemKey || saving) return
-    if (!draft.text.trim() && !draft.files.length && !draft.existing.length) { setFormError('Write something or attach a file'); return }
+    if (!draft.text.trim() && !draft.files.length && !draft.existing.length && !(useProducts && draft.products.length)) {
+      setFormError(useProducts ? 'Write something, add a product or attach a file' : 'Write something or attach a file'); return
+    }
     setSaving(true); setFormError(null)
     try {
-      const body = { entry_date: draft.entry_date || todayIso(), category: draft.category, text: draft.text, internal: draft.internal }
+      const body: NoteDraft = { entry_date: draft.entry_date || todayIso(), category: draft.category, text: draft.text, internal: draft.internal }
+      // A new note sends its products; an edit only when they changed
+      // (saved lines by line_id, so a deleted product's copy is kept).
+      if (useProducts && (draft.id ? draft.productsDirty : draft.products.length > 0)) {
+        body.products = noteProductsBody(draft.products)
+      }
       let e = draft.id ? await updateNote(draft.id, body)
         : await createNote(itemKey, body, { label, county, state, latitude, longitude })
       if (draft.files.length) e = await uploadNoteFiles(e.id, draft.files)
@@ -245,6 +264,10 @@ export default function NotesTimeline({
           </div>
           <textarea style={{ ...input, minHeight: 64, resize: 'vertical' }} rows={3} autoFocus placeholder="What happened?"
                     value={draft.text} data-testid="notes-text" onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+          {useProducts && (
+            <NoteProductsEditor lines={draft.products} canAdd={!!meta?.can_add_products} inputStyle={input} colors={c}
+                                onChange={(products) => setDraft((d) => (d ? { ...d, products, productsDirty: true } : d))} />
+          )}
           {(draft.existing.length > 0 || draft.files.length > 0) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {draft.existing.map((a) => (
@@ -316,6 +339,7 @@ export default function NotesTimeline({
                   </>
                 )}
               </div>
+              <NoteProductsList products={e.products} color={c.text} iconColor={c.muted} />
               {e.text && <div data-testid="notes-entry-text" style={{ marginTop: 4, whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.4, color: c.text, wordBreak: 'break-word' }}>{e.text}</div>}
               {e.attachments.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>

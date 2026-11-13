@@ -8,6 +8,7 @@ import { Loader2, Search, Lock, X } from 'lucide-react'
 import { fmtNoteDate, searchNotes, type NoteSearchResult } from '@/lib/notes'
 import { titleCase } from '@/components/map/parcelDetailFields'
 import { useNoteCategories } from './NoteCategorySelect'
+import NoteProductsList from './NoteProductsList'
 
 const PINK = '#F58CDE'
 const input: CSSProperties = {
@@ -103,6 +104,7 @@ export default function NotesSearch({ onOpen, onClose }: { onOpen: (r: NoteSearc
                 <span>{r.entry.author.name}</span>
                 {r.entry.internal && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><Lock size={9} /> Internal</span>}
               </div>
+              <NoteProductsList products={r.entry.products} color="rgba(255,255,255,0.88)" iconColor="rgba(255,255,255,0.6)" />
               {r.snippet && <div style={{ fontSize: 12, marginTop: 4, color: 'rgba(255,255,255,0.88)', lineHeight: 1.35 }}><Snippet html={r.snippet} /></div>}
             </button>
           )
