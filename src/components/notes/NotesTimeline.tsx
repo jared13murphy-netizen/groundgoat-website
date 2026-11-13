@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Plus, Filter, Pencil, Trash2, Paperclip, X, Lock, FileText, Loader2, ChevronDown, ChevronUp, Search } from 'lucide-react'
 import {
   MAX_NOTE_FILES, MAX_NOTE_FILE_MB, NOTE_FILE_ACCEPT,
-  createNote, deleteNote, fetchTimelines, fmtNoteDate, loadNotesMeta, removeNoteFile, todayIso, updateNote, uploadNoteFiles,
+  createNote, deleteNote, fetchTimelines, fmtNoteDate, loadNotesMeta, noteProductsBody, removeNoteFile, todayIso, updateNote, uploadNoteFiles,
   type NoteCategory, type NoteDraft, type NoteEntry, type NoteProductLine, type NotesMeta, type NoteTimeline, type TimelineFilters,
 } from '@/lib/notes'
 import NoteCategorySelect, { useNoteCategories } from './NoteCategorySelect'
@@ -164,10 +164,10 @@ export default function NotesTimeline({
     setSaving(true); setFormError(null)
     try {
       const body: NoteDraft = { entry_date: draft.entry_date || todayIso(), category: draft.category, text: draft.text, internal: draft.internal }
-      // A new note sends its products; an edit only when they changed. Lines
-      // whose product was deleted from the list have no id and can't be re-sent.
+      // A new note sends its products; an edit only when they changed
+      // (saved lines by line_id, so a deleted product's copy is kept).
       if (useProducts && (draft.id ? draft.productsDirty : draft.products.length > 0)) {
-        body.products = draft.products.filter((l) => l.product_id).map((l) => ({ product_id: l.product_id as string, rate: l.rate.trim() }))
+        body.products = noteProductsBody(draft.products)
       }
       let e = draft.id ? await updateNote(draft.id, body)
         : await createNote(itemKey, body, { label, county, state, latitude, longitude })
@@ -265,15 +265,8 @@ export default function NotesTimeline({
           <textarea style={{ ...input, minHeight: 64, resize: 'vertical' }} rows={3} autoFocus placeholder="What happened?"
                     value={draft.text} data-testid="notes-text" onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
           {useProducts && (
-            <>
-              <NoteProductsEditor lines={draft.products} canAdd={!!meta?.can_add_products} inputStyle={input} colors={c}
-                                  onChange={(products) => setDraft((d) => (d ? { ...d, products, productsDirty: true } : d))} />
-              {draft.id && draft.productsDirty && draft.products.some((l) => !l.product_id) && (
-                <div style={{ fontSize: 10, color: '#f59e0b' }}>
-                  Products no longer in your list can&apos;t be kept once you change this note&apos;s products. They drop off when you save.
-                </div>
-              )}
-            </>
+            <NoteProductsEditor lines={draft.products} canAdd={!!meta?.can_add_products} inputStyle={input} colors={c}
+                                onChange={(products) => setDraft((d) => (d ? { ...d, products, productsDirty: true } : d))} />
           )}
           {(draft.existing.length > 0 || draft.files.length > 0) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>

@@ -5,9 +5,9 @@
  * report-to-project/NOTES_API.md.
  */
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import { PRODUCT_KINDS, type ProductKind } from '@/lib/noteProducts'
-export { PRODUCT_KINDS, productLineText, productDetailParts, productMatches, productFieldLabels } from '@/lib/noteProducts'
-export type { ProductKind, ProductDetails } from '@/lib/noteProducts'
+import { PRODUCT_KINDS, type NoteProductLineIn, type ProductKind } from '@/lib/noteProducts'
+export { PRODUCT_KINDS, noteProductsBody, productLineText, productDetailParts, productMatches, productFieldLabels } from '@/lib/noteProducts'
+export type { ProductKind, ProductDetails, NoteProductLineIn } from '@/lib/noteProducts'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -208,6 +208,9 @@ export interface FirmProduct {
 }
 
 export interface NoteProductLine {
+  /** The line's own id (server-saved lines). A line picked in the editor
+   *  but not saved yet has none. */
+  id?: string | null
   product_id: string | null
   kind: string
   kind_label: string
@@ -354,8 +357,10 @@ export interface NoteDraft {
   text: string
   internal: boolean
   /** Firm accounts only. On an edit, sending it REPLACES the note's list;
-   *  leave it out to keep the products as they are. Max 20. */
-  products?: { product_id: string; rate: string }[]
+   *  leave it out to keep the products as they are. Max 20. A line the note
+   *  already has goes as {line_id, rate} (kept exactly as saved, even when
+   *  its product was deleted); a new one as {product_id, rate}. */
+  products?: NoteProductLineIn[]
 }
 
 export async function createNote(itemKey: string, d: NoteDraft, ctx: {

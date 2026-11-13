@@ -51,3 +51,18 @@ export function productFieldLabels(kind: string): { brand: string; extra: string
     ? { brand: 'Company / Brand', extra: 'Hybrid / variety', extraKey: 'variety' }
     : { brand: 'Brand / Manufacturer', extra: 'EPA Reg. No. (optional)', extraKey: 'epa_reg_no' }
 }
+
+export type NoteProductLineIn = { line_id: string; rate: string } | { product_id: string; rate: string }
+
+/** The products body for a note save: a line the note already has goes by
+ *  line_id (kept exactly as saved, even when its product was deleted); a
+ *  new one by product_id. */
+export function noteProductsBody(lines: { id?: string | null; product_id: string | null; rate?: string | null }[]): NoteProductLineIn[] {
+  const out: NoteProductLineIn[] = []
+  for (const l of lines) {
+    const rate = (l.rate || '').trim()
+    if (l.id) out.push({ line_id: l.id, rate })
+    else if (l.product_id) out.push({ product_id: l.product_id, rate })
+  }
+  return out
+}

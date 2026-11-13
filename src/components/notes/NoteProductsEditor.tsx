@@ -91,7 +91,7 @@ export default function NoteProductsEditor({
       {lines.map((l, i) => {
         const gone = !l.product_id
         return (
-          <div key={`${l.product_id || 'gone'}-${i}`} data-testid="notes-product-line"
+          <div key={l.id || `${l.product_id || 'gone'}-${i}`} data-testid="notes-product-line"
                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 8, border: `1px solid ${colors.line}` }}>
             <Package size={12} style={{ color: colors.muted, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -102,10 +102,9 @@ export default function NoteProductsEditor({
                 {l.kind_label}{gone ? ' · no longer in your products list' : ''}
               </div>
             </div>
-            <input style={{ ...inputStyle, width: 110, flexShrink: 0, opacity: gone ? 0.6 : 1 }} value={l.rate} maxLength={60}
+            <input style={{ ...inputStyle, width: 110, flexShrink: 0 }} value={l.rate} maxLength={60}
                    placeholder={l.kind === 'seed' ? '34,000 seeds/ac' : l.kind === 'chemical' ? '32 oz/ac' : '150 lb/ac'}
-                   aria-label={`Rate for ${l.name}`} data-testid="notes-product-rate" disabled={gone}
-                   title={gone ? 'This product was deleted from your list, so its rate can\'t be changed' : 'Rate on this note'}
+                   aria-label={`Rate for ${l.name}`} data-testid="notes-product-rate" title="Rate on this note"
                    onChange={(e) => onChange(lines.map((x, j) => (j === i ? { ...x, rate: e.target.value } : x)))} />
             <button type="button" style={iconBtn} aria-label={`Remove ${l.name}`} data-testid="notes-product-remove"
                     onClick={() => onChange(lines.filter((_, j) => j !== i))}><X size={13} /></button>

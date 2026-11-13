@@ -3,7 +3,7 @@
  *   node src/lib/noteProducts.test.ts
  */
 import assert from 'node:assert/strict'
-import { productLineText, productDetailParts, productMatches, productFieldLabels } from './noteProducts.ts'
+import { productLineText, productDetailParts, productMatches, productFieldLabels, noteProductsBody } from './noteProducts.ts'
 
 assert.equal(productLineText({ kind: 'fertilizer', name: 'Potash 0-0-60', brand: 'Mosaic', epa_reg_no: '', variety: '', rate: '150 lb/ac' }),
   'Potash 0-0-60 · Mosaic · 150 lb/ac')
@@ -23,5 +23,13 @@ assert.ok(productMatches({ kind: 'other', name: 'Lime' }, '  '))
 
 assert.equal(productFieldLabels('seed').extraKey, 'variety')
 assert.equal(productFieldLabels('fertilizer').extraKey, 'epa_reg_no')
+
+// saved lines go by line_id (even a deleted product's, product_id null); new by product_id
+assert.deepEqual(noteProductsBody([
+  { id: 'L1', product_id: 'P1', rate: ' 150 lb/ac ' },
+  { id: 'L2', product_id: null, rate: '2 qt' },
+  { product_id: 'P3', rate: '' },
+  { product_id: null, rate: 'x' },
+]), [{ line_id: 'L1', rate: '150 lb/ac' }, { line_id: 'L2', rate: '2 qt' }, { product_id: 'P3', rate: '' }])
 
 console.log('noteProducts: all passed')
