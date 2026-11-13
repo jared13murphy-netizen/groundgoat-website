@@ -40,3 +40,13 @@ export function declutterTags<T extends { lat: number; lng: number; has_bids?: b
   }
   return kept.map(k => k.p)
 }
+
+/** The pins inside `b` widened by half its size on every side. */
+export function pinsInView<T extends { lat: number; lng: number }>(
+  pins: T[],
+  b: { getSouth(): number; getNorth(): number; getWest(): number; getEast(): number },
+): T[] {
+  const padLat = (b.getNorth() - b.getSouth()) / 2, padLng = (b.getEast() - b.getWest()) / 2
+  const s = b.getSouth() - padLat, n = b.getNorth() + padLat, w = b.getWest() - padLng, e = b.getEast() + padLng
+  return pins.filter(p => p.lat >= s && p.lat <= n && p.lng >= w && p.lng <= e)
+}

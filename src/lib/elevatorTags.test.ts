@@ -4,7 +4,7 @@
  *   node src/lib/elevatorTags.test.ts
  */
 import assert from 'node:assert/strict'
-import { declutterTags, TAG_ZOOM } from './elevatorTags.ts'
+import { declutterTags, pinsInView, TAG_ZOOM } from './elevatorTags.ts'
 
 // Two St. Louis riverfront elevators ~300 m apart; the stale one listed first.
 const stale = { id: 1, lat: 38.630, lng: -90.180, has_bids: false }
@@ -32,3 +32,10 @@ assert.deepEqual(declutterTags(pins, NaN as any).length, 3)
 assert.deepEqual(pins.map(p => p.id), [1, 2, 3])
 
 console.log('elevatorTags: all assertions passed')
+
+// Only the pins in view (plus half a view each side) go to the map (owner 11/13).
+const view = { getSouth: () => 40, getNorth: () => 41, getWest: () => -92, getEast: () => -91 }
+const inView = { id: 20, lat: 40.5, lng: -91.5 }
+const inPad = { id: 21, lat: 41.4, lng: -90.6 }
+const outside = { id: 22, lat: 42, lng: -91.5 }
+assert.deepEqual(pinsInView([inView, inPad, outside], view).map(p => p.id), [20, 21])
