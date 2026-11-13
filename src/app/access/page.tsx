@@ -1200,6 +1200,7 @@ function AccessPortalPageInner() {
           chatSearchEndSignal={chatSearchEndSignal}
           onChatSearchError={handleChatSearchError}
           ownerParcelsResult={ownerParcelsResult}
+          searchActive={!!activeSearchQuery && !compModeOn}
           onShowOwnedGround={handleShowOwnedGround}
           comparableVisibleIds={null}
           neighborParcels={neighborParcels}
