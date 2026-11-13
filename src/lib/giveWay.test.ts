@@ -115,4 +115,12 @@ const fx = JSON.parse(readFileSync(new URL('./__fixtures__/giveWay-delete-dot.js
   assert.equal(dropSpeckRings([{ id: 'y', cls: 'water', polys: [[[[1, 1], [1, 1], [2, 2]]]] }]).length, 0)
 }
 
+// Unit: a zero-width spike's tip goes, the rest of the ring stays exactly.
+{
+  const sq: Pt[] = [[0, 0], [0.01, 0], [0.01, 0.01], [0.005, 0.01], [0.005, 0.02], [0.005, 0.015], [0, 0.01]]
+  const [sh] = dropSpeckRings([{ id: 'z', cls: 'timber', polys: [[sq]] }])
+  // (the real case: A -> tip -> C with C on the line A-tip; the ring then runs A -> C)
+  assert.deepEqual(sh.polys, [[[[0, 0], [0.01, 0], [0.01, 0.01], [0.005, 0.01], [0.005, 0.015], [0, 0.01]]]])
+}
+
 console.log('giveWay.test.ts: ok')

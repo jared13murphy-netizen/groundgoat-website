@@ -230,18 +230,45 @@ export function stripInsertedVertices(shapes: Shape[], original: Shape[], absTol
  *  could see or measure, so it is dropped rather than shown as a new dot. */
 export const NODE_TOL_DEG = 1e-7
 
-/** Holes under a square metre, and rings whose points collapse onto each
- *  other, are rounding debris from the server's clean-up (a 9-digit
- *  coordinate can fold a hair-thin triangle onto itself). They are
- *  invisible, but PostGIS rejects them as invalid and drops them on the
- *  next edit, which made their dots vanish far from the edit (owner 11/13).
- *  Remove them once, when the shapes are built. */
+/** Remove the tip of every zero-width spike — a dot where the ring runs
+ *  out and straight back along itself (sin of the turn < 1e-3). Such a
+ *  spike has no area; rounding to 9 digits makes it self-intersecting, and
+ *  PostGIS then deletes the tip on the next edit, so a dot metres away
+ *  from the edit vanished (owner 11/13, measured on a real 83 ac tillable
+ *  polygon: a 4 m spike on a hole). */
+function dropSpikes(ring: Pt[]): Pt[] {
+  // consecutive repeats first (a repeat has no direction to test)
+  let out = ring.filter((p, i) => {
+    const q = ring[(i - 1 + ring.length) % ring.length]
+    return i === 0 || p[0] !== q[0] || p[1] !== q[1]
+  })
+  for (let pass = 0; pass < 5 && out.length > 3; pass++) {
+    const next = out.filter((b, i) => {
+      const a = out[(i - 1 + out.length) % out.length], c = out[(i + 1) % out.length]
+      const ux = b[0] - a[0], uy = b[1] - a[1], vx = c[0] - b[0], vy = c[1] - b[1]
+      const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy)
+      if (!lu || !lv) return true
+      return !(ux * vx + uy * vy < 0 && Math.abs(ux * vy - uy * vx) / (lu * lv) < 1e-3)
+    })
+    if (next.length === out.length) break
+    out = next
+  }
+  return out
+}
+
+/** Holes under a square metre, rings whose points collapse onto each
+ *  other, and zero-width spikes are rounding debris from the server's
+ *  clean-up (a 9-digit coordinate can fold a hair-thin triangle onto
+ *  itself). They are invisible, but PostGIS rejects them as invalid and
+ *  drops them on the next edit, which made their dots vanish far from the
+ *  edit (owner 11/13). Remove them once, when the shapes are built. */
 export function dropSpeckRings(shapes: Shape[]): Shape[] {
   const distinct = (r: Pt[]) => new Set(r.map((p) => `${p[0]},${p[1]}`)).size
   const SQM_ACRE = 4046.8564224
   return shapes.map((sh) => ({
     ...sh,
     polys: sh.polys
+      .map((rings) => rings.map(dropSpikes))
       .filter((rings) => rings[0] && distinct(rings[0]) >= 3)
       .map((rings) => rings.filter((r, i) => i === 0
         || (distinct(r) >= 3 && polygonAcres(r) * SQM_ACRE >= 1))),
