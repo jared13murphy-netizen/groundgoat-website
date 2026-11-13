@@ -192,7 +192,7 @@ export function simplifyShapes(shapes: Shape[]): Shape[] {
  *  inserted along shared edges (points that were not in `original` and
  *  sit on a straight line between their neighbours). A dot the user placed
  *  is never removed (owner 11/2: only a right-click deletes a dot). */
-export function stripInsertedVertices(shapes: Shape[], original: Shape[]): Shape[] {
+export function stripInsertedVertices(shapes: Shape[], original: Shape[], absTol?: number): Shape[] {
   const keep = new Set<string>()
   for (const sh of original) for (const rings of sh.polys) for (const ring of rings)
     for (const pt of ring) keep.add(`${pt[0].toFixed(9)},${pt[1].toFixed(9)}`)
@@ -208,7 +208,7 @@ export function stripInsertedVertices(shapes: Shape[], original: Shape[]): Shape
     polys: sh.polys.map((rings) => rings.map((ring) => {
       if (ring.length < 4) return ring
       const lngs = ring.map((pt) => pt[0]), lats = ring.map((pt) => pt[1])
-      const tol = Math.hypot(Math.max(...lngs) - Math.min(...lngs), Math.max(...lats) - Math.min(...lats)) * 0.005
+      const tol = absTol ?? Math.hypot(Math.max(...lngs) - Math.min(...lngs), Math.max(...lats) - Math.min(...lats)) * 0.005
       let out = ring
       // repeat: dropping one inserted point can make the next one collinear
       for (let pass = 0; pass < 3; pass++) {
@@ -223,6 +223,53 @@ export function stripInsertedVertices(shapes: Shape[], original: Shape[]): Shape
       return out
     })),
   }))
+}
+
+/** ~1 cm in degrees. A vertex the server's overlay adds that sits within
+ *  this of the straight line between its neighbours changes nothing you
+ *  could see or measure, so it is dropped rather than shown as a new dot. */
+export const NODE_TOL_DEG = 1e-7
+
+/** Apply a /geometry/give-way answer (owner 11/13: deleting a dot must not
+ *  move any other dot). Every shape the server reports unchanged is kept
+ *  as the SAME object — same id, every coordinate exactly as it was — so a
+ *  dot can only move where the edited shape actually took ground. A
+ *  neighbour that was cut is replaced by its pieces (none when the edited
+ *  shape covered all of it); the edited shape keeps its id, and is only
+ *  replaced when it had to be clipped back inside the boundary. Order is
+ *  preserved. `others` in the answer lines up with `shapes` minus the
+ *  edited one, in order. */
+export function applyGiveWay(
+  shapes: Shape[],
+  editedId: string,
+  res: {
+    edited: { cls: LandClass; changed: boolean; geometry: any | null }
+    others: { cls: LandClass; changed: boolean; geometry?: any | null }[]
+  },
+): Shape[] {
+  const edited = shapes.find((s) => s.id === editedId)
+  if (!edited) return shapes
+  const out: Shape[] = []
+  let oi = 0
+  for (const sh of shapes) {
+    if (sh.id === editedId) {
+      if (!res.edited.changed) { out.push(sh); continue }
+      if (!res.edited.geometry) continue
+      const pieces = stripInsertedVertices(
+        explodeShapes([{ cls: sh.cls, geometry: res.edited.geometry }]), [sh], NODE_TOL_DEG)
+      // the biggest piece stays the selected shape
+      let big = 0
+      pieces.forEach((p, i) => { if (shapeAcres(p) > shapeAcres(pieces[big])) big = i })
+      pieces.forEach((p, i) => out.push(i === big ? { ...p, id: editedId } : p))
+      continue
+    }
+    const r = res.others[oi++]
+    if (!r || !r.changed) { out.push(sh); continue }
+    if (!r.geometry) continue
+    out.push(...stripInsertedVertices(
+      explodeShapes([{ cls: sh.cls, geometry: r.geometry }]), [sh, edited], NODE_TOL_DEG))
+  }
+  return out
 }
 
 /** Ray cast. Rings here are open — first point is not repeated. */
