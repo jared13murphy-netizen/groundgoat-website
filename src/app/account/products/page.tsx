@@ -129,7 +129,7 @@ export default function ProductsPage() {
     try {
       const r = await deleteFirmProduct(p.id)
       setConfirmDelete(null)
-      setMsg({ kind: 'ok', text: `Deleted "${p.name}".${r.notes_kept ? ` ${notesWord(r.notes_kept)} keep their copy.` : ''}` })
+      setMsg({ kind: 'ok', text: `Deleted "${p.name}".${r.notes_kept ? ` ${r.notes_kept === 1 ? 'The note that used it keeps its copy.' : `The ${r.notes_kept} notes that used it keep their copy.`}` : ''}` })
       await load(showRetired)
     } catch (e: any) {
       setMsg({ kind: 'err', text: e?.message || 'Could not delete that product.' })
@@ -246,7 +246,7 @@ export default function ProductsPage() {
                       <div className="text-sm text-white">
                         Delete &quot;{p.name}&quot; from your products?{' '}
                         <span className="text-gg-gray-400">
-                          {p.notes_using ? `${notesWord(p.notes_using)} keep their copy.` : 'No notes use it.'} This can&apos;t be undone.
+                          {p.notes_using ? (p.notes_using === 1 ? 'The note that uses it keeps its copy.' : `The ${p.notes_using} notes that use it keep their copy.`) : 'No notes use it.'} This can&apos;t be undone.
                           {!p.retired && ' To just hide it from notes, Retire it instead.'}
                         </span>
                       </div>
