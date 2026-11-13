@@ -3760,8 +3760,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // ── Grain elevators (owner 11/9): a yellow grain-bin pin on every elevator;
   // a click opens ElevatorPanel (its bids + the 15 closest within 75 mi).
-  // Ground Goat admins only while it is tested on the Barchart trial — the
-  // backend enforces the same rule. Its own toggle in My Maps, default on.
+  // Everyone who can open the map (owner 11/12; was admins only during the
+  // Barchart trial). Its own toggle in My Maps, default on.
   const [elevatorsOn, setElevatorsOn] = useState(() => {
     try { return localStorage.getItem('gg_grain_elevators_layer') !== 'off' } catch { return true }
   })
@@ -3775,26 +3775,26 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [elevatorPinsError, setElevatorPinsError] = useState<string | null>(null)
   const [elevatorOpen, setElevatorOpen] = useState<{ id: number } | null>(null)
   useEffect(() => {
-    if (!isAdmin || !elevatorsOn || elevatorPins) return
+    if (!elevatorsOn || elevatorPins) return
     let stale = false
     getElevatorPins()
       .then(r => { if (!stale) { setElevatorPinsState(r.elevators); setElevatorPinsError(null) } })
       .catch((e: any) => { if (!stale) setElevatorPinsError(e?.message || 'Could not load elevators.') })
     return () => { stale = true }
-  }, [isAdmin, elevatorsOn, elevatorPins])
+  }, [elevatorsOn, elevatorPins])
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapLoaded || !isAdmin || !elevatorPins) return
+    if (!map || !mapLoaded || !elevatorPins) return
     setElevatorPins(map, elevatorPins, elevatorsOn)
     // Owner 11/10: re-declutter the price tags for the new zoom once the map
     // settles, so two nearby elevators never draw overlapping tags.
     const onMoveEnd = () => { try { setElevatorPins(map, elevatorPins, elevatorsOn) } catch { /* torn down */ } }
     map.on('moveend', onMoveEnd)
     return () => { map.off('moveend', onMoveEnd) }
-  }, [mapLoaded, isAdmin, elevatorPins, elevatorsOn])
+  }, [mapLoaded, elevatorPins, elevatorsOn])
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapLoaded || !isAdmin) return
+    if (!map || !mapLoaded) return
     const onClick = (e: maplibregl.MapLayerMouseEvent) => {
       if (mapInteractionSuspendedRef.current) return
       const id = Number(e.features?.[0]?.properties?.id)
@@ -3817,7 +3817,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         map.off('mouseleave', ELEVATOR_LAYER, onLeave)
       } catch { /* map torn down */ }
     }
-  }, [mapLoaded, isAdmin])
+  }, [mapLoaded])
   // Never stacked with the other right-hand panels, and closed by a click
   // anywhere outside it (a click on another elevator pin swaps it instead).
   useEffect(() => { if (landDetail || savedPanelOpen || utilitiesOpen || savedTractOpen) setElevatorOpen(null) },
@@ -11441,8 +11441,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         </div>
       )}
 
-      {/* Owner 11/9: grain elevator slide-out (admins only for now). */}
-      {isAdmin && !mappingMode && (
+      {/* Owner 11/9: grain elevator slide-out (everyone since 11/12). */}
+      {!mappingMode && (
         <ElevatorPanel
           elevatorId={elevatorOpen?.id ?? null}
           onClose={() => setElevatorOpen(null)}
@@ -12147,7 +12147,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     icon={<LayersIcon size={20} />}
                     label="Layers"
                     // Owner 11/11: lit whenever ANY layer in the panel is on.
-                    active={baseOverlay !== null || Object.values(nationalOn).some(Boolean) || (canUseProjectMaps && myTractsOn) || (isAdmin && elevatorsOn)}
+                    active={baseOverlay !== null || Object.values(nationalOn).some(Boolean) || (canUseProjectMaps && myTractsOn) || elevatorsOn}
                     onClick={() => setUtilitiesView('layers')}
                   />
                 )}
@@ -12287,8 +12287,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   )}
                 </>
               )}
-              {/* Grain elevator pins (owner 11/9) — admins only for now. */}
-              {isAdmin && (
+              {/* Grain elevator pins (owner 11/9) — everyone since 11/12. */}
+              {
                 <>
                   <div
                     onClick={() => toggleElevators()}
@@ -12323,7 +12323,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     </div>
                   )}
                 </>
-              )}
+              }
               {terrain3DOn && (
                 <div style={{ display: 'flex', alignItems: 'center', height: 40, gap: 8, marginTop: 14 }}>
                   <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 9, flexShrink: 0 }}>Flat</span>
@@ -12373,7 +12373,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`,
               }}
               elevators={{
-                available: isAdmin,
+                available: true,
                 on: elevatorsOn,
                 toggle: toggleElevators,
                 status: elevatorPinsError
