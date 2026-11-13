@@ -5,6 +5,9 @@
  * report-to-project/NOTES_API.md.
  */
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { PRODUCT_KINDS, type ProductKind } from '@/lib/noteProducts'
+export { PRODUCT_KINDS, productLineText, productDetailParts, productMatches, productFieldLabels } from '@/lib/noteProducts'
+export type { ProductKind, ProductDetails } from '@/lib/noteProducts'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -150,6 +153,10 @@ export interface NoteEntry {
   scope: 'private' | 'firm'
   can_edit: boolean
   attachments: NoteAttachment[]
+  /** Firm products on this note: a COPY of each as saved, plus this note's
+   *  rate. product_id is null once the product was deleted from the list.
+   *  (Optional only for an older server.) */
+  products?: NoteProductLine[]
 }
 
 export interface NoteTimeline { count: number; entries: NoteEntry[]; error?: string }
@@ -177,6 +184,137 @@ export function noteKeyForRow(t: {
     return `pt:${Number(t.longitude).toFixed(6)},${Number(t.latitude).toFixed(6)}`
   }
   return null
+}
+
+// ── Firm products on notes (owner 11/12) ─────────────────────────────
+// Management firms keep a product list (fertilizer, chemical / herbicide,
+// seed, other). Any firm member adds one; only the firm admin edits,
+// retires or deletes. A note keeps a COPY of each product plus its own
+// rate. Individuals never see any of this. Backend: firm_products.py.
+
+export const MAX_NOTE_PRODUCTS = 20
+
+export interface FirmProduct {
+  id: string
+  kind: ProductKind
+  kind_label: string
+  name: string
+  brand: string
+  epa_reg_no: string
+  variety: string
+  retired: boolean
+  /** Firm admin only. */
+  notes_using?: number
+}
+
+export interface NoteProductLine {
+  product_id: string | null
+  kind: string
+  kind_label: string
+  name: string
+  brand: string
+  epa_reg_no: string
+  variety: string
+  rate: string
+}
+
+export interface ProductInput { kind: ProductKind; name: string; brand: string; epa_reg_no: string; variety: string }
+
+export interface NotesMeta {
+  can_attach: boolean
+  can_use_products: boolean
+  can_add_products: boolean
+  can_manage_products: boolean
+  product_kinds: { value: ProductKind; label: string }[]
+}
+const NO_META: NotesMeta = { can_attach: false, can_use_products: false, can_add_products: false, can_manage_products: false, product_kinds: PRODUCT_KINDS }
+
+let metaLoad: Promise<NotesMeta> | null = null
+/** /api/notes/meta, read once per page. Anything that fails = no products. */
+export function loadNotesMeta(force = false): Promise<NotesMeta> {
+  if (metaLoad && !force) return metaLoad
+  metaLoad = (async () => {
+    try {
+      const m = await json<Partial<NotesMeta>>(await fetchWithAuth(`${API_URL}/api/notes/meta`))
+      return {
+        can_attach: !!m.can_attach,
+        can_use_products: !!m.can_use_products,
+        can_add_products: !!m.can_add_products,
+        can_manage_products: !!m.can_manage_products,
+        product_kinds: m.product_kinds?.length ? m.product_kinds : PRODUCT_KINDS,
+      }
+    } catch (e: any) {
+      if (e?.status !== 403 && e?.status !== 401) metaLoad = null
+      return NO_META
+    }
+  })()
+  return metaLoad
+}
+
+export interface ProductsState { products: FirmProduct[]; loaded: boolean }
+// One shared copy of the firm's ACTIVE products for every note editor on
+// the page: a product added in one shows at once in all the others.
+let prodState: ProductsState = { products: [], loaded: false }
+let prodLoad: Promise<ProductsState> | null = null
+const prodListeners = new Set<(s: ProductsState) => void>()
+function setProdState(s: ProductsState) { prodState = s; prodListeners.forEach((f) => f(s)) }
+export function firmProductsSnapshot(): ProductsState { return prodState }
+export function subscribeFirmProducts(f: (s: ProductsState) => void): () => void {
+  prodListeners.add(f)
+  return () => { prodListeners.delete(f) }
+}
+
+/** The firm's active products (the note picker's list). Cached; `force` re-reads. */
+export function loadFirmProducts(force = false): Promise<ProductsState> {
+  if (prodLoad && !force) return prodLoad
+  prodLoad = (async () => {
+    try {
+      const r = await json<{ products: FirmProduct[] }>(await fetchWithAuth(`${API_URL}/api/notes/products`))
+      const s = { products: (r.products || []).filter((p) => !p.retired), loaded: true }
+      setProdState(s)
+      return s
+    } catch (e: any) {
+      if (e?.status !== 403 && e?.status !== 401) prodLoad = null
+      return prodState
+    }
+  })()
+  return prodLoad
+}
+
+/** The Products page list. include_retired / notes_using only for the firm admin. */
+export async function fetchFirmProducts(includeRetired = false): Promise<{ products: FirmProduct[]; can_add: boolean; can_manage: boolean }> {
+  const q = includeRetired ? '?include_retired=true' : ''
+  return json(await fetchWithAuth(`${API_URL}/api/notes/products${q}`))
+}
+
+/** 409 when it is already in the list (the message says so). */
+export async function addFirmProduct(p: ProductInput): Promise<FirmProduct> {
+  const res = await fetchWithAuth(`${API_URL}/api/notes/products`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
+  })
+  const out = (await json<{ product: FirmProduct }>(res)).product
+  void loadFirmProducts(true)
+  return out
+}
+
+/** Firm admin. `update_existing` (unticked by default): also rewrite every
+ *  note's copy of it (rates stay). updated_notes = how many notes changed. */
+export async function updateFirmProduct(id: string, p: Partial<ProductInput> & { retired?: boolean; update_existing?: boolean }): Promise<{ product: FirmProduct; updated_notes: number }> {
+  const res = await fetchWithAuth(`${API_URL}/api/notes/products/${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ update_existing: false, ...p }),
+  })
+  const out = await json<{ product: FirmProduct; updated_notes: number }>(res)
+  void loadFirmProducts(true)
+  return { product: out.product, updated_notes: Number(out.updated_notes) || 0 }
+}
+
+/** Firm admin. Notes that used it keep their copy (notes_kept). */
+export async function deleteFirmProduct(id: string): Promise<{ notes_kept: number }> {
+  const out = await json<{ notes_kept: number }>(
+    await fetchWithAuth(`${API_URL}/api/notes/products/${encodeURIComponent(id)}`, { method: 'DELETE' }))
+  void loadFirmProducts(true)
+  return { notes_kept: Number(out.notes_kept) || 0 }
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -215,6 +353,9 @@ export interface NoteDraft {
   category: NoteCategory
   text: string
   internal: boolean
+  /** Firm accounts only. On an edit, sending it REPLACES the note's list;
+   *  leave it out to keep the products as they are. Max 20. */
+  products?: { product_id: string; rate: string }[]
 }
 
 export async function createNote(itemKey: string, d: NoteDraft, ctx: {

@@ -5,7 +5,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift, Tags } from 'lucide-react'
+import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift, Tags, Package } from 'lucide-react'
 
 import { isRestrictedIndividual, getAllowedStates, formatStateList } from '@/lib/stateAccess'
 
@@ -473,6 +473,17 @@ const handleResendVerification = async () => {
               label="Note Categories"
               description="Edit or delete your firm's note categories"
               href="/account/note-categories"
+            />
+          )}
+
+          {/* Products (owner 11/12) - every firm member views and adds; the
+              firm admin edits, retires and deletes. */}
+          {(user?.account_type === 'firm_admin' || user?.account_type === 'firm_user') && (
+            <MenuItem
+              icon={<Package size={20} />}
+              label="Products"
+              description="Your firm's fertilizer, chemical and seed list for notes"
+              href="/account/products"
             />
           )}
 
