@@ -192,7 +192,7 @@ export function simplifyShapes(shapes: Shape[]): Shape[] {
  *  inserted along shared edges (points that were not in `original` and
  *  sit on a straight line between their neighbours). A dot the user placed
  *  is never removed (owner 11/2: only a right-click deletes a dot). */
-export function stripInsertedVertices(shapes: Shape[], original: Shape[]): Shape[] {
+export function stripInsertedVertices(shapes: Shape[], original: Shape[], absTol?: number): Shape[] {
   const keep = new Set<string>()
   for (const sh of original) for (const rings of sh.polys) for (const ring of rings)
     for (const pt of ring) keep.add(`${pt[0].toFixed(9)},${pt[1].toFixed(9)}`)
@@ -208,7 +208,7 @@ export function stripInsertedVertices(shapes: Shape[], original: Shape[]): Shape
     polys: sh.polys.map((rings) => rings.map((ring) => {
       if (ring.length < 4) return ring
       const lngs = ring.map((pt) => pt[0]), lats = ring.map((pt) => pt[1])
-      const tol = Math.hypot(Math.max(...lngs) - Math.min(...lngs), Math.max(...lats) - Math.min(...lats)) * 0.005
+      const tol = absTol ?? Math.hypot(Math.max(...lngs) - Math.min(...lngs), Math.max(...lats) - Math.min(...lats)) * 0.005
       let out = ring
       // repeat: dropping one inserted point can make the next one collinear
       for (let pass = 0; pass < 3; pass++) {
@@ -223,6 +223,98 @@ export function stripInsertedVertices(shapes: Shape[], original: Shape[]): Shape
       return out
     })),
   }))
+}
+
+/** ~1 cm in degrees. A vertex the server's overlay adds that sits within
+ *  this of the straight line between its neighbours changes nothing you
+ *  could see or measure, so it is dropped rather than shown as a new dot. */
+export const NODE_TOL_DEG = 1e-7
+
+/** Remove the tip of every zero-width spike — a dot where the ring runs
+ *  out and straight back along itself (sin of the turn < 1e-3). Such a
+ *  spike has no area; rounding to 9 digits makes it self-intersecting, and
+ *  PostGIS then deletes the tip on the next edit, so a dot metres away
+ *  from the edit vanished (owner 11/13, measured on a real 83 ac tillable
+ *  polygon: a 4 m spike on a hole). */
+function dropSpikes(ring: Pt[]): Pt[] {
+  // consecutive repeats first (a repeat has no direction to test)
+  let out = ring.filter((p, i) => {
+    const q = ring[(i - 1 + ring.length) % ring.length]
+    return i === 0 || p[0] !== q[0] || p[1] !== q[1]
+  })
+  for (let pass = 0; pass < 5 && out.length > 3; pass++) {
+    const next = out.filter((b, i) => {
+      const a = out[(i - 1 + out.length) % out.length], c = out[(i + 1) % out.length]
+      const ux = b[0] - a[0], uy = b[1] - a[1], vx = c[0] - b[0], vy = c[1] - b[1]
+      const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy)
+      if (!lu || !lv) return true
+      return !(ux * vx + uy * vy < 0 && Math.abs(ux * vy - uy * vx) / (lu * lv) < 1e-3)
+    })
+    if (next.length === out.length) break
+    out = next
+  }
+  return out
+}
+
+/** Holes under a square metre, rings whose points collapse onto each
+ *  other, and zero-width spikes are rounding debris from the server's
+ *  clean-up (a 9-digit coordinate can fold a hair-thin triangle onto
+ *  itself). They are invisible, but PostGIS rejects them as invalid and
+ *  drops them on the next edit, which made their dots vanish far from the
+ *  edit (owner 11/13). Remove them once, when the shapes are built. */
+export function dropSpeckRings(shapes: Shape[]): Shape[] {
+  const distinct = (r: Pt[]) => new Set(r.map((p) => `${p[0]},${p[1]}`)).size
+  const SQM_ACRE = 4046.8564224
+  return shapes.map((sh) => ({
+    ...sh,
+    polys: sh.polys
+      .map((rings) => rings.map(dropSpikes))
+      .filter((rings) => rings[0] && distinct(rings[0]) >= 3)
+      .map((rings) => rings.filter((r, i) => i === 0
+        || (distinct(r) >= 3 && polygonAcres(r) * SQM_ACRE >= 1))),
+  })).filter((sh) => sh.polys.length > 0)
+}
+
+/** Apply a /geometry/give-way answer (owner 11/13: deleting a dot must not
+ *  move any other dot). Every shape the server reports unchanged is kept
+ *  as the SAME object — same id, every coordinate exactly as it was — so a
+ *  dot can only move where the edited shape actually took ground. A
+ *  neighbour that was cut is replaced by its pieces (none when the edited
+ *  shape covered all of it); the edited shape keeps its id, and is only
+ *  replaced when it had to be clipped back inside the boundary. Order is
+ *  preserved. `others` in the answer lines up with `shapes` minus the
+ *  edited one, in order. */
+export function applyGiveWay(
+  shapes: Shape[],
+  editedId: string,
+  res: {
+    edited: { cls: LandClass; changed: boolean; geometry: any | null }
+    others: { cls: LandClass; changed: boolean; geometry?: any | null }[]
+  },
+): Shape[] {
+  const edited = shapes.find((s) => s.id === editedId)
+  if (!edited) return shapes
+  const out: Shape[] = []
+  let oi = 0
+  for (const sh of shapes) {
+    if (sh.id === editedId) {
+      if (!res.edited.changed) { out.push(sh); continue }
+      if (!res.edited.geometry) continue
+      const pieces = dropSpeckRings(stripInsertedVertices(
+        explodeShapes([{ cls: sh.cls, geometry: res.edited.geometry }]), [sh], NODE_TOL_DEG))
+      // the biggest piece stays the selected shape
+      let big = 0
+      pieces.forEach((p, i) => { if (shapeAcres(p) > shapeAcres(pieces[big])) big = i })
+      pieces.forEach((p, i) => out.push(i === big ? { ...p, id: editedId } : p))
+      continue
+    }
+    const r = res.others[oi++]
+    if (!r || !r.changed) { out.push(sh); continue }
+    if (!r.geometry) continue
+    out.push(...dropSpeckRings(stripInsertedVertices(
+      explodeShapes([{ cls: sh.cls, geometry: r.geometry }]), [sh, edited], NODE_TOL_DEG)))
+  }
+  return out
 }
 
 /** Ray cast. Rings here are open — first point is not repeated. */
