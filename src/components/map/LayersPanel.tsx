@@ -120,6 +120,8 @@ export type ToggleLayer = {
 }
 
 export type LayersPanelProps = {
+  /** "Land owned by …" results are on the map: add the purple legend row. */
+  searchResultsShown?: boolean
   baseOverlay: BaseOverlayValue
   setBaseOverlay: (v: BaseOverlayValue) => void
   engineAvailable: boolean
@@ -207,6 +209,10 @@ const TILE_CSS = `
   .gg-lt-on .gg-lt-pic { box-shadow: 0 0 0 2px rgba(245,140,222,0.25); }
 }
 `
+
+// Owner 11/13: "Land owned by …" Goat Search dots are purple (blue means an
+// auction); the legend shows the row only while those results are on the map.
+export const SEARCH_RESULT_COLOR = '#8B3DFF'
 
 const TRACT_STATUS_ROWS = [
   { label: 'Sold', color: '#f58cde' },
@@ -623,7 +629,7 @@ export default function LayersPanel(p: LayersPanelProps) {
                 {g.id === 'markets' && (
                   <div style={{ marginTop: g.layers.length ? 6 : 0 }}>
                     <div style={sectionLabel}>Tract Status</div>
-                    {TRACT_STATUS_ROWS.map(({ label, color }) => (
+                    {[...TRACT_STATUS_ROWS, ...(p.searchResultsShown ? [{ label: 'Search results', color: SEARCH_RESULT_COLOR }] : [])].map(({ label, color }) => (
                       <div key={label} style={{ display: 'flex', alignItems: 'center', height: 30, gap: 8 }}>
                         <span style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
                         <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>{label}</span>

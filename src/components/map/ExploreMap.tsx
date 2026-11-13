@@ -51,7 +51,7 @@ import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
 import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
 import ElevatorPanel from './ElevatorPanel'
-import LayersPanel, { applyOverlayOpacity, loadOverlayOpacity, saveOverlayOpacity, OVERLAY_DEFAULT_OPACITY, type OpacityLayerKey } from './LayersPanel'
+import LayersPanel, { applyOverlayOpacity, loadOverlayOpacity, saveOverlayOpacity, OVERLAY_DEFAULT_OPACITY, SEARCH_RESULT_COLOR, type OpacityLayerKey } from './LayersPanel'
 import {
   NATIONAL_LAYERS, NATIONAL_OVERLAY_KEYS, EMPTY_AVAILABILITY, fetchNationalAvailability, isLayerAvailable,
   addNationalLayer, setNationalLayerVisible, nationalLayerIds, nationalClickLayerIds, describeNationalFeature,
@@ -772,6 +772,14 @@ const TRACT_TIER_MIN = 9
 // same zoom as the pink parcel-sale dots (= parcel owner labels). The pink
 // tract OUTLINES keep TRACT_TIER_MIN.
 const TRACT_PIN_MIN_ZOOM = 12
+// Owner 11/13: while a Goat Search is active its result pins (tract pins,
+// the search's sale dots) show at ANY zoom; the search framed at county zoom
+// showed nothing. Clearing the search brings the zoom-12 floor back.
+const SEARCH_PIN_MIN_ZOOM = 0
+// The server answers no sale dots for a box wider than this (Bill Sullivan
+// crash, 11/13); don't ask for one when a search lets the dots load zoomed out.
+const SALE_DOTS_MAX_SPAN_LAT = 15
+const SALE_DOTS_MAX_SPAN_LNG = 20
 
 // Town vector labels (phase 2, 2026-08-17). Layer minzoom — below this the
 // 'town-labels' filter (see below) always evaluates false anyway, but
@@ -1693,10 +1701,13 @@ interface ExploreMapProps {
       omitted by an older caller. */
   onChatSearchError?: (message: string, kind?: 'info' | 'err') => void
   /** Owner "show on map" chat-search result. Renders `dots` as a
-      distinct-blue native circle layer, zooms to `bbox`, and shows a
+      distinct-purple native circle layer, zooms to `bbox`, and shows a
       dismissible chip built from `reply`. `nonce` retriggers the
       fitBounds even if the same owner is searched twice in a row. */
   ownerParcelsResult?: { data: OwnerParcelsResponse; reply: string; nonce: number } | null
+  /** A Goat Search is on the map (the search bubble is showing). Its
+      result pins then show at any zoom (owner 11/13). */
+  searchActive?: boolean
   /** "Show Owned Ground" (2026-08-18): LandDetailPanel's button bubbles up
       here; the parent fetches /api/parcels/owned-by and feeds the result
       back down via ownerParcelsResult — the same pipeline a Goat Search
@@ -1872,7 +1883,7 @@ function tractProjectIds(t: PortfolioTract): string[] {
   return t.projects?.length ? t.projects.map(p => p.id) : (t.project_id ? [t.project_id] : [])
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, searchActive = false, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -4040,7 +4051,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const { filters: incoming, clearUnspecified, preserveCamera } = applyExternalFilters
 
     // A regular filter search superseded any owner-parcels dots from a
-    // prior "show me X's parcels" query — clear them so stale blue dots
+    // prior "show me X's parcels" query — clear them so stale purple dots
     // don't linger under an unrelated result set.
     clearOwnerParcels()
 
@@ -5730,7 +5741,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         source: 'owner-parcels',
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
-          'circle-color': '#2D8CFF',
+          'circle-color': SEARCH_RESULT_COLOR,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 1.5,
         },
@@ -7357,6 +7368,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // now first show at the same zoom as the parcel owner labels. The green
   // today's-auction dots (today-pin-*) stay visible at every zoom.
   const DURABLE_DOT_MIN_ZOOM = REGRID_OWNER_LABEL_MIN_ZOOM
+  // During a Goat Search the search's sale dots load and draw at any zoom
+  // (owner 11/13). Read through a ref: the fetch is a stable callback.
+  const searchActiveRef = useRef(searchActive)
+  searchActiveRef.current = searchActive
+  const durableDotMinZoom = () => (searchActiveRef.current ? SEARCH_PIN_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM)
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   // Selected comps recolour their dot (owner, 2026-08-05: "when I add a
@@ -7645,7 +7661,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     const inComp = !!subjectTractId
     try {
-      syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, {
+      syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, durableDotMinZoom(), {
         inComp,
         hide: hideParcelDotsForFilters,
         // Tile dots own z>=REGRID_MIN_ZOOM; cap here so one parcel is never
@@ -7690,7 +7706,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     } catch {/* layer torn down */}
   }, [
-    mapLoaded, subjectTractId, hideParcelDotsForFilters,
+    mapLoaded, subjectTractId, hideParcelDotsForFilters, searchActive,
     appliedFilters.soilRatingMin, appliedFilters.soilRatingMax,
     appliedFilters.pctTillableMin, appliedFilters.pctTillableMax,
     appliedFilters.tillableAcresMin, appliedFilters.tillableAcresMax,
@@ -8004,8 +8020,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // comp mode — see the mount effect above). Gating the fetch itself
     // (not just the layer's minzoom) avoids firing bbox requests below
     // the zoom range the layer will actually render.
-    const zoomFloor = DURABLE_DOT_MIN_ZOOM
+    const zoomFloor = durableDotMinZoom()
     if (!opts?.bypassZoomGate && map.getZoom() < zoomFloor) return
+    // Zoomed far out during a search: never ask for a continent of dots.
+    if (bounds.north - bounds.south > SALE_DOTS_MAX_SPAN_LAT || bounds.east - bounds.west > SALE_DOTS_MAX_SPAN_LNG) return
     // CEILING REMOVED 2026-08-03 (owner bug report — reverts the
     // 2026-07-26 ceiling): that cap assumed PARCEL_SALE_PLUS_LAYER (live
     // Regrid-tile dots) took over at z>=REGRID_MIN_ZOOM, but that layer's
@@ -8049,7 +8067,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Same one helper the filter-reactive effect uses — the pan path
       // must never compute this differently from the effect, which is
       // exactly how the "+" ended up hidden over a visible dot.
-      syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, DURABLE_DOT_MIN_ZOOM, {
+      syncDurableDotLayers(map, DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, durableDotMinZoom(), {
         inComp,
         hide: hideForFilters,
         // Same data-filter exception as the mount effect above — the pan
@@ -8217,6 +8235,32 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Goat Search pins at any zoom (owner 11/13): while a search is on the map
+  // its tract pins and sale dots drop their zoom floor (and the dots their
+  // fade-in), then load for wherever the search framed the map. Cleared,
+  // everything goes back to the normal floors.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapLoaded) return
+    const tractFloor = searchActive ? SEARCH_PIN_MIN_ZOOM : TRACT_PIN_MIN_ZOOM
+    for (const id of ['tract-pin-circles', 'tract-pin-labels', 'tract-pin-plus']) {
+      try { if (map.getLayer(id)) map.setLayerZoomRange(id, tractFloor, 24) } catch {/* torn down */}
+    }
+    try {
+      if (map.getLayer(DURABLE_DOT_LAYER)) {
+        const fade: any = searchActive ? 1
+          : ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1]
+        map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-opacity', fade)
+        map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-stroke-opacity', fade)
+      }
+    } catch {/* torn down */}
+    if (searchActive) {
+      const b = map.getBounds()
+      void fetchDurableDotsForBounds({ south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchActive, mapLoaded])
 
   // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
   // upper bound, in BOTH explore and comp mode (AUDIT FIX 2026-07-04 round
@@ -12372,6 +12416,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   ? 'You have not saved any project maps yet.'
                   : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`,
               }}
+              searchResultsShown={ownerSearchActive}
               elevators={{
                 available: true,
                 on: elevatorsOn,
@@ -13238,6 +13283,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             { label: 'Listed',          color: '#eab308' },
             { label: "Today's Auctions", color: '#22c55e' },
             { label: 'No Sale',         color: '#9ca3af' },
+            ...(ownerSearchActive ? [{ label: 'Search results', color: SEARCH_RESULT_COLOR }] : []),
           ].map(({ label, color }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{
