@@ -26,7 +26,7 @@ import {
 import { savedTractNeedsEngine } from '@/lib/savedTractLandTypes'
 import {
   SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, stripInsertedVertices,
-  applyGiveWay, NODE_TOL_DEG,
+  applyGiveWay, dropSpeckRings, NODE_TOL_DEG,
   pointInRing, dropDegenerateHoles, pointInBoundary, ringCentre, polysToGeometry,
   shapeAcres, boundaryAcresOf, bboxOf, snapTargetsNear, type Shape,
 } from '@/lib/cmShapes'
@@ -408,7 +408,7 @@ export function useTractEditor({
           setError('Part of this boundary is outside the mapped area — '
                  + 'the land types there have not been filled in.')
         }
-        const loaded = stripInsertedVertices(explodeShapes(res.polygons as any), thin, NODE_TOL_DEG)
+        const loaded = dropSpeckRings(stripInsertedVertices(explodeShapes(res.polygons as any), thin, NODE_TOL_DEG))
         // Refs updated eagerly: save() reads them straight after the await,
         // before React has re-rendered.
         shapesRef.current = loaded; classifiedRef.current = true

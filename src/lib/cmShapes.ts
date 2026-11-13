@@ -230,6 +230,24 @@ export function stripInsertedVertices(shapes: Shape[], original: Shape[], absTol
  *  could see or measure, so it is dropped rather than shown as a new dot. */
 export const NODE_TOL_DEG = 1e-7
 
+/** Holes under a square metre, and rings whose points collapse onto each
+ *  other, are rounding debris from the server's clean-up (a 9-digit
+ *  coordinate can fold a hair-thin triangle onto itself). They are
+ *  invisible, but PostGIS rejects them as invalid and drops them on the
+ *  next edit, which made their dots vanish far from the edit (owner 11/13).
+ *  Remove them once, when the shapes are built. */
+export function dropSpeckRings(shapes: Shape[]): Shape[] {
+  const distinct = (r: Pt[]) => new Set(r.map((p) => `${p[0]},${p[1]}`)).size
+  const SQM_ACRE = 4046.8564224
+  return shapes.map((sh) => ({
+    ...sh,
+    polys: sh.polys
+      .filter((rings) => rings[0] && distinct(rings[0]) >= 3)
+      .map((rings) => rings.filter((r, i) => i === 0
+        || (distinct(r) >= 3 && polygonAcres(r) * SQM_ACRE >= 1))),
+  })).filter((sh) => sh.polys.length > 0)
+}
+
 /** Apply a /geometry/give-way answer (owner 11/13: deleting a dot must not
  *  move any other dot). Every shape the server reports unchanged is kept
  *  as the SAME object — same id, every coordinate exactly as it was — so a
@@ -255,8 +273,8 @@ export function applyGiveWay(
     if (sh.id === editedId) {
       if (!res.edited.changed) { out.push(sh); continue }
       if (!res.edited.geometry) continue
-      const pieces = stripInsertedVertices(
-        explodeShapes([{ cls: sh.cls, geometry: res.edited.geometry }]), [sh], NODE_TOL_DEG)
+      const pieces = dropSpeckRings(stripInsertedVertices(
+        explodeShapes([{ cls: sh.cls, geometry: res.edited.geometry }]), [sh], NODE_TOL_DEG))
       // the biggest piece stays the selected shape
       let big = 0
       pieces.forEach((p, i) => { if (shapeAcres(p) > shapeAcres(pieces[big])) big = i })
@@ -266,8 +284,8 @@ export function applyGiveWay(
     const r = res.others[oi++]
     if (!r || !r.changed) { out.push(sh); continue }
     if (!r.geometry) continue
-    out.push(...stripInsertedVertices(
-      explodeShapes([{ cls: sh.cls, geometry: r.geometry }]), [sh, edited], NODE_TOL_DEG))
+    out.push(...dropSpeckRings(stripInsertedVertices(
+      explodeShapes([{ cls: sh.cls, geometry: r.geometry }]), [sh, edited], NODE_TOL_DEG)))
   }
   return out
 }

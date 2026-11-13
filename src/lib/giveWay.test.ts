@@ -16,7 +16,7 @@
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { applyGiveWay, explodeShapes, pointInBoundary, stripInsertedVertices, type Shape } from '@/lib/cmShapes'
+import { applyGiveWay, dropSpeckRings, explodeShapes, pointInBoundary, stripInsertedVertices, type Shape } from '@/lib/cmShapes'
 
 type Pt = [number, number]
 const M = (a: Pt, b: Pt) => {
@@ -100,6 +100,19 @@ const fx = JSON.parse(readFileSync(new URL('./__fixtures__/giveWay-delete-dot.js
   assert.equal(applyGiveWay([e, c], 'e', {
     edited: { cls: 'tillable', changed: true, geometry: null }, others: [{ cls: 'timber', changed: false }],
   }).map((s) => s.id).join(), 'c')
+}
+
+// Unit: rounding debris — a hole folded onto itself, a sub-square-metre hole
+// (real case 11/13: an 83 ac tillable polygon carried a 3-point hole that
+// PostGIS rejected as "Too few points", so its dots vanished on the next edit).
+{
+  const outer: Pt[] = [[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01]]
+  const folded: Pt[] = [[0.005, 0.005], [0.005, 0.005], [0.006, 0.006]]
+  const speck: Pt[] = [[0.002, 0.002], [0.002000005, 0.002], [0.002, 0.002000005]]
+  const real: Pt[] = [[0.003, 0.003], [0.004, 0.003], [0.004, 0.004]]
+  const [sh] = dropSpeckRings([{ id: 'x', cls: 'tillable', polys: [[outer, folded, speck, real]] }])
+  assert.deepEqual(sh.polys, [[outer, real]])
+  assert.equal(dropSpeckRings([{ id: 'y', cls: 'water', polys: [[[[1, 1], [1, 1], [2, 2]]]] }]).length, 0)
 }
 
 console.log('giveWay.test.ts: ok')
