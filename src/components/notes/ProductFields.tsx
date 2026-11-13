@@ -4,7 +4,7 @@
  * The fields of one firm product (owner 11/12): type, name, and — by type —
  * Company / Brand + Hybrid / variety (seed) or Brand / Manufacturer + EPA
  * Reg. No. (everything else). Used by the note editor's "Add new product"
- * and the Account → Products page.
+ * and the map's Products slide-out.
  *
  * Owner rule: inputs are ALWAYS white with a light gray border, dark text.
  */

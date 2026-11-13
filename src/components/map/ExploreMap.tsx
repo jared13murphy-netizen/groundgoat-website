@@ -48,6 +48,7 @@ import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } fr
 import MapItToolbar from '@/components/mapping/MapItToolbar'
 import { useTractEditor, type SavedInfo, type TractStart } from '@/components/mapping/useTractEditor'
 import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
+import ProductsPanel from '@/components/mapping/ProductsPanel'
 import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
 import ElevatorPanel from './ElevatorPanel'
@@ -101,8 +102,9 @@ import {
   Folder as SavedProjectsIcon,
   Bookmark as SavedReportsIcon,
   StickyNote,
+  Package as ProductsIcon,
 } from 'lucide-react'
-import { locateNoteItem } from '@/lib/notes'
+import { loadNotesMeta, locateNoteItem } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -2164,6 +2166,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [editingTractId, setEditingTractId] = useState<string | null>(null)
   // Saved Projects slide-out (replaces the separate portfolio screens).
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
+  // Firm Products slide-out (owner 11/13): managed over the map, opened
+  // from the My Maps "Products" tile. The tile shows only when the
+  // backend says this account is in a management firm (notes meta).
+  const [productsPanelOpen, setProductsPanelOpen] = useState(false)
+  const [canUseProducts, setCanUseProducts] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    loadNotesMeta().then(m => { if (!cancelled) setCanUseProducts(m.can_use_products && m.can_add_products) })
+    return () => { cancelled = true }
+  }, [])
   // Owner 11/3: Saved Reports slide-out, opened from the My Maps tile.
   const [savedReportsOpen, setSavedReportsOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
@@ -3435,6 +3447,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     document.addEventListener('pointerdown', onDown, true)
     return () => document.removeEventListener('pointerdown', onDown, true)
   }, [savedPanelOpen])
+  // The Products slide-out closes the same way.
+  useEffect(() => {
+    if (!productsPanelOpen) return
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null
+      if (!t) return
+      if (t.closest('[data-gg-products-panel]')) return
+      setProductsPanelOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [productsPanelOpen])
 
   // Saved Projects panel: clicking a project zooms to all of its maps
   // (owner 10/30) and turns the saved-maps layer on.
@@ -11820,6 +11844,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }} />
       )}
 
+      {/* Firm Products slide-out (owner 11/13). Hidden while mapping. */}
+      {canUseProducts && !mappingMode && (
+        <ProductsPanel open={productsPanelOpen} onClose={() => setProductsPanelOpen(false)} />
+      )}
+
       {/* Saved Projects slide-out: opened from the My Maps menu tile
           (owner 10/30: no floating button on the map). Hidden while mapping. */}
       {canUseProjectMaps && !mappingMode && (
@@ -12270,6 +12299,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     icon={<StickyNote size={20} />}
                     label="Notes"
                     onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true); setSavedPanelNotes(n => n + 1) }}
+                  />
+                )}
+                {/* Owner 11/13: the firm's product list, managed over the map. */}
+                {canUseProducts && (
+                  <UtilityTile
+                    icon={<ProductsIcon size={20} />}
+                    label="Products"
+                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(false); setProductsPanelOpen(true) }}
                   />
                 )}
                 {/* Owner 11/2: New Project here opens the Saved Projects
