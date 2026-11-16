@@ -109,6 +109,7 @@ import {
 import { locateNoteItem, type NoteSearchResult } from '@/lib/notes'
 import NotesPanel from '@/components/notes/NotesPanel'
 import { myMapsCounts, type MyMapsCounts } from '@/lib/configurableMapping'
+import { pinMinZoom, tileDotMinZoom, saleDotFade } from '@/lib/pinZooms'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -781,7 +782,9 @@ const TRACT_PIN_MIN_ZOOM = 12
 // Owner 11/13: while a Goat Search is active its result pins (tract pins,
 // the search's sale dots) show at ANY zoom; the search framed at county zoom
 // showed nothing. Clearing the search brings the zoom-12 floor back.
-const SEARCH_PIN_MIN_ZOOM = 0
+// Owner 11/16: while building a comp report (subjectTractId set) the pins
+// you pick comps from show from z9 again, as before 11/12. Both rules live
+// in src/lib/pinZooms.ts (pinMinZoom), shared with the app.
 // The server answers no sale dots for a box wider than this (Bill Sullivan
 // crash, 11/13); don't ask for one when a search lets the dots load zoomed out.
 const SALE_DOTS_MAX_SPAN_LAT = 15
@@ -5748,7 +5751,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-circles',
         type: 'circle',
         source: 'tract-pins',
-        minzoom: TRACT_PIN_MIN_ZOOM,
+        minzoom: pinMinZoom({ comp: !!subjectTractIdRef.current }, TRACT_PIN_MIN_ZOOM),
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
           // In the comp report -> green, exactly like a selected parcel
@@ -5770,7 +5773,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-labels',
         type: 'symbol',
         source: 'tract-pins',
-        minzoom: TRACT_PIN_MIN_ZOOM,
+        minzoom: pinMinZoom({ comp: !!subjectTractIdRef.current }, TRACT_PIN_MIN_ZOOM),
         layout: {
           'text-field': ['get', 'pinLabel'],
           'text-font': ['Open Sans Bold'],
@@ -5802,7 +5805,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-plus',
         type: 'symbol',
         source: 'tract-pins',
-        minzoom: TRACT_PIN_MIN_ZOOM,
+        minzoom: pinMinZoom({ comp: !!subjectTractIdRef.current }, TRACT_PIN_MIN_ZOOM),
         layout: {
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
@@ -7205,7 +7208,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           type: 'symbol',
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
-          minzoom: REGRID_OWNER_LABEL_MIN_ZOOM, // owner 11/12: sale dots wait for the parcel labels
+          // owner 11/12: sale dots wait for the parcel labels; comp mode
+          // keeps the Regrid tile floor (11) — owner 11/16.
+          minzoom: tileDotMinZoom({ comp: inCompModeNow }, REGRID_OWNER_LABEL_MIN_ZOOM),
           filter: filterExpr,
           layout: {
             'icon-image': buildParcelSaleDotIconExpr(reportIds),
@@ -7501,7 +7506,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // (owner 11/13). Read through a ref: the fetch is a stable callback.
   const searchActiveRef = useRef(searchActive)
   searchActiveRef.current = searchActive
-  const durableDotMinZoom = () => (searchActiveRef.current ? SEARCH_PIN_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM)
+  // Comp-report mode: z9 again (owner 11/16), see pinMinZoom.
+  const durableDotMinZoom = () => pinMinZoom(
+    { search: searchActiveRef.current, comp: !!subjectTractIdRef.current },
+    DURABLE_DOT_MIN_ZOOM,
+  )
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   // Selected comps recolour their dot (owner, 2026-08-05: "when I add a
@@ -7611,15 +7620,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // now applies in BOTH modes (was REGRID_MIN_ZOOM in comp mode —
         // see the mode-sync effect below, kept in sync there for symmetry
         // even though it's now a constant across the mode flip).
-        minzoom: DURABLE_DOT_MIN_ZOOM,
+        minzoom: durableDotMinZoom(),
         paint: {
           // Matches ensureParcelSaleDotImage: #f58cde fill, white ring.
           'circle-color': DURABLE_DOT_COLOR,
           'circle-radius': 6,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
-          'circle-opacity': ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1],
-          'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1],
+          'circle-opacity': saleDotFade(durableDotMinZoom()) as any,
+          'circle-stroke-opacity': saleDotFade(durableDotMinZoom()) as any,
         },
       })
     }
@@ -7633,7 +7642,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // DURABLE_DOT_LAYER (was pinned to REGRID_MIN_ZOOM). It's still
         // ONLY ever visible in comp mode (layout.visibility gated below),
         // just no longer gated to a higher zoom than the dot itself.
-        minzoom: DURABLE_DOT_MIN_ZOOM,
+        minzoom: durableDotMinZoom(),
         layout: {
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
@@ -8366,31 +8375,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Goat Search pins at any zoom (owner 11/13): while a search is on the map
-  // its tract pins and sale dots drop their zoom floor (and the dots their
-  // fade-in), then load for wherever the search framed the map. Cleared,
-  // everything goes back to the normal floors.
+  // Pin zoom floors by mode (pinMinZoom). Goat Search (owner 11/13): while a
+  // search is on the map its tract pins and sale dots show at any zoom.
+  // Comp report (owner 11/16): while building one they show from z9 again,
+  // as before 11/12, and the Regrid-tile dots take over at z11. Either way
+  // the dots then load for the current view. Leaving both restores the
+  // Explore floors (z12) exactly.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const tractFloor = searchActive ? SEARCH_PIN_MIN_ZOOM : TRACT_PIN_MIN_ZOOM
+    const mode = { search: searchActive, comp: !!subjectTractId }
+    const tractFloor = pinMinZoom(mode, TRACT_PIN_MIN_ZOOM)
     for (const id of ['tract-pin-circles', 'tract-pin-labels', 'tract-pin-plus']) {
       try { if (map.getLayer(id)) map.setLayerZoomRange(id, tractFloor, 24) } catch {/* torn down */}
     }
     try {
       if (map.getLayer(DURABLE_DOT_LAYER)) {
-        const fade: any = searchActive ? 1
-          : ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1]
+        const fade: any = saleDotFade(durableDotMinZoom())
         map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-opacity', fade)
         map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-stroke-opacity', fade)
       }
     } catch {/* torn down */}
-    if (searchActive) {
+    try {
+      if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+        map.setLayerZoomRange(PARCEL_SALE_PLUS_LAYER, tileDotMinZoom(mode, REGRID_OWNER_LABEL_MIN_ZOOM), 24)
+      }
+    } catch {/* torn down */}
+    if (mode.search || mode.comp) {
       const b = map.getBounds()
       void fetchDurableDotsForBounds({ south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchActive, mapLoaded])
+  }, [searchActive, subjectTractId, mapLoaded])
 
   // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
   // upper bound, in BOTH explore and comp mode (AUDIT FIX 2026-07-04 round
