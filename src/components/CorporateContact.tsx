@@ -17,6 +17,11 @@ const EMPTY = { first_name: '', last_name: '', email: '', firm_name: '', phone: 
 // Light gray panel with dark text (owner 11/16); inputs stay white with a light gray border.
 const INPUT = 'w-full h-11 rounded-lg bg-white border border-[#D4D4D8] px-3 text-black placeholder-[#71717A] focus:outline-none focus:border-[#E879C9]'
 const LABEL = 'block text-sm font-medium text-[#3F3F46]'
+const HINT = 'mt-1 text-[13px] font-normal text-[#B91C1C]'
+
+// A US phone number: 10 digits, or 11 with a leading 1 (same rule as the server).
+const phoneOk = (v: string) => { const d = v.replace(/\D/g, ''); return d.length === 10 || (d.length === 11 && d[0] === '1') }
+const emailShapeOk = (v: string) => /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[A-Za-z]{2,}$/.test(v.trim())
 
 /** "Corporate plans for more than 10 users? Contact us" — opens the panel. */
 export function CorporatePlansLink({ className = '' }: { className?: string }) {
@@ -43,6 +48,10 @@ function CorporateContactPanel({ onClose }: { onClose: () => void }) {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
+  // Fields the person has left: only then do we show "this isn't right yet".
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  // Server check that the email's domain accepts mail: 'checking' | 'ok' | 'bad'.
+  const [emailCheck, setEmailCheck] = useState<'idle' | 'checking' | 'ok' | 'bad'>('idle')
 
   // Same anti-spam token as the contact page, fetched when the panel opens.
   useEffect(() => {
@@ -60,10 +69,32 @@ function CorporateContactPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  useEffect(() => {
+    const email = form.email.trim()
+    if (!emailShapeOk(email)) { setEmailCheck('idle'); return }
+    setEmailCheck('checking')
+    let cancelled = false
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/api/contact/check-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+        .then(r => (r.ok ? r.json() : { valid: true })) // our trouble never blocks them; the server re-checks on send
+        .then(d => { if (!cancelled) setEmailCheck(d?.valid === false ? 'bad' : 'ok') })
+        .catch(() => { if (!cancelled) setEmailCheck('ok') })
+    }, 500)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [form.email])
+
+  const leave = (k: string) => () => setTouched(t => ({ ...t, [k]: true }))
+  const emailBad = !emailShapeOk(form.email) || emailCheck === 'bad'
+  const phoneBad = !phoneOk(form.phone)
+
   const set = (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
 
-  const complete = Object.values(form).every(v => v.trim()) && /\S+@\S+\.\S+/.test(form.email)
+  const complete = Object.values(form).every(v => v.trim()) && !phoneBad && emailShapeOk(form.email) && emailCheck === 'ok'
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -117,7 +148,7 @@ function CorporateContactPanel({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <form onSubmit={submit} className="space-y-4">
-            <p className="text-[#3F3F46] text-[15px] leading-relaxed">Growing teams are exactly who we built Ground Goat for. Tell us a little about yours, and we will reach out personally to build a plan around the way your firm works.</p>
+            <p className="text-[#3F3F46] text-[15px] leading-relaxed">Tell us a little about your team, and we will be in touch to show you what Ground Goat can do for your firm.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <label className={LABEL}>First name
                 <input className={`${INPUT} mt-1`} value={form.first_name} onChange={set('first_name')} autoComplete="given-name" required />
@@ -127,13 +158,19 @@ function CorporateContactPanel({ onClose }: { onClose: () => void }) {
               </label>
             </div>
             <label className={LABEL}>Email address
-              <input type="email" className={`${INPUT} mt-1`} value={form.email} onChange={set('email')} autoComplete="email" required />
+              <input type="email" className={`${INPUT} mt-1`} value={form.email} onChange={set('email')} onBlur={leave('email')} autoComplete="email" required aria-invalid={touched.email && emailBad} />
+              {touched.email && form.email.trim() && emailBad && emailCheck !== 'checking' && (
+                <p className={HINT}>Please enter a real email address.</p>
+              )}
             </label>
             <label className={LABEL}>Management firm name
               <input className={`${INPUT} mt-1`} value={form.firm_name} onChange={set('firm_name')} autoComplete="organization" required />
             </label>
             <label className={LABEL}>Phone number
-              <input type="tel" className={`${INPUT} mt-1`} value={form.phone} onChange={set('phone')} autoComplete="tel" required />
+              <input type="tel" className={`${INPUT} mt-1`} value={form.phone} onChange={set('phone')} onBlur={leave('phone')} autoComplete="tel" required aria-invalid={touched.phone && phoneBad} />
+              {touched.phone && form.phone.trim() && phoneBad && (
+                <p className={HINT}>Please enter a 10-digit phone number.</p>
+              )}
             </label>
             <label className={LABEL}>Estimated number of users
               <select className={`${INPUT} mt-1 appearance-none pr-10 bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2216%22 height=%2216%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23555%22 stroke-width=%222.2%22><path d=%22M6 9l6 6 6-6%22/></svg>')] bg-no-repeat bg-[right_12px_center]`} value={form.user_range} onChange={set('user_range')} required>
