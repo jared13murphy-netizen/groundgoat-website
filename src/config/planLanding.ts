@@ -48,7 +48,7 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     subhead: 'Upcoming auctions, sale results and Goat Search for every county in your state, in the Ground Goat app, with alerts when new ground comes up.',
     appOnly: true,
     heroImage: '/landing/basic-app-home.jpg',
-    extraFeatures: ['Goat Search', 'Save parcels and auctions'],
+    extraFeatures: ['Save parcels and auctions'],
     highlights: [
       { icon: 'calendar', title: 'Every upcoming auction', body: 'Every land auction in your state, with the auction company, the acres and a countdown to sale day. Alerts tell you the moment new ground is listed.', image: '/landing/basic-app-home.jpg', frame: 'phone', alt: 'Upcoming land auctions in the Ground Goat app' },
       { icon: 'history', title: 'What land really sold for', body: 'Sale results with price per acre the day they post, plus years of history, so you know the market before you bid.', image: '/landing/basic-app-results.jpg', frame: 'phone', alt: 'Auction results with price per acre in the Ground Goat app' },
