@@ -9,7 +9,7 @@
 import type { PlanKey } from './pricing'
 
 export interface PlanHighlight {
-  icon: 'bell' | 'calendar' | 'history' | 'phone' | 'layers' | 'search' | 'report' | 'chart' | 'users' | 'notes' | 'folder' | 'map'
+  icon: 'bell' | 'calendar' | 'history' | 'phone' | 'layers' | 'search' | 'report' | 'chart' | 'users' | 'notes' | 'folder' | 'map' | 'wheat'
   title: string
   body: string
   /** Product screenshot for this benefit (public/landing/…). */
@@ -56,12 +56,13 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     heroImage: '/landing/basic-app-home.jpg',
     extraFeatures: ['Save parcels and auctions'],
     topHeadline: 'Every land sale in your state, in one app.',
-    plusLine: 'Plus alerts the moment new ground is listed, current local grain bids and all the land a person owns.',
+    plusLine: 'Plus alerts the moment new ground is listed and all the land a person owns.',
     highlights: [
       { icon: 'calendar', card: { title: 'Every upcoming auction', body: 'Acres, auction company and a countdown to sale day.' }, title: 'Every upcoming auction', body: 'Every land auction in your state, with the auction company, the acres and a countdown to sale day. Alerts tell you the moment new ground is listed.', image: '/landing/basic-app-home.jpg', frame: 'phone', alt: 'Upcoming land auctions in the Ground Goat app' },
       { icon: 'history', card: { title: 'What land really sold for', body: 'Price per acre the day results post.' }, title: 'What land really sold for', body: 'Sale results with price per acre the day they post, plus years of history, so you know the market before you bid.', image: '/landing/basic-app-results.jpg', frame: 'phone', alt: 'Auction results with price per acre in the Ground Goat app' },
       { icon: 'map', card: { title: 'Every detail in one tap', body: 'Acres, tillable acres, soil rating and the boundary.' }, title: 'Every detail in one tap', body: 'Total acres, tillable acres, soil rating and the boundary on aerial imagery for every auction, plus the date, time and auction company.', image: '/landing/basic-app-detail.jpg', frame: 'phone', alt: 'Auction detail with acres, tillable acres and soil rating' },
       { icon: 'search', card: { title: 'Goat Search', body: 'Ask in plain English, get the answer.' }, title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Illinois this month?", and get the answer in seconds.', image: '/landing/basic-app-goat.jpg', frame: 'phone', alt: 'Goat Search answering a question about upcoming Illinois auctions' },
+      { icon: 'wheat', card: { title: 'Local grain bids', body: 'Corn and bean bids from nearby elevators.' }, title: 'Current local grain bids', body: 'Corn and soybean bids from the grain elevators near the ground you are watching, right on the map.', image: '/landing/basic-app-grain.jpg', frame: 'phone', alt: 'Corn and soybean bids from local grain elevators on the Ground Goat app map' },
       { icon: 'folder', card: { title: 'Saved ground', body: 'One list, plus sale day on your calendar.' }, title: 'Save the ground you are watching', body: 'Save parcels and auctions with one tap, keep them in one list, and add sale day to your calendar.', image: '/landing/basic-app-saved.jpg', frame: 'phone', alt: 'Saved auctions in the Ground Goat app' },
     ],
   },

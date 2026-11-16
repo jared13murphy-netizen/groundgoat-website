@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowRight, Bell, Calendar, Check, FileText, Folder, History,
-  Layers, LineChart, Map as MapIcon, Search, Smartphone, StickyNote, Users,
+  Layers, LineChart, Map as MapIcon, Search, Smartphone, StickyNote, Users, Wheat,
 } from 'lucide-react'
 import { PRICING, FREE_LABEL, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
 import { PLAN_LANDING, type PlanHighlight } from '@/config/planLanding'
@@ -15,7 +15,7 @@ import type { PlanKey } from '@/config/pricing'
 const ICONS: Record<PlanHighlight['icon'], typeof Bell> = {
   bell: Bell, calendar: Calendar, history: History, phone: Smartphone, layers: Layers,
   search: Search, report: FileText, chart: LineChart, users: Users, notes: StickyNote,
-  folder: Folder, map: MapIcon,
+  folder: Folder, map: MapIcon, wheat: Wheat,
 }
 
 // Ad / referral parameters ride along into signup, so a visitor who came from
@@ -136,7 +136,7 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
         <div
           ref={cardsRef}
           onScroll={onCardsScroll}
-          className={`mt-8 md:mt-10 max-w-7xl mx-auto px-4 sm:px-6 flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-px-4 sm:scroll-px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:gap-4 md:overflow-visible md:grid-cols-2 ${c.highlights.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
+          className={`mt-8 md:mt-10 max-w-7xl mx-auto px-4 sm:px-6 flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-px-4 sm:scroll-px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:gap-4 md:overflow-visible md:grid-cols-2 ${c.highlights.length === 6 ? 'lg:grid-cols-3 xl:grid-cols-6' : c.highlights.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
         >
           {c.highlights.map((h, i) => (
             <a
