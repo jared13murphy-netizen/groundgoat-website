@@ -17,6 +17,8 @@ export interface PlanHighlight {
   /** 'browser' = desktop screenshot in a window frame, 'phone' = app screenshot. */
   frame?: 'browser' | 'phone' | 'doc'
   alt?: string
+  /** The short card at the top of the page (owner 11/16, option 5): tapping it scrolls to this benefit. */
+  card: { title: string; body: string }
 }
 
 export interface PlanLandingContent {
@@ -29,6 +31,10 @@ export interface PlanLandingContent {
   headlineAccent: string
   subhead: string
   highlights: PlanHighlight[]
+  /** Top of the page (owner 11/16, option 5): one headline above the benefit cards. */
+  topHeadline: string
+  /** The line under the cards: what else the plan includes. */
+  plusLine: string
   /** App-only plan (Basic State): the hero shows the app instead of the website map. */
   appOnly?: boolean
   heroImage?: string
@@ -49,12 +55,14 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     appOnly: true,
     heroImage: '/landing/basic-app-home.jpg',
     extraFeatures: ['Save parcels and auctions'],
+    topHeadline: 'Every land sale in your state, in one app.',
+    plusLine: 'Plus alerts the moment new ground is listed, current local grain bids and all the land a person owns.',
     highlights: [
-      { icon: 'calendar', title: 'Every upcoming auction', body: 'Every land auction in your state, with the auction company, the acres and a countdown to sale day. Alerts tell you the moment new ground is listed.', image: '/landing/basic-app-home.jpg', frame: 'phone', alt: 'Upcoming land auctions in the Ground Goat app' },
-      { icon: 'history', title: 'What land really sold for', body: 'Sale results with price per acre the day they post, plus years of history, so you know the market before you bid.', image: '/landing/basic-app-results.jpg', frame: 'phone', alt: 'Auction results with price per acre in the Ground Goat app' },
-      { icon: 'map', title: 'Every detail in one tap', body: 'Total acres, tillable acres, soil rating and the boundary on aerial imagery for every auction, plus the date, time and auction company.', image: '/landing/basic-app-detail.jpg', frame: 'phone', alt: 'Auction detail with acres, tillable acres and soil rating' },
-      { icon: 'search', title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Illinois this month?", and get the answer in seconds.', image: '/landing/basic-app-goat.jpg', frame: 'phone', alt: 'Goat Search answering a question about upcoming Illinois auctions' },
-      { icon: 'folder', title: 'Save the ground you are watching', body: 'Save parcels and auctions with one tap, keep them in one list, and add sale day to your calendar.', image: '/landing/basic-app-saved.jpg', frame: 'phone', alt: 'Saved auctions in the Ground Goat app' },
+      { icon: 'calendar', card: { title: 'Every upcoming auction', body: 'Acres, auction company and a countdown to sale day.' }, title: 'Every upcoming auction', body: 'Every land auction in your state, with the auction company, the acres and a countdown to sale day. Alerts tell you the moment new ground is listed.', image: '/landing/basic-app-home.jpg', frame: 'phone', alt: 'Upcoming land auctions in the Ground Goat app' },
+      { icon: 'history', card: { title: 'What land really sold for', body: 'Price per acre the day results post.' }, title: 'What land really sold for', body: 'Sale results with price per acre the day they post, plus years of history, so you know the market before you bid.', image: '/landing/basic-app-results.jpg', frame: 'phone', alt: 'Auction results with price per acre in the Ground Goat app' },
+      { icon: 'map', card: { title: 'Every detail in one tap', body: 'Acres, tillable acres, soil rating and the boundary.' }, title: 'Every detail in one tap', body: 'Total acres, tillable acres, soil rating and the boundary on aerial imagery for every auction, plus the date, time and auction company.', image: '/landing/basic-app-detail.jpg', frame: 'phone', alt: 'Auction detail with acres, tillable acres and soil rating' },
+      { icon: 'search', card: { title: 'Goat Search', body: 'Ask in plain English, get the answer.' }, title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Illinois this month?", and get the answer in seconds.', image: '/landing/basic-app-goat.jpg', frame: 'phone', alt: 'Goat Search answering a question about upcoming Illinois auctions' },
+      { icon: 'folder', card: { title: 'Saved ground', body: 'One list, plus sale day on your calendar.' }, title: 'Save the ground you are watching', body: 'Save parcels and auctions with one tap, keep them in one list, and add sale day to your calendar.', image: '/landing/basic-app-saved.jpg', frame: 'phone', alt: 'Saved auctions in the Ground Goat app' },
     ],
   },
   premium_state: {
@@ -65,12 +73,14 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     eyebrow: 'Premium State',
     headline: 'Know what the ground is worth',
     headlineAccent: 'before you bid.',
+    topHeadline: 'Everything you need to price a farm, in one subscription.',
+    plusLine: 'Plus every auction and sale result in your state, alerts, local grain bids and the Ground Goat app.',
     subhead: 'Everything in Basic State, plus soil ratings, tillable acres, comparable sales reports and Goat Search, so you can price any farm in seconds.',
     highlights: [
-      { icon: 'layers', title: 'Soil and tillable acres for any parcel', body: 'Tap any parcel to see its owner, tillable acres, soil rating and crops planted, with soil maps and map layers on top.', image: '/landing/premium-soils.jpg', alt: 'Soil map with parcel details: tillable acres, soil rating and crops planted' },
-      { icon: 'chart', title: 'Comparable sales in seconds', body: 'Pick nearby sales on the map. Totals and averages for price per acre, per tillable acre and per soil point build as you go.', image: '/landing/premium-comps.jpg', alt: 'Comparable sales report with averages' },
-      { icon: 'report', title: 'A Land Report you can hand to anyone', body: 'Download or email a professional PDF with maps, soils, sale details and your notes.', image: '/landing/premium-land-report.jpg', frame: 'doc', alt: 'Ground Goat Land Report PDF' },
-      { icon: 'search', title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Nebraska this month?", and get the answer.', image: '/landing/premium-goat-search.jpg', alt: 'Goat Search answering a question about upcoming auctions' },
+      { icon: 'layers', card: { title: 'Soils + tillable acres', body: 'Owner, soil rating and crops on any parcel.' }, title: 'Soil and tillable acres for any parcel', body: 'Tap any parcel to see its owner, tillable acres, soil rating and crops planted, with soil maps and map layers on top.', image: '/landing/premium-soils.jpg', alt: 'Soil map with parcel details: tillable acres, soil rating and crops planted' },
+      { icon: 'chart', card: { title: 'Comparable sales', body: 'Averages build as you pick sales.' }, title: 'Comparable sales in seconds', body: 'Pick nearby sales on the map. Totals and averages for price per acre, per tillable acre and per soil point build as you go.', image: '/landing/premium-comps.jpg', alt: 'Comparable sales report with averages' },
+      { icon: 'report', card: { title: 'Land Report', body: 'A PDF you can hand to anyone.' }, title: 'A Land Report you can hand to anyone', body: 'Download or email a professional PDF with maps, soils, sale details and your notes.', image: '/landing/premium-land-report.jpg', frame: 'doc', alt: 'Ground Goat Land Report PDF' },
+      { icon: 'search', card: { title: 'Goat Search', body: 'Ask in plain English, get the answer.' }, title: 'Goat Search', body: 'Ask in plain English, like "How many acres are going to auction in Nebraska this month?", and get the answer.', image: '/landing/premium-goat-search.jpg', alt: 'Goat Search answering a question about upcoming auctions' },
     ],
   },
   firm: {
@@ -81,12 +91,14 @@ export const PLAN_LANDING: Record<PlanKey, PlanLandingContent> = {
     eyebrow: 'Management Firm',
     headline: 'One subscription',
     headlineAccent: 'for your whole team.',
+    topHeadline: 'Ground Goat for your whole team, in one subscription.',
+    plusLine: 'Plus Goat Search, comparable sales reports, local grain bids and the Ground Goat app.',
     subhead: 'Every state and county, comparable sales reports, saved projects and shared notes, built for farm managers, lenders and appraisers.',
     highlights: [
-      { icon: 'map', title: 'Unlimited states and counties', body: 'Your whole team sees every auction, sale and parcel, in every state.', image: '/landing/firm-map.jpg', alt: 'Ground Goat map across the Midwest' },
-      { icon: 'folder', title: 'Saved projects, shared', body: 'Save a report as a project: the subject farm, its comparable sales and the report, together on the map and shared with your team.', image: '/landing/firm-projects.jpg', alt: 'Saved project with its farms and Land Report' },
-      { icon: 'notes', title: 'Notes your whole team can see', body: 'Dated notes on every parcel and tract: field visits, harvest, loan reviews. Visible to your firm and printed on your reports.', image: '/landing/firm-notes.jpg', alt: 'Dated team notes on a parcel' },
-      { icon: 'users', title: '3 team members included', body: 'Add up to 10 people and manage them yourself. Everyone works from the same data.', image: '/landing/firm-team.jpg', alt: 'Team management page' },
+      { icon: 'map', card: { title: 'Every state and county', body: 'Every auction, sale and parcel, everywhere.' }, title: 'Unlimited states and counties', body: 'Your whole team sees every auction, sale and parcel, in every state.', image: '/landing/firm-map.jpg', alt: 'Ground Goat map across the Midwest' },
+      { icon: 'folder', card: { title: 'Shared projects', body: 'Farm, comps and report, saved together.' }, title: 'Saved projects, shared', body: 'Save a report as a project: the subject farm, its comparable sales and the report, together on the map and shared with your team.', image: '/landing/firm-projects.jpg', alt: 'Saved project with its farms and Land Report' },
+      { icon: 'notes', card: { title: 'Team notes', body: 'Dated notes your whole firm can see.' }, title: 'Notes your whole team can see', body: 'Dated notes on every parcel and tract: field visits, harvest, loan reviews. Visible to your firm and printed on your reports.', image: '/landing/firm-notes.jpg', alt: 'Dated team notes on a parcel' },
+      { icon: 'users', card: { title: '3 team members included', body: 'Add up to 10 and manage them yourself.' }, title: '3 team members included', body: 'Add up to 10 people and manage them yourself. Everyone works from the same data.', image: '/landing/firm-team.jpg', alt: 'Team management page' },
     ],
   },
 }
