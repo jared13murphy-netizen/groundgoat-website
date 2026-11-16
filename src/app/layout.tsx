@@ -6,6 +6,12 @@ import SandboxBanner from '@/components/SandboxBanner'
 import SiteAnalytics from '@/components/SiteAnalytics'
 
 export const metadata: Metadata = {
+  // Google Search Console 11/15: "Duplicate without user-selected canonical".
+  // The same page was reachable with tracking/query strings (?ref=, ?utm_…)
+  // and no page named its own real address. './' resolves per route to the
+  // page's own path with no query string, so every page declares itself.
+  metadataBase: new URL('https://www.groundgoat.com'),
+  alternates: { canonical: './' },
   title: 'Ground Goat | Land Auction Intelligence',
   description: 'Access comprehensive land auction data, sale results, and property insights across the United States. Subscribe to counties or states you care about.',
   keywords: 'land auctions, farm land, rural property, auction results, land sales, property data',

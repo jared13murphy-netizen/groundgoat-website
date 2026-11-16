@@ -1434,10 +1434,12 @@ function AccessPortalPageInner() {
               <PortalTractDetail
                 tract={selectedTract}
                 onBack={() => setSelectedTract(null)}
-                onViewListing={(listingId) => {
-                  setSelectedTract(null)
-                  setMapListingId(listingId)
-                }}
+                /* Owner 11/13: with the Auctions list open, View Auction used to
+                   only set mapListingId — that panel is hidden while the list
+                   is up, so the list's own stale "Auction Detail" (another
+                   auction the user had opened earlier) showed instead. Go
+                   through the map handler, which clears the list first. */
+                onViewListing={(listingId) => handleViewListingFromMap(listingId)}
                 onView3DTerrain={handleView3DTerrain}
                 /* Report actions are premium (owner 2026-08-17): passing undefined
                    hides "+ Report" entirely, matching the parcel panel and the
@@ -1467,10 +1469,7 @@ function AccessPortalPageInner() {
                 setSelectedTract(null)
               }}
               isInReport={reportIds.has(selectedTract.id)}
-              onViewListing={(listingId) => {
-                setSelectedTract(null)
-                setMapListingId(listingId)
-              }}
+              onViewListing={(listingId) => handleViewListingFromMap(listingId)}
               onFindComparables={handleFindComparables}
               onMapIt={!mapItAccess ? undefined : (tract) => {
                 const geometry = ringsToGeometry(tract.polygonCoordinates)
