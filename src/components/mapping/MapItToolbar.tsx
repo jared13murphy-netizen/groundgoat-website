@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, Download, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus,
+  ArrowLeft, ArrowRight, Check, Download, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus, Spline,
   RotateCcw, RotateCw, Save, Scissors, Trash2, X,
 } from 'lucide-react'
 import {
@@ -396,6 +396,9 @@ export default function MapItToolbar({
             <Btn icon={e.tool === 'erase' ? <Check size={13} /> : <Eraser size={13} />} active={e.tool === 'erase'}
                  text={e.tool === 'erase' ? 'Done Erasing' : 'Erase'}
                  disabled={!e.selectedId && e.tool !== 'erase'} onClick={e.toggleErase} />
+            <Btn icon={<Spline size={13} />} text="Simplify"
+                 title={e.selectedId ? 'Remove extra dots from the selected polygon' : 'Remove extra dots from every polygon'}
+                 disabled={busy || !e.shapes.length} onClick={e.simplify} />
             <Btn icon={<PaintBucket size={13} />}
                  text={`Fill Holes${e.holesOnSelected > 0 ? ` (${e.holesOnSelected})` : ''}`}
                  disabled={!e.selectedId || e.holesOnSelected === 0} onClick={e.fillHoles} />

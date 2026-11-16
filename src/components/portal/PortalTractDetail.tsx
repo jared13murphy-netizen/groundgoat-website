@@ -697,9 +697,11 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           processed this tract). */}
       {tract.tractId && <NdviPanel tractId={tract.tractId} />}
 
-      {/* Notes timeline (owner 11/10): this auction tract's dated entries. */}
+      {/* Notes timeline (owner 11/10): this auction tract's dated entries.
+          pb-12 (owner 11/15): the action bar's 40px fade sat over the
+          Notes header when scrolled to the bottom; this lifts it clear. */}
       {noteKeyForRow({ tractId: tract.tractId || tract.id }) && (
-        <div data-testid="tract-notes" className="pt-2">
+        <div data-testid="tract-notes" className="pt-2 pb-12">
           <NotesTimeline theme="dark" itemKey={noteKeyForRow({ tractId: tract.tractId || tract.id })}
                          label={[tract.companyName, tract.county ? `${tract.county} Co` : null].filter(Boolean).join(' · ') || null}
                          county={tract.county || null} state={tract.state || null}
