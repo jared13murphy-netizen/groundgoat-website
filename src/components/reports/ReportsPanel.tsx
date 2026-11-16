@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { ChevronLeft, Download, Loader2, Mail, X } from 'lucide-react'
 import reportJobEnqueue from '@/lib/reportJobs'
+import fetchWithAuth from '@/lib/fetchWithAuth'
 import { getProject, queueAndDownloadReport, queueReport, type ReportKind } from '@/lib/configurableMapping'
 import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotePickItem, type NotesPrint } from '@/lib/notes'
 import { closeReports, reportsSnapshot, subscribeReports, type ReportsOpen, type ReportsTarget } from '@/lib/reportsPanel'
@@ -27,7 +28,8 @@ import NotesStep, { PINK_GRADIENT } from '@/components/notes/NotesStep'
 
 const PINK = '#F58CDE'
 type Kind = 'parcel' | 'tract' | ReportKind
-const MAP_KINDS: Kind[] = ['ground_goat', 'applicator', 'soil_map', 'aerial', 'elevation_3d']
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
+const ALL_MAP_KINDS: Kind[] = ['ground_goat', 'applicator', 'soil_map', 'aerial', 'elevation_3d']
 const INFO: Record<string, { name: string; desc: string }> = {
   parcel: { name: 'Parcel Report', desc: 'Owner, soils, crops and land facts' },
   tract: { name: 'Tract Report', desc: 'Sale or auction facts, soils and maps' },
@@ -42,7 +44,9 @@ const DEFAULT_EXAGGERATION = 2.5
 interface Option { kind: Kind; desc: string; off: string | null }
 
 /** The reports a target offers, in order, each enabled or grayed with why. */
-export function reportOptions(t: ReportsTarget, canUseReports: boolean, canUseMapIt: boolean): Option[] {
+export function reportOptions(t: ReportsTarget, canUseReports: boolean, canUseMapIt: boolean, isFirm: boolean): Option[] {
+  // Applicator Report is for firms only (it prints the firm's products).
+  const MAP_KINDS = ALL_MAP_KINDS.filter((k) => isFirm || k !== 'applicator')
   const mapOff = !canUseMapIt ? 'Needs Map It' : null
   const mapIt = (kind: Kind, off: string | null, desc?: string): Option =>
     ({ kind, desc: off ? `${INFO[kind].desc.split(':')[0]} · ${off}` : (desc || INFO[kind].desc), off })
@@ -53,6 +57,22 @@ export function reportOptions(t: ReportsTarget, canUseReports: boolean, canUseMa
   const projectName = t.projectName || 'this project'
   return MAP_KINDS.map((k) => mapIt(k, k === 'aerial' && !t.projectId ? 'No project' : mapOff,
     k === 'aerial' ? `Every farm in ${projectName}` : undefined))
+}
+
+// Firm admin / firm user, from /api/auth/me (asked once per page).
+let firmLoad: Promise<boolean> | null = null
+function useIsFirm(): boolean {
+  const [firm, setFirm] = useState(false)
+  useEffect(() => {
+    firmLoad ??= fetchWithAuth(`${API_URL}/api/auth/me`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((me) => me?.account_type === 'firm_admin' || me?.account_type === 'firm_user')
+      .catch(() => { firmLoad = null; return false })
+    let live = true
+    firmLoad.then((f) => { if (live) setFirm(f) })
+    return () => { live = false }
+  }, [])
+  return firm
 }
 
 async function errorText(res: Response): Promise<string> {
@@ -99,7 +119,8 @@ function targetKey(t: ReportsTarget) {
 
 function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
   const t = o.target
-  const options = useMemo(() => reportOptions(t, o.canUseReports, o.canUseMapIt), [t, o.canUseReports, o.canUseMapIt])
+  const isFirm = useIsFirm()
+  const options = useMemo(() => reportOptions(t, o.canUseReports, o.canUseMapIt, isFirm), [t, o.canUseReports, o.canUseMapIt, isFirm])
   const enabled = options.filter((x) => !x.off)
   // One report to pick = picked already; otherwise Download/Email wait for a pick.
   const [kind, setKind] = useState<Kind | null>(enabled.length === 1 ? enabled[0].kind : null)

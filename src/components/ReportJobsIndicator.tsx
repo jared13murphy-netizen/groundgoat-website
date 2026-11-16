@@ -308,7 +308,9 @@ export default function ReportJobsIndicator() {
   if (visible.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2">
+    // Under the top nav, centred (owner 11/15): bottom-right it covered the
+    // panels' bottom buttons (Reports Download/Email, Added, Email Report).
+    <div className="fixed top-[4.75rem] left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[9999] flex flex-col items-center gap-2">
       {visible.map((job) => {
         const building = job.status === 'queued' || job.status === 'running'
         const isError = job.status === 'error'
