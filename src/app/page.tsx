@@ -558,6 +558,18 @@ export default function Home() {
                   <Check className="text-gg-pink" size={18} />
                   Interactive Map
                 </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Goat Search — AI land search in plain English
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Current local grain bids
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  See all the land a person owns
+                </li>
               </ul>
               <Link href={`${PLAN_LANDING_PATH.basic_state}?cycle=${pricingCycle}`} className="btn-secondary w-full text-center block">
                 Get {FREE_LABEL}
@@ -600,6 +612,14 @@ export default function Home() {
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
                   Advanced land analytics
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Current local grain bids
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  See all the land a person owns
                 </li>
               </ul>
               <Link href={`${PLAN_LANDING_PATH.premium_state}?cycle=${pricingCycle}`} className="btn-primary w-full text-center block">
@@ -648,6 +668,14 @@ export default function Home() {
                 <li className="flex items-center gap-2 text-gg-gray-300">
                   <Check className="text-gg-pink" size={18} />
                   Priority support
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  Current local grain bids
+                </li>
+                <li className="flex items-center gap-2 text-gg-gray-300">
+                  <Check className="text-gg-pink" size={18} />
+                  See all the land a person owns
                 </li>
               </ul>
               <Link href={PLAN_LANDING_PATH.firm} className="btn-secondary w-full text-center block">
