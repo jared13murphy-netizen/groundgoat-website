@@ -104,7 +104,7 @@ import {
   StickyNote,
   Package as ProductsIcon,
 } from 'lucide-react'
-import { loadNotesMeta, locateNoteItem } from '@/lib/notes'
+import { locateNoteItem } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -2168,14 +2168,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
   // Firm Products slide-out (owner 11/13): managed over the map, opened
   // from the My Maps "Products" tile. The tile shows only when the
-  // backend says this account is in a management firm (notes meta).
+  // account is a firm admin or firm user (set from /api/auth/me).
   const [productsPanelOpen, setProductsPanelOpen] = useState(false)
   const [canUseProducts, setCanUseProducts] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    loadNotesMeta().then(m => { if (!cancelled) setCanUseProducts(m.can_use_products && m.can_add_products) })
-    return () => { cancelled = true }
-  }, [])
   // Owner 11/3: Saved Reports slide-out, opened from the My Maps tile.
   const [savedReportsOpen, setSavedReportsOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
@@ -3999,6 +3994,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // (see canUseProjectMaps's declaration above for what it
         // actually returns per account class).
         fetchMappingAccess().then(ok => { if (!cancelled) setCanUseProjectMaps(ok) })
+        // Products tile: firm admins and firm users only (owner 11/15).
+        setCanUseProducts(me?.account_type === 'firm_admin' || me?.account_type === 'firm_user')
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
