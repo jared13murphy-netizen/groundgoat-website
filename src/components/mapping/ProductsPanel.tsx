@@ -19,7 +19,7 @@ import {
   addFirmProduct, deleteFirmProduct, fetchFirmProducts, productDetailParts, productMatches, updateFirmProduct,
   type FirmProduct, type ProductInput,
 } from '@/lib/notes'
-import ProductFields, { blankProduct } from '@/components/notes/ProductFields'
+import ProductFields, { blankProduct, productReady } from '@/components/notes/ProductFields'
 
 const PINK = '#F58CDE'
 
@@ -51,6 +51,8 @@ const pinkBtn: CSSProperties = {
   cursor: 'pointer', whiteSpace: 'nowrap',
 }
 const grayBtn: CSSProperties = { ...pinkBtn, background: '#E4E4E7', border: '1px solid #E4E4E7' }
+// Disabled primary: solid gray, muted text (owner 11/15: Add stays off until the required fields are filled).
+const offBtn: CSSProperties = { ...pinkBtn, background: '#E4E4E7', border: '1px solid #E4E4E7', color: '#71717A', cursor: 'not-allowed' }
 const redBtn: CSSProperties = { ...pinkBtn, background: '#EF4444', border: '1px solid #EF4444', color: '#fff' }
 
 const toInput = (p: FirmProduct): ProductInput => ({ kind: p.kind, name: p.name, brand: p.brand, epa_reg_no: p.epa_reg_no, variety: p.variety })
@@ -166,7 +168,7 @@ export default function ProductsPanel({ open, onClose }: Props) {
       {editing?.id === p.id ? (
         <div data-testid="product-edit" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <ProductFields value={editing.p} onChange={(np) => setEditing({ ...editing, p: np })} inputStyle={input}
-                         labelStyle={label} onEnter={() => void saveEdit()} autoFocus testPrefix="product-edit" />
+                         labelStyle={label} onEnter={() => { if (productReady(editing.p)) void saveEdit() }} autoFocus testPrefix="product-edit" />
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, cursor: 'pointer' }}>
             <input type="checkbox" style={{ marginTop: 2 }} checked={editing.updateExisting} data-testid="product-update-existing"
                    onChange={(e) => setEditing({ ...editing, updateExisting: e.target.checked })} />
@@ -180,7 +182,7 @@ export default function ProductsPanel({ open, onClose }: Props) {
             </span>
           </label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <button type="button" style={pinkBtn} disabled={busy === p.id} onClick={() => void saveEdit()} data-testid="product-save">
+            <button type="button" style={productReady(editing.p) ? pinkBtn : offBtn} disabled={busy === p.id || !productReady(editing.p)} onClick={() => void saveEdit()} data-testid="product-save">
               {busy === p.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save
             </button>
             <button type="button" style={grayBtn} disabled={busy === p.id} onClick={() => setEditing(null)}>Cancel</button>
@@ -254,9 +256,9 @@ export default function ProductsPanel({ open, onClose }: Props) {
         {adding && (
           <div data-testid="products-add-form" style={{ display: 'flex', flexDirection: 'column', gap: 8, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: 8 }}>
             <ProductFields value={adding} onChange={setAdding} inputStyle={input} labelStyle={label}
-                           onEnter={() => void add()} autoFocus testPrefix="products-new" />
+                           onEnter={() => { if (productReady(adding)) void add() }} autoFocus testPrefix="products-new" />
             <div style={{ display: 'flex', gap: 6 }}>
-              <button type="button" style={pinkBtn} disabled={busy === 'new'} onClick={() => void add()} data-testid="products-new-save">
+              <button type="button" style={productReady(adding) ? pinkBtn : offBtn} disabled={busy === 'new' || !productReady(adding)} onClick={() => void add()} data-testid="products-new-save">
                 {busy === 'new' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Add
               </button>
               <button type="button" style={grayBtn} disabled={busy === 'new'} onClick={() => setAdding(null)}>Cancel</button>

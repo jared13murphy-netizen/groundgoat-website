@@ -11,6 +11,13 @@
 import type { CSSProperties } from 'react'
 import { PRODUCT_KINDS, productFieldLabels, type ProductInput, type ProductKind } from '@/lib/notes'
 
+// The backend requires only the type and the product name; the Add / Save
+// buttons stay disabled until the name is filled.
+export const productReady = (p: ProductInput) => p.name.trim() !== ''
+
+// Native select arrows sit against the edge; draw our own with room on the right.
+const CHEVRON = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23111111' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")"
+
 export const blankProduct = (kind: ProductKind = 'fertilizer'): ProductInput => ({ kind, name: '', brand: '', epa_reg_no: '', variety: '' })
 
 export default function ProductFields({
@@ -30,7 +37,9 @@ export default function ProductFields({
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 6 }}>
       <label style={lab}>Type
-        <select style={inputStyle} value={value.kind} data-testid={`${testPrefix}-kind`}
+        <select style={{ ...inputStyle, appearance: 'none', WebkitAppearance: 'none', paddingRight: 32,
+                         backgroundImage: CHEVRON, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                value={value.kind} data-testid={`${testPrefix}-kind`}
                 onChange={(e) => onChange({ ...value, kind: e.target.value as ProductKind })}>
           {PRODUCT_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
         </select>

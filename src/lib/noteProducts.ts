@@ -48,8 +48,8 @@ export function productMatches(p: ProductDetails, q: string): boolean {
 /** The labels for the brand / extra fields of a kind. */
 export function productFieldLabels(kind: string): { brand: string; extra: string; extraKey: 'variety' | 'epa_reg_no' } {
   return kind === 'seed'
-    ? { brand: 'Company / Brand', extra: 'Hybrid / variety', extraKey: 'variety' }
-    : { brand: 'Brand / Manufacturer', extra: 'EPA Reg. No. (optional)', extraKey: 'epa_reg_no' }
+    ? { brand: 'Company / Brand (optional)', extra: 'Hybrid / variety (optional)', extraKey: 'variety' }
+    : { brand: 'Brand / Manufacturer (optional)', extra: 'EPA Reg. No. (optional)', extraKey: 'epa_reg_no' }
 }
 
 export type NoteProductLineIn = { line_id: string; rate: string } | { product_id: string; rate: string }

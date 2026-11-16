@@ -15,7 +15,7 @@ import {
   MAX_NOTE_PRODUCTS, addFirmProduct, firmProductsSnapshot, loadFirmProducts, productDetailParts, productMatches,
   subscribeFirmProducts, type FirmProduct, type NoteProductLine, type ProductInput, type ProductsState,
 } from '@/lib/notes'
-import ProductFields, { blankProduct } from './ProductFields'
+import ProductFields, { blankProduct, productReady } from './ProductFields'
 
 const PINK = '#F58CDE'
 export const solidPrimary: CSSProperties = {
@@ -118,12 +118,13 @@ export default function NoteProductsEditor({
         <div data-testid="notes-product-new" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8, borderRadius: 8, border: `1px solid ${colors.line}` }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: colors.text }}>New product</div>
           <ProductFields value={adding} onChange={setAdding} inputStyle={inputStyle} labelStyle={{ color: colors.muted }}
-                         onEnter={() => void saveNew()} autoFocus testPrefix="notes-product-new" />
+                         onEnter={() => { if (productReady(adding)) void saveNew() }} autoFocus testPrefix="notes-product-new" />
           <div style={{ fontSize: 10, color: err ? '#f87171' : colors.faint }}>
             {err || 'Everyone in your firm will see this product.'}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button type="button" style={{ ...solidPrimary, opacity: saving ? 0.7 : 1 }} disabled={saving}
+            <button type="button" disabled={saving || !productReady(adding)}
+                    style={productReady(adding) ? { ...solidPrimary, opacity: saving ? 0.7 : 1 } : { ...solidSecondary, color: '#71717A', cursor: 'not-allowed' }}
                     data-testid="notes-product-new-save" onClick={() => void saveNew()}>
               {saving ? <Loader2 size={11} className="animate-spin" /> : null} Add product
             </button>
