@@ -1113,7 +1113,7 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
           }{rainfall ? (
               /* ── RAINFALL BY YEAR (owner 11/4): one line per year, newest
                  first, inches of annual precipitation at this parcel. The
-                 first 10 years show; "Show all years" opens the full
+                 last 5 years show (owner 11/16); "Show more" opens the full
                  history back to 1981. Never an average. */
               <div style={{
                 margin: '10px 16px 4px',
@@ -1130,7 +1130,7 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
                     {`${rainfall[rainfall.length - 1].year}–${rainfall[0].year}`}
                   </span>
                 </div>
-                {(rainfallExpanded ? rainfall : rainfall.slice(0, 10)).map(y => {
+                {(rainfallExpanded ? rainfall : rainfall.slice(0, 5)).map(y => {
                   const max = Math.max(...rainfall.map(r => r.inches)) || 1
                   return (
                     <div key={y.year} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
@@ -1142,10 +1142,10 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
                     </div>
                   )
                 })}
-                {rainfall.length > 10 && (
+                {rainfall.length > 5 && (
                   <button type="button" onClick={() => setRainfallExpanded(v => !v)}
                     style={{ background: 'none', border: 'none', color: '#F58CDE', fontSize: 11, fontWeight: 700, padding: '4px 0', cursor: 'pointer' }}>
-                    {rainfallExpanded ? 'Show fewer years' : `Show all ${rainfall.length} years`}
+                    {rainfallExpanded ? 'Show less' : 'Show more'}
                   </button>
                 )}
                 <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>PRISM Climate Group, Oregon State University</div>

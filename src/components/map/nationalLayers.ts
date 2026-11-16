@@ -1,13 +1,15 @@
 /**
  * National map layers (owner 11/10): flood, wetlands, slope, HEL, public
  * land, protected areas, tribal land, PLSS, grazing allotments, airports,
- * points of interest and light pollution, drawn from PMTiles archives on
+ * points of interest, light pollution, transmission lines and railroads
+ * (owner 11/16), drawn from PMTiles archives on
  * tiles.groundgoat.com.
  *
  * File contract (national-layers/SPEC.md):
  *   per state  <ST>_flood | _wetlands | _slope | _hel | _public | _protected
  *              | _plss | _poi .pmtiles  (PLSS only exists for PLSS states)
- *   national   tribal | airports | light_pollution | grazing .pmtiles
+ *   national   tribal | airports | light_pollution | grazing | transmission
+ *              | railroads .pmtiles
  * Which files exist is read from the tile server's own file listing (GET /,
  * `available`), so a state shows up the moment its builder uploads it and a
  * missing state is never requested (MapLibre fetches a pmtiles header the
@@ -30,12 +32,13 @@ export const HEL_ENABLED = false
 export type NationalLayerKey =
   | 'flood' | 'wetlands' | 'slope' | 'hel'
   | 'public' | 'protected' | 'tribal' | 'plss'
-  | 'grazing' | 'airports' | 'poi' | 'light'
+  | 'grazing' | 'airports' | 'poi' | 'light' | 'transmission' | 'railroads'
 
 /** Free overlays (stack with each other and with one base overlay). */
 export type NationalOverlayKey = Exclude<NationalLayerKey, 'slope' | 'hel'>
 export const NATIONAL_OVERLAY_KEYS: NationalOverlayKey[] = [
   'flood', 'wetlands', 'public', 'protected', 'tribal', 'plss', 'grazing', 'airports', 'poi', 'light',
+  'transmission', 'railroads',
 ]
 
 export type LegendRow = { label: string; color: string; kind?: 'fill' | 'line' | 'dot' | 'hatch' | 'dash' }
@@ -123,6 +126,16 @@ export const POI_COLORS: Array<[string, string, string]> = [
   ['post_office', 'Post office', '#1d4ed8'],
 ]
 // Same stops build_lights.py bakes into the WebP tiles (log radiance ramp).
+// Transmission lines by voltage (HIFLD), brightest = highest voltage.
+export const TRANSMISSION_COLORS: Array<[string, string]> = [
+  ['Under 100 kV', '#facc15'],
+  ['100–199 kV', '#fb923c'],
+  ['200–399 kV', '#ef4444'],
+  ['400 kV and up', '#d946ef'],
+  ['Voltage unknown', '#d4d4d8'],
+]
+const RAIL_CASING = '#111111'
+const RAIL_TIE = '#f5f5f4'
 export const LIGHT_GRADIENT = 'linear-gradient(to right,rgb(5,12,60),rgb(10,35,130),rgb(20,85,200),rgb(50,170,210),rgb(250,235,60),rgb(250,150,30),rgb(230,40,30),rgb(255,250,250))'
 
 export const NATIONAL_LAYERS: Record<NationalLayerKey, NationalLayerDef> = {
@@ -222,6 +235,22 @@ export const NATIONAL_LAYERS: Record<NationalLayerKey, NationalLayerDef> = {
     gradient: LIGHT_GRADIENT,
     legendNote: 'Dark → bright night sky',
   },
+  transmission: {
+    key: 'transmission', name: 'Transmission lines', desc: 'High-voltage power lines',
+    preview: 'transmission', file: 'transmission.pmtiles', perState: false, minzoom: 5, defaultOpacity: 0.9,
+    attribution: 'Transmission lines: HIFLD (U.S. DHS)',
+    legend: TRANSMISSION_COLORS.map(([label, color]) => ({ label, color, kind: 'line' as const })),
+    legendNote: 'Lines 69 kV and up. Smaller lines appear as you zoom in.',
+  },
+  railroads: {
+    key: 'railroads', name: 'Railroads', desc: 'Active rail lines and yards',
+    preview: 'railroads', file: 'railroads.pmtiles', perState: false, minzoom: 5, defaultOpacity: 1,
+    attribution: 'Railroads: FRA North American Rail Network',
+    legend: [
+      { label: 'Main line', color: RAIL_TIE, kind: 'dash' },
+      { label: 'Spur, siding or yard (from zoom 10)', color: '#a8a29e', kind: 'line' },
+    ],
+  },
 }
 
 // ── Availability (which files the tile server holds) ───────────────────
@@ -229,6 +258,7 @@ export type NationalAvailability = Record<NationalLayerKey, string[]>  // states
 export const EMPTY_AVAILABILITY: NationalAvailability = {
   flood: [], wetlands: [], slope: [], hel: [], public: [], protected: [],
   tribal: [], plss: [], grazing: [], airports: [], poi: [], light: [],
+  transmission: [], railroads: [],
 }
 
 export function parseAvailability(files: string[]): NationalAvailability {
@@ -278,6 +308,8 @@ export function nationalLayerIds(key: NationalLayerKey, states: string[]): strin
       case 'grazing': out.push(`${s}-fill`, `${s}-line`, `${s}-label`); break
       case 'airports': case 'poi': out.push(`${s}-circle`, `${s}-label`); break
       case 'light': out.push(`${s}-raster`); break
+      case 'transmission': out.push(`${s}-hit`, `${s}-line`); break
+      case 'railroads': out.push(`${s}-hit`, `${s}-minor`, `${s}-casing`, `${s}-ties`); break
     }
   }
   return out
@@ -322,6 +354,20 @@ const airportClass: any = ['case',
   ['==', ['get', 'type'], 'Airport'], 'Private airport',
   'Other airfield']
 const airportColor: any = ['match', airportClass, ...AIRPORT_COLORS.flat(), '#9ca3af']
+
+const kv: any = ['coalesce', ['get', 'kv'], 0]
+const transmissionColor: any = ['case',
+  ['<=', kv, 0], TRANSMISSION_COLORS[4][1],
+  ['<', kv, 100], TRANSMISSION_COLORS[0][1],
+  ['<', kv, 200], TRANSMISSION_COLORS[1][1],
+  ['<', kv, 400], TRANSMISSION_COLORS[2][1],
+  TRANSMISSION_COLORS[3][1]]
+// Thicker for higher voltage; lines under 100 kV wait for zoom 8.
+const transmissionWidth: any = ['interpolate', ['linear'], ['zoom'],
+  5, ['case', ['>=', kv, 400], 1.6, ['>=', kv, 200], 1.1, 0.7],
+  12, ['case', ['>=', kv, 400], 3.6, ['>=', kv, 200], 2.8, 2]]
+const TRANSMISSION_FILTER: any = ['any', ['>=', ['zoom'], 8], ['>=', kv, 100]]
+const RAIL_MAIN: any = ['==', ['get', 'net'], 'main']
 
 const HATCH_IMAGE = 'gg-nl-hatch'
 function ensureHatch(map: maplibregl.Map) {
@@ -474,6 +520,27 @@ export function addNationalLayer(
       case 'light':
         add({ ...base, id: `${s}-raster`, type: 'raster', paint: { 'raster-opacity': v, 'raster-resampling': 'linear' } })
         break
+      case 'transmission':
+        // Wide invisible line so a click near a thin line still hits it.
+        add({ ...base, id: `${s}-hit`, type: 'line', 'source-layer': 'transmission', filter: TRANSMISSION_FILTER,
+          paint: { 'line-color': '#000', 'line-width': 12, 'line-opacity': 0 } })
+        add({ ...base, id: `${s}-line`, type: 'line', 'source-layer': 'transmission', filter: TRANSMISSION_FILTER,
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'line-sort-key': kv },
+          paint: { 'line-color': transmissionColor, 'line-width': transmissionWidth, 'line-opacity': v } })
+        break
+      case 'railroads':
+        add({ ...base, id: `${s}-hit`, type: 'line', 'source-layer': 'railroads',
+          filter: ['any', ['>=', ['zoom'], 10], RAIL_MAIN],
+          paint: { 'line-color': '#000', 'line-width': 12, 'line-opacity': 0 } })
+        // Spurs, sidings and yards: thin gray, from zoom 10.
+        add({ ...base, id: `${s}-minor`, type: 'line', 'source-layer': 'railroads', minzoom: 10, filter: ['!', RAIL_MAIN],
+          paint: { 'line-color': '#a8a29e', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 14, 2], 'line-opacity': v } })
+        // Main lines: the classic black-and-white railroad dash.
+        add({ ...base, id: `${s}-casing`, type: 'line', 'source-layer': 'railroads', filter: RAIL_MAIN,
+          paint: { 'line-color': RAIL_CASING, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1.6, 12, 4.5], 'line-opacity': v } })
+        add({ ...base, id: `${s}-ties`, type: 'line', 'source-layer': 'railroads', filter: RAIL_MAIN,
+          paint: { 'line-color': RAIL_TIE, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.8, 12, 2.5], 'line-opacity': v, 'line-dasharray': [3, 3] } })
+        break
     }
   }
   return nationalLayerIds(key, states)
@@ -513,9 +580,18 @@ export function applyNationalOpacity(map: maplibregl.Map, key: NationalLayerKey,
         set(`${s}-circle`, 'circle-opacity', v); set(`${s}-circle`, 'circle-stroke-opacity', v); set(`${s}-label`, 'text-opacity', v); break
       case 'light':
         set(`${s}-raster`, 'raster-opacity', v); break
+      case 'transmission':
+        set(`${s}-line`, 'line-opacity', v); break
+      case 'railroads':
+        set(`${s}-minor`, 'line-opacity', v); set(`${s}-casing`, 'line-opacity', v); set(`${s}-ties`, 'line-opacity', v); break
     }
   }
 }
+
+const RAIL_NET_NAMES: Record<string, string> = {
+  main: 'Main line', industry: 'Industrial lead', other: 'Spur track', siding: 'Passing siding', yard: 'Rail yard',
+}
+const railName = (p: Record<string, any>) => RAIL_NET_NAMES[p.net] || 'Railroad'
 
 // ── Popup ──────────────────────────────────────────────────────────────
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
@@ -569,6 +645,13 @@ export function describeNationalFeature(key: NationalLayerKey, p: Record<string,
       const cat = POI_COLORS.find(([c]) => c === p.cat)
       return { heading: p.name || (cat ? cat[1] : 'Place'), lines: [cat ? cat[1] : p.cat].filter(Boolean) }
     }
+    case 'transmission':
+      return {
+        heading: p.kv ? `${p.kv} kV transmission line` : 'Transmission line',
+        lines: [p.owner, p.underground ? 'Underground' : null, p.status && p.status !== 'In Service' ? p.status : null].filter(Boolean) as string[],
+      }
+    case 'railroads':
+      return { heading: railName(p), lines: [p.owner ? `Railroad: ${p.owner}` : null, p.passenger ? 'Passenger service' : null].filter(Boolean) as string[] }
     default:
       return null
   }
@@ -620,6 +703,8 @@ export function summarizeNationalFeature(key: NationalLayerKey, p: Record<string
       const cat = POI_COLORS.find(([c]) => c === p.cat)
       return `${cat ? cat[1] : 'Place'}: ${p.name || ''}`
     }
+    case 'transmission': return `Transmission line: ${p.kv ? `${p.kv} kV` : 'voltage unknown'}${p.owner ? ` (${p.owner})` : ''}`
+    case 'railroads': return `${railName(p)}${p.owner ? ` (${p.owner})` : ''}`
     default: return null
   }
 }
