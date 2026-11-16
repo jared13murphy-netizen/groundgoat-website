@@ -12000,7 +12000,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           the next parcel tapped opens with a new note started. */}
       {noteArmed && (
         <div data-testid="note-armed-banner"
-             style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 560, display: 'flex', alignItems: 'center', gap: 10,
+             style={{ position: 'absolute', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 560, display: 'flex', alignItems: 'center', gap: 10,
                       background: '#0B0B0B', color: '#fff', borderRadius: 12, padding: '10px 12px 10px 14px', boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
                       border: '1px solid rgba(255,255,255,0.14)', fontSize: 14, maxWidth: 'calc(100% - 24px)' }}>
           <StickyNote size={16} color="#F58CDE" style={{ flex: 'none' }} />

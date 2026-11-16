@@ -664,7 +664,7 @@ export default function SavedProjectsPanel({
                                 onClick={() => void run('Sharing…', () => setProjectShares(p.id, sharing.ids), () => setSharing(null))}>
                           Save
                         </button>
-                        <button type="button" style={{ ...pinkBtn, background: 'none', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}
+                        <button type="button" style={{ ...pinkBtn, background: '#E4E4E7', border: '1px solid #E4E4E7' }}
                                 onClick={() => setSharing(null)}>Cancel</button>
                       </div>
                     </div>
@@ -874,7 +874,7 @@ export default function SavedProjectsPanel({
                                             onClick={() => { const id = deleting.id; setDeleting(null); void run('Deleting…', () => deleteFarm(id)) }}>
                                       Delete farm
                                     </button>
-                                    <button type="button" style={{ ...pinkBtn, background: 'transparent', color: '#fff', borderColor: 'rgba(255,255,255,0.3)' }}
+                                    <button type="button" style={{ ...pinkBtn, background: '#E4E4E7', borderColor: '#E4E4E7' }}
                                             onClick={() => setDeleting(null)}>
                                       Cancel
                                     </button>
