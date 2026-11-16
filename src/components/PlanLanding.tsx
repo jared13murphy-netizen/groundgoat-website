@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { PRICING, FREE_LABEL, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
 import { PLAN_LANDING, type PlanHighlight } from '@/config/planLanding'
+import { CorporatePlansLink } from '@/components/CorporateContact'
 import { PromoVideoSection } from '@/components/PromoVideo'
 import type { PlanKey } from '@/config/pricing'
 
@@ -236,6 +237,7 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
               Nothing is charged for 30 days · {isFirm || cycle === 'annual' ? 'Billed annually' : 'Billed monthly'} · Cancel anytime
             </p>
           </div>
+          {isFirm && <CorporatePlansLink className="text-center mt-6" />}
           <p className="text-center mt-6">
             <a href="/#pricing" className="text-gg-gray-400 hover:text-gg-pink text-sm transition-colors">Compare all plans</a>
           </p>

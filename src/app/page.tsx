@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { CorporatePlansLink } from '@/components/CorporateContact'
 import { PRICING, FREE_LABEL, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
 import { PLAN_LANDING_PATH } from '@/config/planLanding'
 import Image from 'next/image'
@@ -684,6 +685,7 @@ export default function Home() {
               <p className="text-center text-gg-gray-500 text-sm mt-4">
                 Billed annually • Cancel anytime
               </p>
+              <CorporatePlansLink className="text-center mt-3" />
             </div>
           </div>
         </div>
