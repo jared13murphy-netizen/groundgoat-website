@@ -703,6 +703,23 @@ export async function fetchBrandingLogoUrl(cacheBust?: number): Promise<string |
  *  Order matters: later shapes win, the way painting over something
  *  works. Run in PostGIS — boolean polygon algebra done by hand in the
  *  browser produces slivers you only notice later. */
+export interface GiveWayResult {
+  edited: { cls: LandClass; changed: boolean; acres: number; geometry: any | null }
+  others: { cls: LandClass; changed: boolean; acres?: number; geometry?: any | null }[]
+}
+
+/** The overlap rule for ONE edit (owner 11/13): only ground the edited
+ *  shape now covers changes hands. `changed: false` means keep your own
+ *  copy untouched; see applyGiveWay in cmShapes. */
+export function giveWay(boundary: any, edited: { cls: LandClass; geometry: any },
+                        others: { cls: LandClass; geometry: any }[]) {
+  return j<GiveWayResult>('/api/mapping/geometry/give-way', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ boundary, edited, others }),
+  })
+}
+
 export function normalizeGeometry(boundary: any, polygons: { cls: LandClass; geometry: any }[]) {
   return j<{ polygons: { cls: LandClass; acres: number; geometry: any }[] }>(
     '/api/mapping/geometry/normalize', {

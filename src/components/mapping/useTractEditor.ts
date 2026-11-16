@@ -20,12 +20,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type maplibregl from 'maplibre-gl'
 import {
   CLASS_COLOR, LAND_CLASSES, classifyBoundary, combineGeometry, fetchParcel, fitTracts, getSavedParcel,
-  normalizeGeometry, parcelsUnder, previewSoil, saveParcel, splitGeometry, updateParcel,
+  giveWay, normalizeGeometry, parcelsUnder, previewSoil, saveParcel, splitGeometry, updateParcel,
   type LandClass, type ParcelDetail,
 } from '@/lib/configurableMapping'
 import { savedTractNeedsEngine } from '@/lib/savedTractLandTypes'
 import {
   SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, stripInsertedVertices,
+  applyGiveWay, dropSpeckRings, NODE_TOL_DEG,
   pointInRing, dropDegenerateHoles, pointInBoundary, ringCentre, polysToGeometry,
   shapeAcres, boundaryAcresOf, bboxOf, snapTargetsNear, type Shape,
 } from '@/lib/cmShapes'
@@ -395,13 +396,19 @@ export function useTractEditor({
           ?? await classifyBoundary(geom, state)
         // Still normalise: the engine's classes are disjoint, but the
         // user may already have drawn shapes of their own over them.
+        // Thin the engine's dots FIRST and clean up overlaps after (owner
+        // 11/13): thinning each polygon on its own moved shared edges apart
+        // or across each other, so the first edit's clean-up re-cut them and
+        // dots far from the edit shifted. Cleaned last, the shapes on screen
+        // already meet exactly and an edit only touches what it covers.
+        const thin = simplifyShapes(explodeShapes(fresh.polygons as any))
         const res = await normalizeGeometry(
-          geom, fresh.polygons.map((p) => ({ cls: p.cls, geometry: p.geometry })))
+          geom, thin.map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) })))
         if (!fresh.engine_covered) {
           setError('Part of this boundary is outside the mapped area — '
                  + 'the land types there have not been filled in.')
         }
-        const loaded = simplifyShapes(explodeShapes(res.polygons as any))
+        const loaded = dropSpeckRings(stripInsertedVertices(explodeShapes(res.polygons as any), thin, NODE_TOL_DEG))
         // Refs updated eagerly: save() reads them straight after the await,
         // before React has re-rendered.
         shapesRef.current = loaded; classifiedRef.current = true
@@ -439,6 +446,32 @@ export function useTractEditor({
   const enforceNoOverlap = useCallback(async (next: Shape[], keepId?: string | null) => {
     const bGeom = polysToGeometry(boundaryRef.current) || detailRef.current?.boundary
     if (!bGeom) return
+    // Owner 11/13: deleting a dot moved OTHER dots. One shape changed, so
+    // only the ground it now covers may change hands: unchanged shapes keep
+    // every coordinate exactly (the full normalise below re-noded every
+    // shared edge and moved dots far from the edit by 3 cm to 1 m).
+    const edited = keepId ? next.find((sh) => sh.id === keepId) : undefined
+    if (edited) {
+      const eGeom = polysToGeometry(edited.polys)
+      if (!eGeom) return
+      const others = next.filter((sh) => sh.id !== keepId)
+      try {
+        const res = await giveWay(bGeom, { cls: edited.cls, geometry: eGeom },
+          others.map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) })))
+        // A later edit may have landed while this was in flight; only
+        // apply the answer to the state it was computed for.
+        if (shapesRef.current !== next) return
+        const merged = applyGiveWay(next, keepId!, res)
+        if (merged.some((sh, i) => sh !== next[i]) || merged.length !== next.length) {
+          shapesRef.current = merged
+          setShapesState(merged)
+        }
+        setSelectedId(merged.some((sh) => sh.id === keepId) ? keepId! : null)
+      } catch (e: any) {
+        setError(e?.message || 'Could not fit that shape to the others.')
+      }
+      return
+    }
     // Normalising rebuilds every shape with a fresh id, so keep a
     // fingerprint of the shape being edited and re-select its replacement.
     const keep = keepId ? next.find((sh) => sh.id === keepId) : undefined
@@ -508,7 +541,9 @@ export function useTractEditor({
     }))
     mutate(() => next)
     setSelectedId((cur) => (cur === id ? null : cur))
-    void enforceRef.current(next, null)
+    // Removing a polygon cannot create an overlap, and a neighbour whose
+    // hole was closed only grew into the deleted ground — so nothing is
+    // re-fitted and no other dot moves (owner 11/13).
   }, [mutate])
   const deleteSelected = useCallback(() => {
     if (selectedRef.current) deleteShape(selectedRef.current)
@@ -521,6 +556,7 @@ export function useTractEditor({
       ...sh, polys: sh.polys.map((rings) => rings.slice(0, 1)),
     })
     mutate(() => next)
+    shapesRef.current = next
     void enforceRef.current(next, id)
   }, [mutate])
 
@@ -597,7 +633,7 @@ export function useTractEditor({
         shapesRef.current = next   // eager: Save may follow before the next render
         // Drawn last, so this one wins any overlap — then the server
         // trims the others and clips everything to the boundary.
-        void enforceRef.current(next)
+        void enforceRef.current(next, id)
         setSelectedId(id)
         made = true
       }
@@ -653,14 +689,27 @@ export function useTractEditor({
     let removed = 0
     const id = selectedRef.current
     if (!id) { setError('Select a polygon first, then drag over its points.'); return }
-    mutate((prev) => prev.map((sh) => sh.id !== id ? sh : {
+    const next = shapesRef.current.map((sh) => sh.id !== id ? sh : {
       ...sh,
       polys: sh.polys.map((rings) => dropDegenerateHoles(
         rings.map((ring, ri) => {
           const t = trim(ring, ri); removed += ring.length - t.length; return t
         }))),
-    }))
-    if (!removed) setError('No points inside that box — drag a box right over the dots.')
+    })
+    if (!removed) {
+      // Owner 11/13: the dots in the box were another polygon's — say whose.
+      const other = shapesRef.current.find((sh) => sh.id !== id
+        && sh.polys.some((rings) => rings.some((ring) => ring.some(inside))))
+      setError(other
+        ? `Those points belong to the ${other.cls} polygon — click it first, then drag over its points.`
+        : 'No points inside that box — drag a box right over the dots.')
+      return
+    }
+    mutate(() => next)
+    shapesRef.current = next
+    // Erasing reshapes the polygon like removing one dot does, so the
+    // neighbours give way the same way (owner 11/13).
+    void enforceRef.current(next, id)
   }, [mutate, setError])
   const eraseRef = useRef(eraseInBox); eraseRef.current = eraseInBox
 
@@ -1049,6 +1098,7 @@ export function useTractEditor({
             }))),
         })
         mutate(() => next)
+        shapesRef.current = next   // eager: the clean-up answer is matched against it
         // Owner 11/1: removing a corner reshapes the polygon exactly like
         // dragging one does, so the neighbours must give way the same way
         // (dragging already re-checks overlap on drag end).
