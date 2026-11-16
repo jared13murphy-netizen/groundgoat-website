@@ -336,7 +336,7 @@ export default function LayersPanel(p: LayersPanelProps) {
     ...(p.elevators.available ? [toggleDef('elevators', 'Grain elevators', p.elevators)] : []),
     ...overlay('grazing'),
   ]
-  const infrastructure: LayerDef[] = [...overlay('airports'), ...overlay('poi'), ...overlay('light')]
+  const infrastructure: LayerDef[] = [...overlay('transmission'), ...overlay('railroads'), ...overlay('airports'), ...overlay('poi'), ...overlay('light')]
 
   const groups: Array<{ id: string; name: string; layers: LayerDef[]; note?: string; extra?: React.ReactNode; alwaysShow?: boolean }> = [
     { id: 'soil', name: 'Soil and crops', layers: soilCrops, note: 'One soil, crop or rain layer at a time.' },
