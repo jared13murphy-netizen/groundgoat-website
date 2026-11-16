@@ -5,8 +5,9 @@
  * "PROPOSAL — one Reports panel" + the parcel/tract bottom buttons).
  *
  * 1 · Pick a report — cards; the picked one is pink (gradient) with black
- *     text, the others gray. Reports that need a Map It farm are grayed out
- *     on a plain parcel or auction tract ("Map It this farm first").
+ *     text, the others gray. The Map It reports work on ANY parcel or
+ *     auction tract too (owner 11/16): a parcel prints the engine's tillable
+ *     polygons, a tract its drawn tillable polygons, a farm its saved ones.
  * 2 · Notes to include — NotesStep (None · Latest · All · Pick + the notes).
  * 3 · Send it — Download or Email (off until a report is picked).
  *
@@ -14,13 +15,14 @@
  * both return to the screen it was opened from. Parcel and Tract Reports go
  * through the report queue (POST /api/reports/jobs: the floating
  * ReportJobsIndicator downloads or confirms the email); Map It reports go
- * through /api/mapping/reports (Email = params.deliver "email").
+ * through /api/mapping/reports (Email = params.deliver "email"), keyed on the
+ * farm / project, or on tract_id / ll_uuid for a tract or parcel.
  */
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { ChevronLeft, Download, Loader2, Mail, X } from 'lucide-react'
 import reportJobEnqueue from '@/lib/reportJobs'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import { getProject, queueAndDownloadReport, queueReport, type ReportKind } from '@/lib/configurableMapping'
+import { getProject, queueAndDownloadReport, queueReport, type ReportKind, type ReportTarget } from '@/lib/configurableMapping'
 import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotePickItem, type NotesPrint } from '@/lib/notes'
 import { closeReports, reportsSnapshot, subscribeReports, type ReportsOpen, type ReportsTarget } from '@/lib/reportsPanel'
 import useSlide from '@/lib/useSlide'
@@ -52,7 +54,10 @@ export function reportOptions(t: ReportsTarget, canUseReports: boolean, canUseMa
     ({ kind, desc: off ? `${INFO[kind].desc.split(':')[0]} · ${off}` : (desc || INFO[kind].desc), off })
   if (t.type === 'parcel' || t.type === 'tract') {
     const own: Option = { kind: t.type, desc: INFO[t.type].desc, off: canUseReports ? null : 'Not in your plan' }
-    return [own, ...MAP_KINDS.map((k) => mapIt(k, mapOff || 'Map It this farm first'))]
+    // Owner 11/16: every Map It report works on any parcel or tract.
+    const noGround = t.type === 'parcel' && !t.llUuid && (t.lat == null || t.lng == null) ? 'No parcel here' : null
+    return [own, ...MAP_KINDS.map((k) => mapIt(k, mapOff || noGround,
+      k === 'aerial' ? `Aerial photo with the ${t.type} outlined` : undefined))]
   }
   const projectName = t.projectName || 'this project'
   return MAP_KINDS.map((k) => mapIt(k, k === 'aerial' && !t.projectId ? 'No project' : mapOff,
@@ -172,14 +177,16 @@ function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
         setMsg({ ok: true, text: delivery === 'email' ? 'Building it — it will arrive in your email.' : 'Building it — it downloads when ready.' })
         return
       }
-      const ref = kind === 'aerial' ? { projectId: projectId || undefined } : { parcelId: farmId || undefined }
+      const ref: ReportTarget = t.type === 'tract' ? { tractId: t.tractId }
+        : t.type === 'parcel' ? { llUuid: t.llUuid || undefined, lat: t.lat ?? undefined, lng: t.lng ?? undefined }
+        : kind === 'aerial' ? { projectId: projectId || undefined } : { parcelId: farmId || undefined }
       const params = { notes_print, ...(kind === 'elevation_3d' ? { exaggeration: DEFAULT_EXAGGERATION } : {}) }
       if (delivery === 'email') {
         await queueReport(ref, kind, { ...params, deliver: 'email' })
         setMsg({ ok: true, text: 'Building it — we will email it to you when it is ready.' })
       } else {
         setMsg({ ok: true, text: 'Building it — it downloads when ready. You can close this.' })
-        await queueAndDownloadReport(ref, kind, projectName, params)
+        await queueAndDownloadReport(ref, kind, projectName || (t.type === 'parcel' || t.type === 'tract' ? t.title : null), params)
         setMsg({ ok: true, text: 'Downloaded.' })
       }
     } catch (e: any) {
