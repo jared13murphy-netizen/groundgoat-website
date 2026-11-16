@@ -61,5 +61,6 @@ export default function robots(): MetadataRoute.Robots {
         : { userAgent: '*', allow: '/', disallow: PRIVATE_PATHS },
       { userAgent: AI_TRAINING_BOTS, disallow: '/' },
     ],
+    ...(IS_SANDBOX ? {} : { sitemap: 'https://www.groundgoat.com/sitemap.xml' }),
   }
 }
