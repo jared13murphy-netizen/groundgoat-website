@@ -92,6 +92,11 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
     tract_id: subjectInfo?.tract_id || null,
     subject_county: subjectInfo?.county || null,
     subject_state: subjectInfo?.state || null,
+    // The parcel behind a parcel subject (same as PortalComparablesReportPanel):
+    // without it the server cannot re-read the subject's figures or draw its
+    // Subject Parcel page (owner 11/16).
+    subject_ll_uuid: subjectInfo?.subject_ll_uuid || null,
+    subject_cm_id: subjectInfo?.subject_cm_id || null,
     subject_acres: subjectInfo?.subject_acres ? String(subjectInfo.subject_acres) : null,
     subject_tillable_pct: subjectInfo?.subject_pct_tillable
       ? String(Math.round(subjectInfo.subject_pct_tillable)) + '%' : null,

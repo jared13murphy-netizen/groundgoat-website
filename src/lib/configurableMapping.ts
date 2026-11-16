@@ -587,14 +587,30 @@ export interface ReportRow {
 /** Reports that read the elevation slider. */
 export const USES_ELEVATION: readonly string[] = ['elevation_3d']
 
+/** What a report is about: a Map It farm (parcelId) or project (projectId),
+ *  or — owner 11/16 — ANY auction tract (tractId) or Regrid parcel (llUuid,
+ *  or the parcel under lat/lng). The API resolves a tract's drawn tillable
+ *  polygons and a parcel's engine polygons itself. */
+export interface ReportTarget {
+  parcelId?: string
+  projectId?: string
+  tractId?: string
+  llUuid?: string
+  lat?: number
+  lng?: number
+}
+
 export function queueReport(
-  target: { parcelId?: string; projectId?: string },
+  target: ReportTarget,
   kind: ReportKind,
   params: Record<string, any> = {},
 ) {
   const body: Record<string, any> = { kind, params }
   if (target.parcelId) body.parcel_id = target.parcelId
   if (target.projectId) body.project_id = target.projectId
+  if (target.tractId) body.tract_id = target.tractId
+  if (target.llUuid) body.ll_uuid = target.llUuid
+  if (target.lat != null && target.lng != null) { body.lat = target.lat; body.lng = target.lng }
   return j<{ id: string; kind: string; status: string }>('/api/mapping/reports', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -991,7 +1007,7 @@ export function getSavedTractDetail(id: string) {
  *  any component so a download the user asked for still lands if they
  *  close the panel while it builds (~5 min cap, polled every 3 s). */
 export async function queueAndDownloadReport(
-  target: { parcelId?: string; projectId?: string },
+  target: ReportTarget,
   kind: ReportKind,
   projectName: string | null | undefined,
   params: Record<string, any> = {},
@@ -1000,8 +1016,10 @@ export async function queueAndDownloadReport(
   const started = Date.now()
   while (Date.now() - started < 5 * 60 * 1000) {
     await new Promise((r) => setTimeout(r, 3000))
+    // A tract/parcel report belongs to no farm or project: it is in the
+    // caller's own unfiltered list.
     const { reports } = await listReports(
-      target.parcelId ? { parcelId: target.parcelId } : { projectId: target.projectId })
+      target.parcelId ? { parcelId: target.parcelId } : target.projectId ? { projectId: target.projectId } : {})
     const row = (reports || []).find((r) => r.id === q.id)
     if (!row) throw new Error('That report went missing.')
     if (row.status === 'failed') throw new Error(row.error || 'The report failed to build.')
