@@ -1,21 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Image from 'next/image'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowRight, Bell, Calendar, Check, FileText, Folder, History,
-  Layers, LineChart, Map as MapIcon, Search, Smartphone, StickyNote, Users,
+  Layers, LineChart, Map as MapIcon, Search, Smartphone, StickyNote, Users, Wheat,
 } from 'lucide-react'
 import { PRICING, FREE_LABEL, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
 import { PLAN_LANDING, type PlanHighlight } from '@/config/planLanding'
+import { CorporatePlansLink } from '@/components/CorporateContact'
 import { PromoVideoSection } from '@/components/PromoVideo'
 import type { PlanKey } from '@/config/pricing'
 
 const ICONS: Record<PlanHighlight['icon'], typeof Bell> = {
   bell: Bell, calendar: Calendar, history: History, phone: Smartphone, layers: Layers,
   search: Search, report: FileText, chart: LineChart, users: Users, notes: StickyNote,
-  folder: Folder, map: MapIcon,
+  folder: Folder, map: MapIcon, wheat: Wheat,
 }
 
 // Ad / referral parameters ride along into signup, so a visitor who came from
@@ -84,6 +84,16 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
     setExtra(keep.toString() ? `&${keep.toString()}` : '')
   }, [])
 
+  // Phone: the cards slide sideways; the dots follow the card in view.
+  const cardsRef = useRef<HTMLDivElement>(null)
+  const [cardIdx, setCardIdx] = useState(0)
+  const onCardsScroll = () => {
+    const el = cardsRef.current
+    const first = el?.firstElementChild as HTMLElement | null
+    if (!el || !first) return
+    setCardIdx(Math.round(el.scrollLeft / (first.offsetWidth + 12)))
+  }
+
   const href = signupHref(plan, cycle, extra)
   const features = [...PRICING[plan].features, ...(c.extraFeatures || [])]
 
@@ -104,52 +114,52 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
 
   return (
     <>
-      {/* Hero */}
-      <section className="relative mt-20 min-h-[620px] md:min-h-[calc(100vh-80px)] flex items-center overflow-hidden">
-        {c.appOnly ? (
-          // App-only plan: no website map behind it, the app itself sits beside the words.
-          <div className="absolute inset-0 bg-gg-black">
-            <div className="absolute top-1/4 right-[8%] w-[520px] h-[520px] bg-gg-pink/15 rounded-full blur-[140px]" />
-            <div className="absolute -bottom-40 -left-40 w-[480px] h-[480px] bg-gg-pink/5 rounded-full blur-[120px]" />
-          </div>
-        ) : (
-          <div className="absolute inset-0">
-            <Image src="/hero-explore-map.png" alt="Ground Goat map of farmland parcels" fill priority sizes="100vw" className="object-cover object-center" />
-            <div className="absolute inset-0 bg-black/30" />
-            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-gg-black" />
-          </div>
-        )}
-        <div className={`relative z-10 max-w-7xl mx-auto px-4 sm:px-6 w-full py-16 ${c.appOnly ? 'grid lg:grid-cols-12 gap-12 items-center' : ''}`}>
-          <div className={c.appOnly ? 'lg:col-span-7' : 'max-w-2xl'}>
-            <div className="flex flex-wrap items-center gap-3 mb-6 animate-slide-up">
-              <span className="bg-gg-pink text-black text-sm font-bold px-4 py-1.5 rounded-full">{FREE_LABEL}</span>
-              <span className="text-gg-pink text-sm font-semibold tracking-wide uppercase">{c.eyebrow}</span>
-            </div>
-            <h1 className="font-display text-4xl sm:text-5xl md:text-7xl font-bold text-white mb-6 leading-tight animate-slide-up">
-              {c.headline}
-              <span className="block text-gradient pb-[0.15em]">{c.headlineAccent}</span>
-            </h1>
-            <p className="text-lg md:text-2xl text-gray-200 mb-8 animate-slide-up delay-100">{c.subhead}</p>
-            <div className="flex flex-col sm:flex-row gap-4 animate-slide-up delay-200">
-              <CTA big />
-              <a href="#watch" className="btn-secondary inline-flex items-center justify-center gap-2 text-lg">Learn More</a>
-            </div>
-            <p className="mt-5 text-gg-gray-300 text-sm">
-              {price.amount}/{price.unit} after your {FREE_LABEL.toLowerCase()} · Cancel anytime
+      {/* Top (owner 11/16, option 5): the plan, its price, and a card per
+          benefit; a card scrolls down to that benefit. */}
+      <section className="relative mt-20 pt-12 md:pt-16 pb-12 md:pb-20 bg-gg-black overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 text-center">
+          <p className="text-gg-pink text-sm font-bold tracking-[0.1em] uppercase mb-4">{c.eyebrow} Plan</p>
+          <h1 className="font-display text-[34px] leading-tight sm:text-5xl md:text-6xl font-bold text-white max-w-4xl mx-auto mb-4">
+            {c.topHeadline}
+          </h1>
+          <p className="text-base md:text-xl text-gg-gray-300">
+            <b className="text-white">{FREE_LABEL}</b>, then {isFirm
+              ? `${price.amount} a year with ${PRICING.firm.includedUsers} team members`
+              : `${price.amount} a ${price.unit} for your first state`}. Cancel anytime.
+          </p>
+          {c.appOnly && (
+            <p className="mt-3 inline-flex items-center gap-2 text-gg-gray-300 text-sm">
+              <Smartphone size={16} className="text-gg-pink" /> In the Ground Goat app for iPhone and Android
             </p>
-            {c.appOnly && (
-              <p className="mt-3 inline-flex items-center gap-2 text-gg-gray-300 text-sm">
-                <Smartphone size={16} className="text-gg-pink" /> In the Ground Goat app for iPhone and Android
-              </p>
-            )}
-          </div>
-          {c.appOnly && c.heroImage && (
-            <div className="lg:col-span-5 animate-slide-up delay-200">
-              <Shot src={c.heroImage} alt={`${c.eyebrow} in the Ground Goat app`} frame="phone" />
-            </div>
           )}
         </div>
+        <div
+          ref={cardsRef}
+          onScroll={onCardsScroll}
+          className={`mt-8 md:mt-10 max-w-7xl mx-auto px-4 sm:px-6 flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-px-4 sm:scroll-px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:grid md:gap-4 md:overflow-visible md:grid-cols-2 ${c.highlights.length === 6 ? 'lg:grid-cols-3 xl:grid-cols-6' : c.highlights.length === 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
+        >
+          {c.highlights.map((h, i) => (
+            <a
+              key={h.title}
+              href={`#benefit-${i}`}
+              className="group flex-[0_0_78%] sm:flex-[0_0_300px] md:flex-auto snap-start bg-gg-gray-900 border border-white/10 hover:border-gg-pink/60 rounded-2xl overflow-hidden flex flex-col text-left transition-colors"
+            >
+              {h.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={h.image} alt={h.alt || h.card.title} className="w-full h-44 md:h-48 object-cover object-left-top" />
+              )}
+              <span className="px-4 pt-4 text-[17px] font-bold text-white">{h.card.title}</span>
+              <span className="px-4 pt-1 text-sm leading-snug text-gg-gray-400 flex-grow">{h.card.body}</span>
+              <span className="px-4 pt-2 pb-4 text-sm font-semibold text-gg-pink">See more ↓</span>
+            </a>
+          ))}
+        </div>
+        <div className="mt-4 flex justify-center gap-1.5 md:hidden" aria-hidden="true">
+          {c.highlights.map((h, i) => (
+            <span key={h.title} className={`h-1.5 rounded-full transition-all ${i === cardIdx ? 'w-5 bg-gg-pink' : 'w-1.5 bg-gg-gray-600'}`} />
+          ))}
+        </div>
+        <p className="mt-6 px-4 text-center text-sm md:text-base text-gg-gray-400">{c.plusLine}</p>
       </section>
 
       {/* Company video */}
@@ -166,7 +176,7 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
               const Icon = ICONS[h.icon]
               const flip = i % 2 === 1
               return (
-                <div key={h.title} className="grid lg:grid-cols-12 gap-8 lg:gap-14 items-center">
+                <div key={h.title} id={`benefit-${i}`} className="scroll-mt-28 grid lg:grid-cols-12 gap-8 lg:gap-14 items-center">
                   <div className={`lg:col-span-4 ${flip ? 'lg:order-2' : ''}`}>
                     <div className="w-12 h-12 rounded-xl bg-gg-pink/10 text-gg-pink flex items-center justify-center mb-5">
                       <Icon size={24} />
@@ -227,6 +237,7 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
               Nothing is charged for 30 days · {isFirm || cycle === 'annual' ? 'Billed annually' : 'Billed monthly'} · Cancel anytime
             </p>
           </div>
+          {isFirm && <CorporatePlansLink className="text-center mt-6" />}
           <p className="text-center mt-6">
             <a href="/#pricing" className="text-gg-gray-400 hover:text-gg-pink text-sm transition-colors">Compare all plans</a>
           </p>
@@ -244,6 +255,20 @@ export default function PlanLanding({ plan }: { plan: PlanKey }) {
           <CTA big />
         </div>
       </section>
+
+      {/* Always on screen while scrolling (owner 11/16). The spacer keeps it off the footer. */}
+      <div className="h-24" aria-hidden="true" />
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-gg-pink">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 md:py-4 pb-[max(12px,env(safe-area-inset-bottom))] flex items-center justify-between md:justify-center gap-4 md:gap-7">
+          <span className="text-black text-sm md:text-lg font-semibold leading-snug">
+            {c.eyebrow}<span className="hidden md:inline"> · </span><br className="md:hidden" />
+            {FREE_LABEL.toLowerCase()}<span className="hidden md:inline">, then {price.amount}/{price.unit}</span>
+          </span>
+          <Link href={href} className="h-12 md:h-[52px] px-5 md:px-7 rounded-xl bg-black text-white text-base md:text-[17px] font-bold inline-flex items-center hover:bg-gg-gray-800 transition-colors">
+            Start Subscription
+          </Link>
+        </div>
+      </div>
     </>
   )
 }
