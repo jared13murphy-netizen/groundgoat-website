@@ -46,6 +46,7 @@ import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
 import MapItToolbar from '@/components/mapping/MapItToolbar'
+import ReportsPanel from '@/components/reports/ReportsPanel'
 import { useTractEditor, type SavedInfo, type TractStart } from '@/components/mapping/useTractEditor'
 import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
 import ProductsPanel from '@/components/mapping/ProductsPanel'
@@ -3495,7 +3496,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onDown = (e: PointerEvent) => {
       const t = e.target as Element | null
       if (!t) return
-      if (t.closest('[data-gg-mymaps-screen]')) return
+      if (t.closest('[data-gg-mymaps-screen]') || t.closest('[data-gg-reports-panel]')) return
       openMyMapsScreen(null)
     }
     document.addEventListener('pointerdown', onDown, true)
@@ -3660,7 +3661,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onDown = (e: PointerEvent) => {
       const t = e.target as Element | null
       if (!t) return
-      if (t.closest('[data-gg-saved-tract-panel]')) return
+      if (t.closest('[data-gg-saved-tract-panel]') || t.closest('[data-gg-reports-panel]')) return
       // A click on a saved tract is handled by the map's own click handler,
       // which swaps the panel to that tract.
       if (t.closest('canvas.maplibregl-canvas') && mapRef.current) {
@@ -11948,6 +11949,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             setChooseArmed(v => !v)
           }} />
       )}
+
+      {/* Reports panel (owner 11/15): every report starts here — opened by
+          the parcel / tract / saved-tract panels, the Map It bar and Saved
+          Projects via openReports(). Over whatever opened it. */}
+      <ReportsPanel />
 
       {/* My Maps screens (owner 11/15): one design, "‹ My Maps" back on each.
           Hidden while mapping. */}

@@ -10,31 +10,19 @@
  * Land Types step: class chips, Add Polygon, Delete, Split, Erase,
  *                  Fill Holes, Clear, Start Over, Undo, Redo, Save.
  * Save opens a small panel the first time: name, optional project, Save /
- * Cancel. Later saves just save. Once saved, report buttons sit in the bar.
+ * Cancel. Later saves just save. Once saved, a Reports button sits in the bar.
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, Download, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus, Spline,
+  ArrowLeft, ArrowRight, Check, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus, Spline,
   RotateCcw, RotateCw, Save, Scissors, Trash2, X,
 } from 'lucide-react'
 import {
-  CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, listProjects, REPORT_BUSY_LABEL, REPORT_LABEL,
-  type ReportKind,
+  CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, listProjects,
 } from '@/lib/configurableMapping'
 import type { TractEditor } from './useTractEditor'
 import { polygonAcres } from '@/lib/polygonGeometry'
-import useMapReports from '@/lib/useMapReports'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-
-/** Report buttons in the bar once the tract is saved (owner 11/2: "the
- *  report options need to appear on this screen so I can generate the
- *  reports right after I save it"). Aerial is a project-level report. */
-const BAR_REPORTS: { kind: ReportKind; projectLevel: boolean }[] = [
-  { kind: 'aerial', projectLevel: true },
-  { kind: 'soil_map', projectLevel: false },
-  { kind: 'ground_goat', projectLevel: false },
-  { kind: 'elevation_3d', projectLevel: false },
-]
+import { openReports } from '@/lib/reportsPanel'
 
 const PINK = '#F58CDE'
 const NEW_PROJECT = '__new__'
@@ -143,13 +131,11 @@ export default function MapItToolbar({
   // created. Every save purges the tract's old PDFs, so reload after.
   const project = lockedProject ?? savedProject
   const reportsOn = canUseReports && !!e.savedId && !!project
-  const reports = useMapReports(reportsOn, project?.id ?? null, e.savedId, project?.name ?? null)
-  const reloadRef = useRef(reports.reload); reloadRef.current = reports.reload
   const savedNameRef = useRef('')
 
   const runSave = async (opts: Parameters<typeof e.save>[0]) => {
     const ok = await e.save(opts)
-    if (ok) { savedNameRef.current = opts.name.trim(); setSavePanel(false); void reloadRef.current() }
+    if (ok) { savedNameRef.current = opts.name.trim(); setSavePanel(false) }
     return ok
   }
   const openSave = () => {
@@ -269,51 +255,16 @@ export default function MapItToolbar({
 
       {reportsOn && (
         <div data-gg-mapit-reports style={{ ...row, gap: 6 }}>
-          <span style={{ ...stat, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <FileText size={13} /> Reports
-          </span>
-          <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} items={reports.noteItems} />
-          {BAR_REPORTS.map(({ kind, projectLevel }) => {
-            const working = reports.queuing === `${kind}:${projectLevel ? '' : e.savedId || ''}`
-              || reports.rows.some((r) => r.kind === kind
-                && (projectLevel ? !r.parcel_id : r.parcel_id === e.savedId)
-                && (r.status === 'queued' || r.status === 'running'))
-            return (
-              <Btn key={kind} primary text={working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
-                   disabled={working || !!reports.queuing || e.dirty || busy}
-                   title={e.dirty ? 'Save your changes first' : `Build the ${REPORT_LABEL[kind] || kind} for this saved tract`}
-                   onClick={() => void reports.queue(kind, projectLevel)} />
-            )
-          })}
-          {reports.rows.filter((r) => r.status === 'done' || r.status === 'failed').map((r) => (
-            <span key={r.id} style={{ ...stat, display: 'inline-flex', alignItems: 'center', gap: 4,
-                                       padding: '4px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>
-              {REPORT_LABEL[r.kind] || r.kind}
-              {r.status === 'failed' ? <span style={{ color: '#fca5a5' }}> · failed</span> : null}
-              {r.status === 'done' && r.ready && (
-                <button type="button" aria-label={`Download ${REPORT_LABEL[r.kind] || r.kind}`}
-                        title={`Download ${REPORT_LABEL[r.kind] || r.kind}`}
-                        onClick={() => void reports.download(r)}
-                        style={{ background: 'none', border: 'none', color: PINK, cursor: 'pointer', padding: 0, display: 'inline-flex' }}>
-                  <Download size={13} />
-                </button>
-              )}
-              <button type="button" aria-label={`Delete ${REPORT_LABEL[r.kind] || r.kind}`}
-                      title="Delete this report" disabled={reports.deleting === r.id}
-                      onClick={() => void reports.remove(r, REPORT_LABEL[r.kind] || r.kind)}
-                      style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: 0, display: 'inline-flex' }}>
-                <Trash2 size={13} />
-              </button>
-            </span>
-          ))}
-          {reports.pending && <span style={stat}>Building… this updates on its own.</span>}
-          {reports.msg && (
-            <span style={{ ...stat, color: '#fca5a5' }}>
-              {reports.msg}{' '}
-              <button type="button" aria-label="Dismiss" onClick={() => reports.setMsg(null)}
-                      style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, verticalAlign: 'middle' }}><X size={11} /></button>
-            </span>
-          )}
+          {/* Owner 11/15: one Reports button opens the Reports panel for
+              this saved tract (every report, its notes, Download / Email). */}
+          <Btn primary icon={<FileText size={13} />} text="Reports"
+               disabled={e.dirty || busy}
+               title={e.dirty ? 'Save your changes first' : 'Reports for this saved tract'}
+               onClick={() => openReports({
+                 target: { type: 'farm', parcelId: e.savedId!, title: savedNameRef.current || e.defaultName || 'Farm',
+                           meta: `${e.boundaryAcres.toFixed(2)} ac`, projectId: project!.id, projectName: project!.name },
+                 backLabel: 'Map It', canUseReports, canUseMapIt: true,
+               })} />
         </div>
       )}
 

@@ -536,7 +536,7 @@ export function differenceGeometry(geometry: any, subtract: any[]) {
  *  the API (old rows keep their label below) but is no longer offered —
  *  owner 2026-09-24: "remove the Tillable Map report". */
 export const REPORT_KINDS =
-  ['aerial', 'soil_map', 'ground_goat', 'elevation_3d'] as const
+  ['aerial', 'soil_map', 'ground_goat', 'elevation_3d', 'applicator'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
 /** Reports queued at the PROJECT level (no parcel_id) rather than per
@@ -551,6 +551,7 @@ export const REPORT_LABEL: Record<string, string> = {
   ground_goat: 'Ground Goat Report',
   elevation_3d: '3D Elevation Map',
   cma: 'Market Analysis',
+  applicator: 'Applicator Report',
 }
 
 /** What a report button says while it is building.
@@ -566,6 +567,7 @@ export const REPORT_BUSY_LABEL: Record<string, string> = {
   ground_goat: 'Rounding it up…',
   elevation_3d: 'Climbing the hill…',
   cma: 'Reading the market…',
+  applicator: 'Laying out the fields…',
 }
 
 export interface ReportRow {

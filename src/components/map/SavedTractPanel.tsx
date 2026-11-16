@@ -11,13 +11,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Mail, Download, Check, Loader2, BarChart3, Plus, FolderOpen, Trash2, X } from 'lucide-react'
-import reportJobEnqueue from '@/lib/reportJobs'
-import {
-  getSavedTractDetail, queueAndDownloadReport, REPORT_BUSY_LABEL, REPORT_LABEL,
-  type ReportKind, type SavedTractDetail,
-} from '@/lib/configurableMapping'
-import useMapReports from '@/lib/useMapReports'
+import { Check, BarChart3, Plus, FolderOpen, Layers, FileText } from 'lucide-react'
+import { getSavedTractDetail, type SavedTractDetail } from '@/lib/configurableMapping'
+import { openReports } from '@/lib/reportsPanel'
 import useSlide from '@/lib/useSlide'
 import { buildSavedReportRow, savedReportId } from '@/lib/savedTractRow'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
@@ -25,11 +21,8 @@ import { formatAcres } from '@/lib/format'
 import { DetailRow, Section } from './parcelDetailFields'
 import { ACTION_BTN, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
 import NotesTimeline from '@/components/notes/NotesTimeline'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-import { notesPrintBody } from '@/lib/notes'
 
 const PINK = '#F58CDE'
-const MAP_REPORT_KINDS: ReportKind[] = ['soil_map', 'ground_goat', 'elevation_3d']
 
 interface Props {
   /** Saved-map id to show; null = closed. */
@@ -64,15 +57,6 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
       {sub ? <div style={{ fontSize: 11.5, fontWeight: 700, color: 'rgba(0,0,0,0.45)', marginTop: 3 }}>{sub}</div> : null}
     </div>
   )
-}
-
-const smallPink: React.CSSProperties = {
-  padding: '7px 10px', borderRadius: 999, border: '1.5px solid #C563AD', background: PINK,
-  color: '#0a0a0a', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-}
-const iconBtn: React.CSSProperties = {
-  width: 28, height: 28, borderRadius: 8, border: 'none', background: 'rgba(0,0,0,0.06)',
-  color: '#444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
 }
 
 export default function SavedTractPanel({
@@ -111,69 +95,10 @@ export default function SavedTractPanel({
 
   const projectId = detail?.project?.id ?? null
   const projectName = detail?.project?.name ?? null
-  const reports = useMapReports(isOpen && !!detail, projectId, detail?.id ?? null, projectName)
-
-  // ── footer actions ──
-  const [downloading, setDownloading] = useState(false)
-  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
-  const [actionError, setActionError] = useState<string | null>(null)
-  const mountedRef = useRef(true)
-  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
-  useEffect(() => { setEmailStatus('idle'); setActionError(null); setDownloading(false) }, [tractId])
 
   const reportId = id ? savedReportId(id) : null
   const isInReport = !!(reportId && reportIds?.has(reportId))
   const handleToggleReport = () => { if (detail && onToggleReport) onToggleReport(buildSavedReportRow(detail)) }
-
-  // The Ground Goat Report PDF: queue, wait for the worker, download. Keeps
-  // going if the panel is closed meanwhile (see queueAndDownloadReport).
-  const handleDownload = async () => {
-    if (!detail || downloading) return
-    setDownloading(true); setActionError(null)
-    try {
-      await queueAndDownloadReport({ parcelId: detail.id }, 'ground_goat', projectName,
-        { notes_print: notesPrintBody(reports.notesPrint) })
-    } catch (e: any) {
-      if (mountedRef.current) setActionError(e?.message || 'Something went wrong — try again')
-    } finally { if (mountedRef.current) setDownloading(false) }
-  }
-
-  // Emails a one-row Comparables report for this saved tract (source "saved").
-  const handleEmail = async () => {
-    if (!detail) return
-    const row = buildSavedReportRow(detail)
-    setEmailStatus('sending'); setActionError(null)
-    try {
-      const res = await reportJobEnqueue('comparables', 'email', {
-        listing_id: null, tract_id: null, subject_county: null, subject_state: null,
-        subject_acres: null, subject_tillable_pct: null, subject_soil_rating: null,
-        subject_auction_date: null, subject_company: null,
-        comparables: [{
-          tract_id: row.id, county: row.county, state: row.state,
-          total_acres: row.totalAcres, tillable_acres: row.tillableAcres,
-          pct_tillable: row.pctTillable != null ? Math.round(row.pctTillable) : null,
-          soil_rating: row.soilRating, price_per_acre: null, price_per_tillable_acre: null,
-          price_per_soil_rating: null, sale_price: null, auction_date: null, company_name: null,
-          source: 'saved', cm_id: detail.id, ll_uuid: null, owner: null,
-          latitude: row.latitude, longitude: row.longitude, notes: null,
-        }],
-        notes_print: notesPrintBody(reports.notesPrint),
-      })
-      if (!res.ok) {
-        let m = 'Something went wrong — try again'
-        if (res.status === 403) m = 'Not available for your account'
-        else if (res.status === 429 || res.status === 400) {
-          try { m = (await res.json())?.detail || m } catch { /* keep default */ }
-        }
-        setEmailStatus('error'); setActionError(m)
-        return
-      }
-      setEmailStatus('sent')
-      setTimeout(() => setEmailStatus('idle'), 1500)
-    } catch {
-      setEmailStatus('error'); setActionError('Something went wrong — try again')
-    }
-  }
 
   if (!mounted) return null
 
@@ -197,21 +122,6 @@ export default function SavedTractPanel({
   const sources = detail?.source_parcels || []
   const lat = detail?.centroid?.lat ?? null
   const lng = detail?.centroid?.lng ?? null
-
-  // ── reports section ──
-  const rrows = reports.rows
-  const btn = (kind: ReportKind, projectLevel: boolean) => {
-    const working = reports.queuing === `${kind}:${projectLevel ? '' : detail?.id || ''}`
-      || rrows.some((r) => r.kind === kind && (projectLevel ? !r.parcel_id : r.parcel_id === detail?.id)
-        && (r.status === 'queued' || r.status === 'running'))
-    return (
-      <button key={kind} type="button" style={{ ...smallPink, opacity: working ? 0.6 : 1 }}
-              disabled={working || !!reports.queuing}
-              onClick={() => void reports.queue(kind, projectLevel)}>
-        {working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
-      </button>
-    )
-  }
 
   return (
     <div
@@ -353,115 +263,43 @@ export default function SavedTractPanel({
                              latitude={lat} longitude={lng} />
             </div>
 
-            {/* Reports */}
-            <Section title="Reports">
-              {/* One choice for every report this panel builds (owner 11/10). */}
-              <div style={{ marginBottom: 8, color: 'rgba(0,0,0,0.6)' }}>
-                <NotesPrintChoice compact value={reports.notesPrint} onChange={reports.setNotesPrint} items={reports.noteItems} />
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {btn('aerial', true)}
-                {MAP_REPORT_KINDS.map((k) => btn(k, false))}
-              </div>
-              <div style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)', marginTop: 6 }}>
-                The Aerial Map prints the whole project.
-              </div>
-              {reports.pending && (
-                <div style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)', marginTop: 6 }}>Building… this updates on its own.</div>
-              )}
-              {rrows.map((r) => {
-                const label = REPORT_LABEL[r.kind] || r.kind
-                const pend = r.status === 'queued' || r.status === 'running'
-                return (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
-                      <div style={{ fontSize: 11, color: r.status === 'failed' ? '#d33' : 'rgba(0,0,0,0.45)' }}>
-                        {pend ? (REPORT_BUSY_LABEL[r.kind] || 'Working…') : r.status === 'failed' ? (r.error || 'Failed') : 'Ready'}
-                        {' · '}{new Date(r.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                      </div>
-                    </div>
-                    {r.status === 'done' && r.ready && (
-                      <button type="button" style={iconBtn} aria-label="Download" onClick={() => void reports.download(r)}><Download size={14} /></button>
-                    )}
-                    <button type="button" style={iconBtn} aria-label="Delete report" disabled={reports.deleting === r.id}
-                            onClick={() => void reports.remove(r, label)}><Trash2 size={14} /></button>
-                  </div>
-                )
-              })}
-              {reports.msg && (
-                <div style={{ fontSize: 11.5, color: '#d33', marginTop: 6 }}>
-                  {reports.msg}{' '}
-                  <button type="button" aria-label="Dismiss" onClick={() => reports.setMsg(null)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d33', padding: 0, verticalAlign: 'middle' }}><X size={11} /></button>
-                </div>
-              )}
-            </Section>
           </>
         )}
       </div>
 
-      {/* Footer */}
+      {/* Footer (owner 11/15): Map It · Find Comps · + Add Comp ·
+          Projects, then one wide Reports button — every report, its notes
+          and Download / Email are in the Reports panel. */}
       {detail && (
         <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: 12, background: '#fff' }}>
-          {!compMode && (
-            <button
-              type="button"
-              onClick={() => onEditInMapIt(detail)}
-              style={{
-                width: '100%', marginBottom: 8, padding: '12px 14px', borderRadius: 999,
-                border: '1.5px solid #000', background: PINK, color: '#0a0a0a',
-                fontSize: 14, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.2,
-              }}
-            >
-              Edit in Map It
-            </button>
-          )}
           <div style={{ display: 'flex', gap: 6 }}>
-            {onToggleReport && (canUseReports || compMode) && (
-              <button
-                onClick={handleToggleReport}
-                title={isInReport ? 'Remove from report' : 'Add to report'}
-                style={ACTION_BTN}
-              >
-                {isInReport ? <Check size={16} /> : <Plus size={16} />}
-                {isInReport ? 'Added' : 'Report'}
+            {!compMode && (
+              <button data-testid="saved-tract-mapit" onClick={() => onEditInMapIt(detail)} title="Edit in Map It" style={ACTION_BTN}>
+                <Layers size={16} /> Map It
               </button>
-            )}
-            {canUseReports && !compMode && (
-              <>
-                <button
-                  onClick={handleDownload}
-                  disabled={downloading}
-                  title="Download Ground Goat Report"
-                  style={{ ...ACTION_BTN, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.8 : 1 }}
-                >
-                  {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                  {downloading ? 'Building' : 'Download'}
-                </button>
-                <button
-                  onClick={handleEmail}
-                  disabled={emailStatus === 'sending' || emailStatus === 'sent'}
-                  title="Email Tract"
-                  style={{ ...ACTION_BTN, cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer', opacity: emailStatus === 'sending' ? 0.8 : 1 }}
-                >
-                  {emailStatus === 'sent' ? <Check size={16} />
-                    : emailStatus === 'sending' ? <Loader2 size={16} className="animate-spin" />
-                    : <Mail size={16} />}
-                  {emailStatus === 'sent' ? 'Queued' : emailStatus === 'sending' ? 'Sending' : 'Email'}
-                </button>
-              </>
             )}
             {onFindComparables && canUseReports && !compMode && (
               <button
+                data-testid="saved-tract-find-comps"
                 onClick={() => onFindComparables({
                   saved_id: detail.id,
                   county: detail.county || '', state: detail.state || '', lat, lng,
                 })}
-                title="Find Comps"
+                title="Find comps for this farm"
                 style={ACTION_BTN}
               >
-                <BarChart3 size={16} /> Comps
+                <BarChart3 size={16} /> Find Comps
+              </button>
+            )}
+            {onToggleReport && (canUseReports || compMode) && (
+              <button
+                data-testid="saved-tract-add-comp"
+                onClick={handleToggleReport}
+                title={isInReport ? 'Remove from the comp report' : 'Add to the comp report as a comp'}
+                style={ACTION_BTN}
+              >
+                {isInReport ? <Check size={16} /> : <Plus size={16} />}
+                {isInReport ? 'Added' : 'Add Comp'}
               </button>
             )}
             {!compMode && projectId && (
@@ -470,7 +308,20 @@ export default function SavedTractPanel({
               </button>
             )}
           </div>
-          {actionError && <p style={{ fontSize: 11, color: '#d33', margin: '8px 0 0' }}>{actionError}</p>}
+          {!compMode && (
+            <button
+              data-testid="saved-tract-reports"
+              onClick={() => openReports({
+                target: { type: 'farm', parcelId: detail.id, title: detail.name || 'Farm',
+                          meta: [fmtAc(acres), place].filter(Boolean).join(' · ') || undefined,
+                          projectId, projectName },
+                backLabel: 'Farm', canUseReports: Boolean(canUseReports), canUseMapIt: true,
+              })}
+              style={{ ...ACTION_BTN, flexDirection: 'row', gap: 8, padding: '12px 10px', fontSize: 14, width: '100%', marginTop: 8 }}
+            >
+              <FileText size={17} /> Reports
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -13,16 +13,15 @@
 import CardThumb from '@/components/CardThumb'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  Check, ChevronDown, ChevronRight, Download, Folder, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Plus, StickyNote, Trash2, Upload, X,
+  Check, ChevronDown, ChevronRight, Folder, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Plus, StickyNote, Trash2, Upload, X,
 } from 'lucide-react'
 import {
-  createProject, deleteFarm, deleteReport, downloadReport, duplicateProject, firmMembers,
-  getProject, linkParcels, listProjects, listReports, parcelProjects, projectShares, queueReport, renameParcel, unlinkParcel,
-  reportFilename, setProjectShares, updateProject, updateProjectAerialYear,
-  REPORT_BUSY_LABEL, REPORT_LABEL, USES_ELEVATION,
+  createProject, deleteFarm, duplicateProject, firmMembers,
+  getProject, linkParcels, listProjects, parcelProjects, projectShares, renameParcel, unlinkParcel,
+  setProjectShares, updateProject, updateProjectAerialYear,
   addLibraryLogo, deleteLibraryLogo, fetchLibraryLogoUrl, getBranding, setBranding,
   listSavedReports, renameSavedReport, deleteSavedReport, type SavedReportRow,
-  type FirmMember, type LibraryLogo, type Project, type ReportKind, type ReportRow, type SavedParcelRow,
+  type FirmMember, type LibraryLogo, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
 import { SavedReportCard } from '@/components/mapping/SavedReportsPanel'
@@ -30,16 +29,9 @@ import MyMapsShell, {
   CardPicture, ListEmpty, MyMapsCard, Tag, applyControls, fmtModified, grayBtn, offBtn, pinkBtn as shellPink, useListControls, whiteInput,
 } from '@/components/mapping/MyMapsShell'
 import NotesTimeline from '@/components/notes/NotesTimeline'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
+import { openReports } from '@/lib/reportsPanel'
 
 const PINK = '#F58CDE'
-/** Same default the old Configure Map slider started at. */
-const DEFAULT_EXAGGERATION = 2.5
-/** Stop polling a report that never finishes (~5 min at 3 s). */
-const POLL_MS = 3000
-const POLL_CAP_MS = 5 * 60 * 1000
-const MAP_REPORT_KINDS: ReportKind[] = ['soil_map', 'ground_goat', 'elevation_3d']
 
 export interface PanelTract { id: string; name: string; projectId: string; projectName: string }
 
@@ -237,26 +229,9 @@ export default function SavedProjectsPanel({
   }
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-  // "Notes on this report" (owner 11/10): which timeline entries print.
-  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
-  const [reportsOpen, setReportsOpen] = useState<Record<string, boolean>>({})
-  const [reports, setReports] = useState<Record<string, ReportRow[]>>({})
-  const reportsOpenRef = useRef(reportsOpen); reportsOpenRef.current = reportsOpen
-  const [queuing, setQueuing] = useState<string | null>(null)   // '<projectId>:<kind>:<parcelId>'
-  const [deletingReport, setDeletingReport] = useState<string | null>(null)
   const [members, setMembers] = useState<FirmMember[] | null>(null)
   const [sharing, setSharing] = useState<{ projectId: string; ids: string[] } | null>(null)
   const [yearFor, setYearFor] = useState<string | null>(null)   // project id
-  const [mapReportFor, setMapReportFor] = useState<string | null>(null) // tract id
-
-  const loadReports = useCallback(async (projectId: string) => {
-    try {
-      const r = await listReports({ projectId })
-      setReports((x) => ({ ...x, [projectId]: r.reports || [] }))
-    } catch (e: any) {
-      setMsg(e?.message || 'Could not load the reports.')
-    }
-  }, [])
 
   const loadProjects = useCallback(async () => {
     setLoading(true); setError(null)
@@ -283,9 +258,8 @@ export default function SavedProjectsPanel({
   const refreshAll = useCallback(async () => {
     await loadProjects()
     for (const id of Object.keys(detailsRef.current)) void loadDetail(id, true)
-    for (const id of Object.keys(reportsOpenRef.current)) if (reportsOpenRef.current[id]) void loadReports(id)
     void loadSavedReports()
-  }, [loadProjects, loadDetail, loadReports, loadSavedReports])
+  }, [loadProjects, loadDetail, loadSavedReports])
 
   useEffect(() => { if (open) void loadProjects() }, [open, loadProjects])
   useEffect(() => { if (open) void loadSavedReports() }, [open, loadSavedReports])
@@ -294,22 +268,6 @@ export default function SavedProjectsPanel({
     firmMembers().then((r) => setMembers(r.members || [])).catch(() => setMembers([]))
   }, [open, members])
 
-  // Poll a project's reports every 3 s while any is queued/running, for at
-  // most ~5 min; the effect re-arms only when the pending set changes.
-  const pendingIds = Object.entries(reports)
-    .filter(([, rows]) => rows.some((r) => r.status === 'queued' || r.status === 'running'))
-    .map(([id]) => id)
-  const pendingKey = pendingIds.join(',')
-  useEffect(() => {
-    if (!open || !pendingKey) return
-    const started = Date.now()
-    const ids = pendingKey.split(',')
-    const t = setInterval(() => {
-      if (Date.now() - started > POLL_CAP_MS) { clearInterval(t); return }
-      ids.forEach((id) => void loadReports(id))
-    }, POLL_MS)
-    return () => clearInterval(t)
-  }, [open, pendingKey, loadReports])
   const firstNonce = useRef(reloadNonce)
   useEffect(() => {
     if (reloadNonce === firstNonce.current) return
@@ -418,41 +376,23 @@ export default function SavedProjectsPanel({
     void run('Renaming…', () => (kind === 'p' ? updateProject(id, { name: text }) : renameParcel(id, text)))
   }
 
-  const openReports = (projectId: string) => {
-    setReportsOpen((x) => ({ ...x, [projectId]: true }))
-    setExpanded((x) => ({ ...x, [projectId]: true }))
-    void loadDetail(projectId)
-    void loadReports(projectId)
-  }
-
-  const queue = async (projectId: string, kind: ReportKind, parcelId?: string) => {
-    const key = `${projectId}:${kind}:${parcelId || ''}`
-    setQueuing(key); setMsg(null)
-    try {
-      await queueReport(
-        parcelId ? { parcelId } : { projectId }, kind,
-        { ...(USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {}), notes_print: notesPrintBody(notesPrint) })
-      await loadReports(projectId)
-    } catch (e: any) {
-      setMsg(e?.message || 'Could not start that report.')
-    } finally { setQueuing(null) }
-  }
-
-  const download = async (projectName: string, r: ReportRow) => {
+  // Owner 11/15: Reports opens the one Reports panel — the project (Aerial
+  // Map, or any farm's report after choosing the farm) or one farm.
+  const projectReports = async (pr: { id: string; name: string }, farmId?: string) => {
     setMsg(null)
-    try { await downloadReport(r.id, reportFilename(projectName, r.kind)) }
-    catch (e: any) { setMsg(e?.message || 'That report could not be downloaded.') }
-  }
-
-  const removeReport = async (projectId: string, r: ReportRow) => {
-    if (!window.confirm(`Delete this ${REPORT_LABEL[r.kind] || 'report'}?`)) return
-    setDeletingReport(r.id); setMsg(null)
     try {
-      await deleteReport(r.id)
-      setReports((x) => ({ ...x, [projectId]: (x[projectId] || []).filter((o) => o.id !== r.id) }))
+      const parcels = detailsRef.current[pr.id]?.parcels?.length ? detailsRef.current[pr.id]!.parcels : (await getProject(pr.id)).parcels || []
+      const farms = parcels.map((x: any) => ({ id: String(x.id), name: x.name || 'Untitled' }))
+      const farm = farmId ? farms.find((f) => f.id === farmId) : null
+      openReports(farm
+        ? { target: { type: 'farm', parcelId: farm.id, title: farm.name, meta: pr.name, projectId: pr.id, projectName: pr.name },
+            backLabel: 'Projects', canUseReports: true, canUseMapIt: true }
+        : { target: { type: 'project', projectId: pr.id, projectName: pr.name, title: pr.name,
+                      meta: `${farms.length} farm${farms.length === 1 ? '' : 's'}`, farms },
+            backLabel: 'Projects', canUseReports: true, canUseMapIt: true })
     } catch (e: any) {
-      setMsg(e?.message || 'That report could not be deleted.')
-    } finally { setDeletingReport(null) }
+      setMsg(e?.message || 'Could not open the reports.')
+    }
   }
 
   const openShare = async (projectId: string) => {
@@ -626,7 +566,7 @@ export default function SavedProjectsPanel({
               actions={[
                 { label: 'Show on the map', testId: 'project-show', onClick: () => { if (!expanded[p.id]) toggle(p.id); onShowProject(p.id) } },
                 { label: 'Add a New Tract', testId: 'project-add-tract', onClick: () => onAddTract({ id: p.id, name: p.name }) },
-                { label: 'Reports…', testId: 'project-reports', onClick: () => openReports(p.id) },
+                { label: 'Reports', testId: 'project-reports', onClick: () => void projectReports({ id: p.id, name: p.name }) },
                 ...(!p.shared ? [
                   { label: 'Rename', testId: 'project-rename', onClick: () => setEditing({ key: pKey, text: p.name }) },
                   ...(canShare ? [{ label: 'Share…', testId: 'project-share', onClick: () => { if (!expanded[p.id]) toggle(p.id); void openShare(p.id) } }] : []),
@@ -684,84 +624,6 @@ export default function SavedProjectsPanel({
                       </select>
                     </div>
                   )}
-                  {reportsOpen[p.id] && (() => {
-                    const rows = reports[p.id] || []
-                    const nameOf = (id: string | null) => (id && (det?.parcels || []).find((x) => x.id === id)?.name) || ''
-                    const mapTarget = mapReportFor && (det?.parcels || []).find((x) => x.id === mapReportFor)
-                    const inFlight = rows.some((r) => r.status === 'queued' || r.status === 'running')
-                    const btn = (kind: ReportKind, parcelId?: string) => {
-                      const working = queuing === `${p.id}:${kind}:${parcelId || ''}`
-                        || rows.some((r) => r.kind === kind && (r.parcel_id || undefined) === parcelId && (r.status === 'queued' || r.status === 'running'))
-                      return (
-                        <button key={kind} type="button" style={{ ...pinkBtn, opacity: working ? 0.6 : 1 }}
-                                disabled={working || !!queuing}
-                                onClick={() => void queue(p.id, kind, parcelId)}>
-                          {working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
-                        </button>
-                      )
-                    }
-                    return (
-                      <div style={section}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                          <span style={{ fontWeight: 600, flex: 1 }}>Reports</span>
-                          <button type="button" style={iconBtn} aria-label="Close reports"
-                                  onClick={() => { setReportsOpen((x) => ({ ...x, [p.id]: false })); setMapReportFor(null) }}>
-                            <X size={13} />
-                          </button>
-                        </div>
-                        {(p.summary?.parcels ?? 0) === 0 ? (
-                          <div style={muted}>Add a tract before building a report.</div>
-                        ) : (
-                          <>
-                            <div style={{ marginBottom: 8 }}>
-                              <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint}
-                                                items={(det?.parcels || []).map((x) => ({ key: `cm:${String(x.id).toLowerCase()}`, label: x.name || 'Untitled' }))} />
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{btn('aerial')}</div>
-                            {mapTarget && (
-                              <div style={{ marginTop: 8 }}>
-                                <div style={{ ...muted, marginBottom: 4 }}>For &quot;{mapTarget.name || 'Untitled'}&quot;</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                  {MAP_REPORT_KINDS.map((k) => btn(k, mapTarget.id))}
-                                </div>
-                              </div>
-                            )}
-                            {!mapTarget && <div style={{ ...muted, marginTop: 6 }}>Soil, Ground Goat and 3D reports: use Reports… on a map.</div>}
-                          </>
-                        )}
-                        {inFlight && <div style={{ ...muted, marginTop: 6 }}>Building… this updates on its own.</div>}
-                        {rows.map((r) => {
-                          const label = REPORT_LABEL[r.kind] || r.kind
-                          const mapName = nameOf(r.parcel_id)
-                          const pending = r.status === 'queued' || r.status === 'running'
-                          return (
-                            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {label}{mapName ? ` · ${mapName}` : ''}
-                                </div>
-                                <div style={{ ...muted, color: r.status === 'failed' ? '#fca5a5' : muted.color }}>
-                                  {pending ? (REPORT_BUSY_LABEL[r.kind] || 'Working…')
-                                    : r.status === 'failed' ? (r.error || 'Failed')
-                                    : 'Ready'} · {new Date(r.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                                </div>
-                              </div>
-                              {r.status === 'done' && r.ready && (
-                                <button type="button" style={iconBtn} aria-label="Download"
-                                        onClick={() => void download(p.name, r)}><Download size={14} /></button>
-                              )}
-                              <button type="button" style={iconBtn} aria-label="Delete report"
-                                      disabled={deletingReport === r.id}
-                                      onClick={() => void removeReport(p.id, r)}><Trash2 size={14} /></button>
-                            </div>
-                          )
-                        })}
-                        <div style={{ ...muted, marginTop: 10 }}>
-                          Report logo: see <button type="button" onClick={() => setLogoOpen(true)} style={{ background: 'none', border: 'none', padding: 0, color: PINK, cursor: 'pointer', fontSize: 11 }}>Report Logo</button> at the top of this panel.
-                        </div>
-                      </div>
-                    )
-                  })()}
                   {reportsForProject(p.id).length > 0 && (
                     <div data-testid="project-saved-reports" style={{ margin: '4px 0' }}>
                       <div style={{ ...muted, fontWeight: 600 }}>Reports</div>
@@ -895,8 +757,8 @@ export default function SavedProjectsPanel({
                               Edit in Map It
                             </button>
                             <button type="button" style={menuItem}
-                                    onClick={() => { setMenu(null); setMapReportFor(t.id); openReports(p.id) }}>
-                              Reports…
+                                    onClick={() => { setMenu(null); void projectReports({ id: p.id, name: p.name }, t.id) }}>
+                              Reports
                             </button>
                             <button type="button" style={menuItem}
                                     onClick={() => { setMenu(null); setEditing({ key: tKey, text: t.name }) }}>
