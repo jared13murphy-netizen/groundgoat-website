@@ -1,24 +1,15 @@
 // Saved Reports slide-out (owner 11/3): every comp report this account
 // emailed, downloaded or saved, as cards with Avg $/Acre, searchable by
-// name, county and date. Opened from the My Maps "Saved Reports" tile.
+// name, county and date. Opened from the My Maps "Saved Reports" row; uses the
+// shared My Maps screen design (MyMapsShell, owner 11/15).
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Bookmark, Loader2, Pencil, Trash2, X } from 'lucide-react'
+import { FileText, Loader2, Pencil, Trash2 } from 'lucide-react'
+import MyMapsShell, { CardPicture, ListEmpty, MyMapsCard, Tag, applyControls, fmtModified, useListControls } from '@/components/mapping/MyMapsShell'
 import { listSavedReports, renameSavedReport, deleteSavedReport, type SavedReportRow } from '@/lib/configurableMapping'
 
 const PINK = '#F58CDE'
-const panel: CSSProperties = {
-  position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 540,
-  width: 'min(340px, calc(100% - 24px))', boxSizing: 'border-box',
-  background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)', color: '#fff',
-  boxShadow: '-4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
-  transition: 'transform 240ms ease', fontSize: 13,
-}
-const input: CSSProperties = {
-  width: '100%', boxSizing: 'border-box', background: '#ffffff', border: '1px solid #D1D5DB',
-  borderRadius: 8, color: '#111', padding: '9px 12px', fontSize: 14,
-}
 const muted: CSSProperties = { color: 'rgba(255,255,255,0.65)', fontSize: 12 }
 const iconBtn: CSSProperties = {
   background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer',
@@ -58,29 +49,31 @@ export function SavedReportCard({ r, onOpen, onRename, onDelete }: {
   )
 }
 
-export default function SavedReportsPanel({ open, onClose, onOpenReport, reloadNonce = 0 }: {
-  open: boolean; onClose: () => void; onOpenReport: (id: string) => void; reloadNonce?: number
+export default function SavedReportsPanel({ open, onClose, onBack, onOpenReport, onNewReport, isFirm = false, reloadNonce = 0 }: {
+  open: boolean; onClose: () => void; onBack: () => void; onOpenReport: (id: string) => void
+  /** "+ New": opens the comp report panel (a saved report starts there). */
+  onNewReport?: () => void
+  isFirm?: boolean; reloadNonce?: number
 }) {
   const [rows, setRows] = useState<SavedReportRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [q, setQ] = useState('')
+  const c = useListControls()
   const load = useCallback(async () => {
     setLoading(true); setError(null)
-    try { setRows((await listSavedReports()).reports || []) } catch (e: any) { setError(e?.message || 'Could not load your saved reports.') }
+    try { setRows((await listSavedReports()).reports || []); setLoaded(true) } catch (e: any) { setError(e?.message || 'Could not load your saved reports.') }
     finally { setLoading(false) }
   }, [])
   useEffect(() => { if (open) void load() }, [open, reloadNonce, load])
 
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase()
-    if (!needle) return rows
-    return rows.filter((r) => {
-      const hay = [r.name, r.subject?.county, r.subject?.state, fmtWhen(r.updated_at), fmtWhen(r.created_at),
-        ...(r.items || []).map((i) => `${i.county || ''} ${i.state || ''}`)].join(' ').toLowerCase()
-      return hay.includes(needle)
-    })
-  }, [rows, q])
+  const { shown, counts } = useMemo(() => applyControls(rows, c, {
+    mine: (r) => r.mine !== false,
+    name: (r) => r.name || '',
+    modified: (r) => r.updated_at || r.created_at,
+    text: (r) => [r.name, r.subject?.county, r.subject?.state, fmtWhen(r.updated_at), fmtWhen(r.created_at),
+      ...(r.items || []).map((i) => `${i.county || ''} ${i.state || ''}`)].join(' '),
+  }), [rows, c])
 
   const rename = async (r: SavedReportRow) => {
     const name = window.prompt('Report name', r.name)
@@ -93,23 +86,33 @@ export default function SavedReportsPanel({ open, onClose, onOpenReport, reloadN
   }
 
   return (
-    <div style={{ ...panel, transform: open ? 'translateX(0)' : 'translateX(105%)' }} data-testid="saved-reports-panel" aria-hidden={!open}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px 8px' }}>
-        <Bookmark size={18} color={PINK} />
-        <div style={{ fontSize: 18, fontWeight: 700, flex: 1 }}>Saved Reports</div>
-        <button type="button" style={iconBtn} aria-label="Close" onClick={onClose}><X size={18} /></button>
-      </div>
-      <div style={{ padding: '0 16px 8px' }}>
-        <input style={input} placeholder="Search by name, county or date…" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 16px' }}>
-        {loading && rows.length === 0 && <div style={{ ...muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={14} className="animate-spin" /> Loading…</div>}
-        {error && <div style={{ color: '#fca5a5', fontSize: 12 }}>{error}</div>}
-        {!loading && !error && shown.length === 0 && (
-          <div style={muted}>{q ? 'Nothing matches.' : 'No saved reports yet. Every comp report you email, download or save shows up here.'}</div>
-        )}
-        {shown.map((r) => <SavedReportCard key={r.id} r={r} onOpen={onOpenReport} onRename={rename} onDelete={remove} />)}
-      </div>
-    </div>
+    <MyMapsShell open={open} title="Saved Reports" onBack={onBack} onClose={onClose} controls={c}
+                 searchPlaceholder="Search by name, county or date" onNew={onNewReport} showChips={isFirm} counts={counts}
+                 testId="saved-reports-panel"
+                 top={error ? <div style={{ color: '#fca5a5', fontSize: 12 }}>{error}</div> : undefined}>
+      {loading && !loaded && <div style={{ ...muted, display: 'flex', gap: 6, alignItems: 'center' }}><Loader2 size={14} className="animate-spin" /> Loading…</div>}
+      {loaded && !rows.length && <ListEmpty>No saved reports yet. Every comp report you email, download or save shows up here.</ListEmpty>}
+      {loaded && rows.length > 0 && !shown.length && (
+        <ListEmpty>{c.chip === 'team' && !c.q.trim() ? 'Saved reports are private: each person sees only their own.' : 'Nothing matches.'}</ListEmpty>
+      )}
+      {shown.map((r) => {
+        const ppa = fmtPpa(r)
+        const where = [r.subject?.county, r.subject?.state].filter(Boolean).join(', ')
+        return (
+          <MyMapsCard key={r.id} testId="saved-report-row"
+                      picture={<CardPicture icon={<FileText size={26} />} />}
+                      title={r.name}
+                      sub={[where, fmtModified(r.updated_at || r.created_at)].filter(Boolean).join(' · ')}
+                      tags={[ppa ? <Tag key="ppa" pink>Avg {ppa}</Tag> : null,
+                             <Tag key="n">{r.item_count} {r.item_count === 1 ? 'sale' : 'sales'}</Tag>]}
+                      onOpen={() => onOpenReport(r.id)}
+                      actions={[
+                        { label: 'Open report', onClick: () => onOpenReport(r.id), testId: 'report-open' },
+                        { label: 'Rename', onClick: () => void rename(r), testId: 'report-rename' },
+                        { label: 'Delete', onClick: () => void remove(r), danger: true, testId: 'report-delete' },
+                      ]} />
+        )
+      })}
+    </MyMapsShell>
   )
 }

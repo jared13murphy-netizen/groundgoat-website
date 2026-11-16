@@ -72,6 +72,8 @@ export interface NotesTimelineProps {
   compact?: boolean
   /** Called with the current count after every load / change. */
   onCount?: (n: number) => void
+  /** My Maps Notes "+ New" (owner 11/15): open with a new note started. */
+  startAdding?: boolean
 }
 
 interface Draft {
@@ -92,7 +94,7 @@ const blankDraft = (): Draft => ({ id: null, entry_date: todayIso(), category: '
                                    products: [], productsDirty: false })
 
 export default function NotesTimeline({
-  itemKey, label, county, state, latitude, longitude, theme = 'dark', compact = false, onCount,
+  itemKey, label, county, state, latitude, longitude, theme = 'dark', compact = false, onCount, startAdding = false,
 }: NotesTimelineProps) {
   const c = palette(theme)
   const cats = useNoteCategories()
@@ -135,6 +137,17 @@ export default function NotesTimeline({
   }, [load, filtered])
 
   useEffect(() => { if (tl && !filtered) onCount?.(tl.count) }, [tl, filtered, onCount])
+
+  // My Maps Notes "+ New" (owner 11/15): once this item's notes load, start a
+  // new entry and bring the form into view. Once per item.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const startedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!startAdding || !tl || !itemKey || startedFor.current === itemKey) return
+    startedFor.current = itemKey
+    setFormError(null); setDraft(blankDraft())
+    setTimeout(() => rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }, [startAdding, tl, itemKey])
 
   const entries = tl?.entries || []
   const shown = expanded ? entries : entries.slice(0, 1)
@@ -207,7 +220,7 @@ export default function NotesTimeline({
   if (!itemKey || denied) return null
 
   return (
-    <div data-testid="notes-timeline" data-note-key={itemKey} style={{ color: c.text, fontSize: 12 }}>
+    <div ref={rootRef} data-testid="notes-timeline" data-note-key={itemKey} style={{ color: c.text, fontSize: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: c.muted }}>Notes</span>
         <span style={{ color: c.faint, fontSize: 11 }} data-testid="notes-count">{loading && !tl ? 'Loading…' : filtered ? `${tl?.count ?? 0} match${(tl?.count ?? 0) === 1 ? '' : 'es'}` : countLabel}</span>

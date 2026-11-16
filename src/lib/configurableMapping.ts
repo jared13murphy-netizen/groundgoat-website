@@ -196,6 +196,17 @@ export interface Project {
   /** Esri Wayback archive year the Configure Map + Aerial Map report use
    *  for this project. Null = "Latest" (the current mosaic). */
   aerial_year?: number | null
+  /** My Maps (owner 11/15): whose project; mine = false for one a colleague shared. */
+  owner_id?: string
+  mine?: boolean
+  /** The project's first live map (its card picture), or null when empty. */
+  cover_parcel_id?: string | null
+}
+
+/** The numbers beside each My Maps row; null = the account can't use it. */
+export interface MyMapsCounts { projects: number | null; saved_reports: number | null; notes: number | null; products: number | null }
+export function myMapsCounts() {
+  return j<MyMapsCounts>('/api/my-maps/counts')
 }
 
 export interface SavedParcelRow {

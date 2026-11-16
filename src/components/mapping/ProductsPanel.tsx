@@ -3,8 +3,8 @@
 /**
  * ProductsPanel — the firm's product list as a slide-out over the Explore
  * map (owner 11/13: nobody leaves the map to manage products). Opened from
- * the My Maps "Products" tile; same shell, slide and row styling as
- * SavedProjectsPanel.
+ * the My Maps "Products" row; the shared My Maps screen design
+ * (MyMapsShell, owner 11/15).
  *
  * Everyone in the firm views and adds; the firm admin edits (with Retire /
  * Restore inside Edit) and deletes. A note keeps a COPY of each product as
@@ -12,25 +12,17 @@
  * already use this product" is ticked (unticked by default).
  * Backend: /api/notes/products (firm_products.py).
  */
-import useSlide from '@/lib/useSlide'
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Archive, Check, ChevronDown, ChevronRight, Loader2, Package, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Archive, Check, ChevronDown, ChevronRight, Loader2, Package, RotateCcw, Trash2 } from 'lucide-react'
 import {
   addFirmProduct, deleteFirmProduct, fetchFirmProducts, productDetailParts, productMatches, updateFirmProduct,
   type FirmProduct, type ProductInput,
 } from '@/lib/notes'
 import ProductFields, { blankProduct, productReady } from '@/components/notes/ProductFields'
+import MyMapsShell, { CardPicture, ListEmpty, MyMapsCard, Tag, applyControls, fmtModified, useListControls } from '@/components/mapping/MyMapsShell'
 
 const PINK = '#F58CDE'
 
-const panel: CSSProperties = {
-  position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 540,
-  width: 'min(340px, calc(100% - 24px))', boxSizing: 'border-box',
-  background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)', color: '#fff',
-  boxShadow: '-4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
-  transition: 'transform 240ms ease',
-  fontSize: 13,
-}
 // Owner 11/3: inputs are ALWAYS white with a light gray border.
 const input: CSSProperties = {
   width: '100%', boxSizing: 'border-box', background: '#FFFFFF',
@@ -39,10 +31,6 @@ const input: CSSProperties = {
 }
 const label: CSSProperties = { color: 'rgba(255,255,255,0.6)', fontSize: 10 }
 const muted: CSSProperties = { color: 'rgba(255,255,255,0.6)', fontSize: 11 }
-const iconBtn: CSSProperties = {
-  background: 'none', border: 'none', color: 'rgba(255,255,255,0.75)', cursor: 'pointer',
-  padding: 4, display: 'inline-flex', alignItems: 'center', borderRadius: 6,
-}
 // Owner 11/12: buttons are SOLID — pink + black text = primary,
 // gray #E4E4E7 + black text = secondary.
 const pinkBtn: CSSProperties = {
@@ -61,20 +49,24 @@ const notesWord = (n: number) => `${n} ${n === 1 ? 'note' : 'notes'}`
 interface Props {
   open: boolean
   onClose: () => void
+  /** Back to the My Maps menu. */
+  onBack: () => void
+  /** Bumped by My Maps "+ New Product": open with the Add form showing. */
+  addNonce?: number
 }
 
-export default function ProductsPanel({ open, onClose }: Props) {
+export default function ProductsPanel({ open, onClose, onBack, addNonce = 0 }: Props) {
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [products, setProducts] = useState<FirmProduct[]>([])
   const [canManage, setCanManage] = useState(false)
-  const [q, setQ] = useState('')
   const [adding, setAdding] = useState<ProductInput | null>(null)
   const [editing, setEditing] = useState<{ id: string; p: ProductInput; updateExisting: boolean } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [retiredOpen, setRetiredOpen] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const c = useListControls()
 
   // The admin's list includes retired products (their own section below).
   const load = useCallback(async () => {
@@ -95,10 +87,22 @@ export default function ProductsPanel({ open, onClose }: Props) {
     setMsg(null); setAdding(null); setEditing(null); setConfirmDelete(null)
     void load()
   }, [open, load])
+  // "+ New Product" in My Maps: the panel opens with the Add form up.
+  const firstAdd = useRef(addNonce)
+  useEffect(() => {
+    if (addNonce === firstAdd.current) return
+    setAdding(blankProduct()); setEditing(null); setConfirmDelete(null); setMsg(null)
+  }, [addNonce])
 
-  const shown = useMemo(() => products.filter((p) => productMatches(p, q)), [products, q])
-  const active = shown.filter((p) => !p.retired)
-  const retired = shown.filter((p) => p.retired)
+  const ctl = useMemo(() => applyControls(products.filter((p) => !p.retired), c, {
+    mine: (p) => !!p.mine,
+    name: (p) => `${p.name} ${p.brand} ${p.variety}`,
+    modified: (p) => p.updated_at || p.created_at,
+    text: (p) => [p.name, p.brand, p.variety, p.epa_reg_no, p.kind_label].join(' '),
+  }), [products, c])
+  const active = ctl.shown
+  // Retired (admin only) stay in their own section; the search still finds them.
+  const retired = useMemo(() => products.filter((p) => p.retired && productMatches(p, c.q)), [products, c.q])
 
   const add = async () => {
     if (!adding) return
@@ -163,8 +167,19 @@ export default function ProductsPanel({ open, onClose }: Props) {
   }
 
   const row = (p: FirmProduct) => (
-    <div key={p.id} data-testid="product-row" data-retired={p.retired ? '1' : '0'}
-         style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '8px 4px' }}>
+    <MyMapsCard key={p.id} testId="product-row" dim={p.retired}
+                picture={<CardPicture icon={<Package size={26} />} />}
+                title={p.name}
+                sub={[productDetailParts(p).slice(1).join(' · '), fmtModified(p.updated_at || p.created_at)].filter(Boolean).join(' · ')}
+                tags={[<Tag key="k">{p.kind_label}</Tag>,
+                       canManage && p.notes_using != null ? <Tag key="u">{p.notes_using === 0 ? 'Not used yet' : `Used on ${notesWord(p.notes_using)}`}</Tag> : null,
+                       p.retired ? <Tag key="r">Retired</Tag> : null]}
+                actions={canManage && !busy ? [
+                  { label: 'Edit', testId: 'product-edit-btn', onClick: () => { setEditing({ id: p.id, p: toInput(p), updateExisting: false }); setConfirmDelete(null); setAdding(null); setMsg(null) } },
+                  { label: p.retired ? 'Restore' : 'Retire', testId: p.retired ? 'product-restore-menu' : 'product-retire-menu', onClick: () => void setRetired(p, !p.retired) },
+                  { label: 'Delete', danger: true, testId: 'product-delete', onClick: () => { setConfirmDelete(p.id); setEditing(null); setMsg(null) } },
+                ] : []}>
+      <div data-retired={p.retired ? '1' : '0'}>
       {editing?.id === p.id ? (
         <div data-testid="product-edit" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <ProductFields value={editing.p} onChange={(np) => setEditing({ ...editing, p: np })} inputStyle={input}
@@ -209,96 +224,61 @@ export default function ProductsPanel({ open, onClose }: Props) {
             <button type="button" style={grayBtn} disabled={busy === p.id} onClick={() => setConfirmDelete(null)}>Cancel</button>
           </div>
         </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <Package size={15} style={{ marginTop: 2, flexShrink: 0, opacity: p.retired ? 0.4 : 0.75 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600, wordBreak: 'break-word', color: p.retired ? 'rgba(255,255,255,0.45)' : '#fff' }}>
-              {productDetailParts(p).join(' · ')}
-            </div>
-            <div style={muted}>
-              {p.kind_label}
-              {canManage && p.notes_using != null && ` · ${p.notes_using === 0 ? 'Not used yet' : `Used on ${notesWord(p.notes_using)}`}`}
-            </div>
-          </div>
-          {canManage && (
-            <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-              <button type="button" style={iconBtn} disabled={!!busy} title="Edit" aria-label="Edit" data-testid="product-edit-btn"
-                      onClick={() => { setEditing({ id: p.id, p: toInput(p), updateExisting: false }); setConfirmDelete(null); setAdding(null); setMsg(null) }}>
-                <Pencil size={14} />
-              </button>
-              <button type="button" style={iconBtn} disabled={!!busy} title="Delete" aria-label="Delete" data-testid="product-delete"
-                      onClick={() => { setConfirmDelete(p.id); setEditing(null); setMsg(null) }}>
-                <Trash2 size={14} />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      ) : null}
+      </div>
+    </MyMapsCard>
   )
 
-  const slide = useSlide(open, 240)
-  if (!slide.mounted) return null
-
   return (
-    <div data-gg-products-panel="" style={{ ...panel, transform: slide.shown ? 'translateX(0)' : 'translateX(100%)' }}
-         onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-      <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>Products</span>
-          <button type="button" style={pinkBtn} data-testid="products-add"
-                  onClick={() => { setAdding(adding ? null : blankProduct()); setEditing(null); setConfirmDelete(null); setMsg(null) }}>
-            <Plus size={13} /> Add Product
-          </button>
-          <button type="button" style={iconBtn} onClick={onClose} aria-label="Close"><X size={16} /></button>
-        </div>
-        {adding && (
-          <div data-testid="products-add-form" style={{ display: 'flex', flexDirection: 'column', gap: 8, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: 8 }}>
-            <ProductFields value={adding} onChange={setAdding} inputStyle={input} labelStyle={label}
-                           onEnter={() => { if (productReady(adding)) void add() }} autoFocus testPrefix="products-new" />
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button type="button" style={productReady(adding) ? pinkBtn : offBtn} disabled={busy === 'new' || !productReady(adding)} onClick={() => void add()} data-testid="products-new-save">
-                {busy === 'new' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Add
-              </button>
-              <button type="button" style={grayBtn} disabled={busy === 'new'} onClick={() => setAdding(null)}>Cancel</button>
-            </div>
-          </div>
-        )}
-        <input style={{ ...input, marginTop: 0 }} value={q} placeholder="Find a product…" data-testid="products-search"
-               onChange={(e) => setQ(e.target.value)} />
-        <span style={muted}>
-          Anyone on your team can add a product here or from a note.
-          {loaded && (canManage ? ' Only you can edit or delete them.' : ' Your firm admin can edit or delete them.')}
-        </span>
-        {msg && (
-          <div data-testid="products-msg" style={{ fontSize: 12, color: msg.kind === 'err' ? '#fca5a5' : '#86efac' }}>{msg.text}</div>
-        )}
-      </div>
-
-      <div data-testid="products-list" style={{ flex: 1, overflowY: 'auto', padding: '0 8px 14px' }}>
+    <MyMapsShell open={open} title="Products" onBack={onBack} onClose={onClose} controls={c}
+                 searchPlaceholder="Search products" showChips counts={ctl.counts} testId="products-panel"
+                 dataAttr={{ 'data-gg-products-panel': '' }}
+                 onNew={() => { setAdding(adding ? null : blankProduct()); setEditing(null); setConfirmDelete(null); setMsg(null) }}
+                 top={<>
+                   {adding && (
+                     <div data-testid="products-add-form" style={{ display: 'flex', flexDirection: 'column', gap: 8, background: '#161616', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, padding: 10 }}>
+                       <div style={{ fontWeight: 700, fontSize: 14 }}>New product</div>
+                       <ProductFields value={adding} onChange={setAdding} inputStyle={input} labelStyle={label}
+                                      onEnter={() => { if (productReady(adding)) void add() }} autoFocus testPrefix="products-new" />
+                       <div style={{ display: 'flex', gap: 6 }}>
+                         <button type="button" style={productReady(adding) ? pinkBtn : offBtn} disabled={busy === 'new' || !productReady(adding)} onClick={() => void add()} data-testid="products-new-save">
+                           {busy === 'new' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Add
+                         </button>
+                         <button type="button" style={grayBtn} disabled={busy === 'new'} onClick={() => setAdding(null)}>Cancel</button>
+                       </div>
+                     </div>
+                   )}
+                   {msg && (
+                     <div data-testid="products-msg" style={{ fontSize: 12, color: msg.kind === 'err' ? '#fca5a5' : '#86efac' }}>{msg.text}</div>
+                   )}
+                 </>}>
+      <div data-testid="products-list" style={{ display: 'contents' }}>
         {loading && !loaded && (
           <div style={{ ...muted, padding: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
             <Loader2 size={13} className="animate-spin" /> Loading…
           </div>
         )}
         {loaded && !products.length && (
-          <div style={{ ...muted, padding: 12 }}>
-            No products yet. Add your fertilizers, chemicals and seed so your team can pick them on a note.
-          </div>
+          <ListEmpty>No products yet. Add your fertilizers, chemicals and seed so your team can pick them on a note.</ListEmpty>
         )}
-        {loaded && products.length > 0 && !shown.length && <div style={{ ...muted, padding: 12 }}>Nothing matches.</div>}
+        {loaded && products.length > 0 && !active.length && !retired.length && <ListEmpty>Nothing matches.</ListEmpty>}
         {active.map(row)}
         {canManage && retired.length > 0 && (
-          <div data-testid="products-retired" style={{ marginTop: 10 }}>
+          <div data-testid="products-retired" style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <button type="button" onClick={() => setRetiredOpen((v) => !v)}
-                    style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700 }}>
-              {retiredOpen || q ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Retired ({retired.length})
+                    style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, fontFamily: 'inherit' }}>
+              {retiredOpen || c.q ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Retired ({retired.length})
             </button>
-            {(retiredOpen || !!q) && retired.map(row)}
+            {(retiredOpen || !!c.q) && retired.map(row)}
+          </div>
+        )}
+        {loaded && (
+          <div style={{ ...muted, padding: '4px 2px' }}>
+            Anyone on your team can add a product here or from a note.
+            {canManage ? ' Only you can edit or delete them.' : ' Your firm admin can edit or delete them.'}
           </div>
         )}
       </div>
-    </div>
+    </MyMapsShell>
   )
 }

@@ -157,6 +157,8 @@ export interface NoteEntry {
    *  rate. product_id is null once the product was deleted from the list.
    *  (Optional only for an older server.) */
   products?: NoteProductLine[]
+  /** You wrote it (My Maps Mine/Team). */
+  mine?: boolean
 }
 
 export interface NoteTimeline { count: number; entries: NoteEntry[]; error?: string }
@@ -205,6 +207,11 @@ export interface FirmProduct {
   retired: boolean
   /** Firm admin only. */
   notes_using?: number
+  /** My Maps (owner 11/15): who added it, when it last changed, and whether it was you. */
+  created_by?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+  mine?: boolean
 }
 
 export interface NoteProductLine {

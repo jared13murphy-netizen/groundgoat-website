@@ -175,6 +175,8 @@ export interface LandDetailClickData {
   /** Opened from a Notes search result (owner 11/10): never auto-close, so
       the notes timeline shows even when the parcel record can't load. */
   noteKey?: string | null
+  /** Notes "+ New" in My Maps (owner 11/15): open with a new note started. */
+  startNote?: boolean
 }
 
 interface LandDetailPanelProps {
@@ -1174,7 +1176,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
               <NotesTimeline theme="light" itemKey={clickData?.noteKey || `p:${String(llUuid).toLowerCase()}`}
                              label={owner || null} county={county && county !== 'Unknown' ? county : null}
                              state={state && state !== 'Unknown' ? state : null}
-                             latitude={ownedGroundLat} longitude={ownedGroundLng} />
+                             latitude={ownedGroundLat} longitude={ownedGroundLng}
+                             startAdding={!!clickData?.startNote} />
             </div>
           )}
 
