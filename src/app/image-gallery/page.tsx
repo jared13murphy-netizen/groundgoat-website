@@ -16,7 +16,7 @@ const SHOTS = [
   { file: '4-soil-ratings-map', caption: "Soil types across the landscape, with every parcel's owner labeled." },
   { file: '5-goat-search-iowa-csr2', caption: 'Goat Search: "Show all farmland in Iowa with CSR2 greater than 80," answered on the map.' },
   { file: '10-show-owned-ground', caption: 'Show Owned Ground: everything one owner holds, lit up on the map in a tap.' },
-  { file: '9-comparable-sales-report', caption: 'Comparable sales report: price per acre, per tillable acre and per soil point. Email it as a PDF with multiple image views and soil data for each parcel.' },
+  { file: '9-comparable-sales-report', caption: 'Comparable sales report: price per acre, per tillable acre and per soil rating. Email it as a PDF with multiple image views and soil data for each parcel.' },
   { file: '6-3d-soil-view', caption: 'Drag the 3D view to see the land from any direction, and exaggerate the elevation to spot wet areas that may need tiling or replanting.' },
   { file: '7-home-live-auctions', caption: "Home: today's live auctions and the latest sale results." },
   { file: '8-ground-truth-county-data', caption: 'Ground Truth: county averages for yields, cash rents and land values.' },
