@@ -10083,7 +10083,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // National layers (owner 11/10): Slope / HEL sit in the soil-fill
         // slot (one base overlay at a time); the free overlays stack above
         // it — big land areas first, flood / wetlands, then line work.
-        ...nl(['slope', 'hel', 'public', 'protected', 'tribal', 'grazing', 'wetlands', 'flood', 'plss']),
+        ...nl(['slope', 'hel', 'public', 'protected', 'tribal', 'grazing', 'wetlands', 'flood', 'plss', 'railroads', 'transmission']),
         'parcel-enrichment-tillable-fill',
         'parcel-enrichment-tillable-worldcover-fill',
         'parcel-enrichment-fsa-clu-line',
