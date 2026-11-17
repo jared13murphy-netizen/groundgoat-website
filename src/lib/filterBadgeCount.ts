@@ -1,5 +1,3 @@
-import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
-
 // Number shown on the Filters button badge: how many filter CONTROLS differ
 // from their defaults (owner, 2026-10-02). A min/max pair is one control, a
 // multi-select is one control. Empty string / null / [] means "not set".
@@ -14,11 +12,13 @@ const isSet = (v: unknown) => {
 
 export function countActiveFilters(f: FilterLike, defaultDateRange: string): number {
   const pairs: Array<[string, string, boolean]> = [
-    ['soilRatingMin', 'soilRatingMax', SOIL_FILTER_ENABLED],
-    ['pricePerSoilRatingMin', 'pricePerSoilRatingMax', SOIL_FILTER_ENABLED],
+    // Soil / tillable / $-per-soil-point are always sent to the backend when
+    // set (src/lib/mapFilterParams.ts), so they always count.
+    ['soilRatingMin', 'soilRatingMax', true],
+    ['pricePerSoilRatingMin', 'pricePerSoilRatingMax', true],
     ['acreageMin', 'acreageMax', true],
-    ['pctTillableMin', 'pctTillableMax', TILLABLE_FILTER_ENABLED],
-    ['tillableAcresMin', 'tillableAcresMax', TILLABLE_FILTER_ENABLED],
+    ['pctTillableMin', 'pctTillableMax', true],
+    ['tillableAcresMin', 'tillableAcresMax', true],
     ['pricePerAcreMin', 'pricePerAcreMax', true],
     ['salePriceMin', 'salePriceMax', true],
     ['askingPriceMin', 'askingPriceMax', true],

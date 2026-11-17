@@ -37,6 +37,7 @@ import { buildParcelReportRow } from '@/lib/parcelReportRow'
 import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
 import { countActiveFilters } from '@/lib/filterBadgeCount'
+import { resolveParcelDataScope, parcelDataFilterParams, anyParcelDataFilterSet, parcelDataControls } from '@/lib/mapFilterParams'
 import FilterCountBadge from '@/components/FilterCountBadge'
 import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
@@ -1224,36 +1225,16 @@ function defaultParcelSaleFrom(): string {
   return localIsoDate(d)
 }
 
-// Registry-gated map filters (step 3, 2026-08-15). regridConfig.parcel_data_states
-// lists the states where the backend's parcel-sale-dots / county-count
-// endpoints actually understand pct_tillable_min/max, land_types, and
-// soil_rating_min/max. Resolves to the single state in scope, or null when
-// the applied state filter is empty, multi-selected, or outside the
-// registry — in every one of those cases the params must stay unsent and
-// the corresponding controls stay hidden, same as the un-registered
-// default. `stateFilter` is the comma-joined multi-select string used
-// throughout this file (see the state chip onClick above the filter panel).
-function resolveParcelDataScope(stateFilter: string, parcelDataStates?: string[] | null): string | null {
-  if (!parcelDataStates || parcelDataStates.length === 0) return null
-  const selected = (stateFilter || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
-  if (selected.length !== 1) return null
-  const registry = new Set(parcelDataStates.map(s => s.toUpperCase()))
-  return registry.has(selected[0]) ? selected[0] : null
-}
+// Registry-gated scope (resolveParcelDataScope) lives in
+// src/lib/mapFilterParams.ts with the soil / tillable / $-per-soil-point
+// param rules — one definition for every map request and the filter panel.
 
 function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | null, allowedStates?: string[] | null) {
   const params: Record<string, string> = {}
-  // Registry-gated scope for THIS call's filter state (see
-  // resolveParcelDataScope above) — soil_rating_min/max and
-  // pct_tillable_min/max below are sent when it's non-null, in addition
-  // to (not instead of) the old SOIL_FILTER_ENABLED/TILLABLE_FILTER_ENABLED
-  // nationwide-tract gates. Two distinct concepts sharing the same query
-  // params: SOIL_FILTER_ENABLED/TILLABLE_FILTER_ENABLED gate a nationwide
-  // TRACT-level filter (still off — see featureFlags.ts), while
-  // parcelDataScope gates a PARCEL-level filter the backend understands
-  // only for states in the registry. Neither flag's other uses change.
-  const parcelDataScope = resolveParcelDataScope(filters.stateFilter, parcelDataStates)
-  const registryScoped = parcelDataScope != null
+  // parcelDataStates is no longer needed to decide what is SENT (see
+  // src/lib/mapFilterParams.ts); kept in the signature so every call site
+  // stays unchanged.
+  void parcelDataStates
   // Untouched date filter -> apply the default parcel window. Any explicit
   // choice (a preset, a custom range, upcoming, or All time) means the user
   // has spoken and this stays off entirely.
@@ -1293,22 +1274,14 @@ function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | n
   else if (allowedStates && allowedStates.length > 0) params.state_abbr = allowedStates.join(',')
   if (filters.countyFilters?.length > 0) params.county_name = filters.countyFilters.join(',')
   if (filters.townshipFilters?.length > 0) params.township = filters.townshipFilters.join(',')
-  if ((SOIL_FILTER_ENABLED || registryScoped) && filters.soilRatingMin) params.soil_rating_min = filters.soilRatingMin
-  if ((SOIL_FILTER_ENABLED || registryScoped) && filters.soilRatingMax) params.soil_rating_max = filters.soilRatingMax
+  // Soil rating, % tillable, tillable acres and $/soil point: always sent
+  // when set, in every state scope — one shared rule, see
+  // src/lib/mapFilterParams.ts (Goat Search audit 2026-11-17: these were
+  // dropped for multi-state / non-registry searches and $/soil point was
+  // never sent, so the map ignored filters Goat Search said it applied).
+  Object.assign(params, parcelDataFilterParams(filters))
   if (filters.acreageMin) params.acreage_min = filters.acreageMin
   if (filters.acreageMax) params.acreage_max = filters.acreageMax
-  // Gated (unlike the old nationwide soil flag): the control is hidden
-  // unless TILLABLE_FILTER_ENABLED or registryScoped, so a lingering value
-  // the user can't see or clear must not keep filtering — it would blank
-  // the parcel dots and drop the county circles to tract-only counts.
-  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.pctTillableMin) params.pct_tillable_min = filters.pctTillableMin
-  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.pctTillableMax) params.pct_tillable_max = filters.pctTillableMax
-  // Absolute tillable acres — same gate as pct_tillable above (see that
-  // comment): hidden control unless TILLABLE_FILTER_ENABLED or
-  // registryScoped, so a stray value can't silently filter dots/counts
-  // the user has no way to see or clear.
-  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.tillableAcresMin) params.tillable_acres_min = filters.tillableAcresMin
-  if ((TILLABLE_FILTER_ENABLED || registryScoped) && filters.tillableAcresMax) params.tillable_acres_max = filters.tillableAcresMax
   if (filters.landTypes?.length > 0) params.land_types = filters.landTypes.join(',')
   // Chat-driven additions
   if (filters.listingType) params.listing_type = filters.listingType
@@ -1318,8 +1291,6 @@ function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | n
   if (filters.salePriceMax) params.sale_price_max = filters.salePriceMax
   if (filters.askingPriceMin) params.asking_price_min = filters.askingPriceMin
   if (filters.askingPriceMax) params.asking_price_max = filters.askingPriceMax
-  if (SOIL_FILTER_ENABLED && filters.pricePerSoilRatingMin) params.price_per_soil_rating_min = filters.pricePerSoilRatingMin
-  if (SOIL_FILTER_ENABLED && filters.pricePerSoilRatingMax) params.price_per_soil_rating_max = filters.pricePerSoilRatingMax
   // Radius search: only forward when all three are present
   if (filters.nearLat && filters.nearLng && filters.radiusMiles) {
     params.near_lat = filters.nearLat
@@ -5017,11 +4988,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const hasActiveFilters = appliedFilters.dateRange !== modeDefaultDateRange || appliedFilters.stateFilter !== '' ||
     appliedFilters.countyFilters.length > 0 ||
     appliedFilters.townshipFilters.length > 0 ||
-    (SOIL_FILTER_ENABLED && (appliedFilters.soilRatingMin !== '' || appliedFilters.soilRatingMax !== '' ||
-      appliedFilters.pricePerSoilRatingMin !== '' || appliedFilters.pricePerSoilRatingMax !== '')) ||
+    // Always sent when set (mapFilterParams.ts), so always an active filter.
+    anyParcelDataFilterSet(appliedFilters) ||
     appliedFilters.acreageMin !== '' || appliedFilters.acreageMax !== '' ||
-    (TILLABLE_FILTER_ENABLED && (appliedFilters.pctTillableMin !== '' || appliedFilters.pctTillableMax !== '')) ||
-    (TILLABLE_FILTER_ENABLED && (appliedFilters.tillableAcresMin !== '' || appliedFilters.tillableAcresMax !== '')) ||
     appliedFilters.statuses.length > 0 ||
     appliedFilters.landTypes.length > 0 ||
     appliedFilters.listingType !== '' ||
@@ -6482,9 +6451,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // land-type backfill lands, not all-at-once nationwide). Drives
     // parcelDataScope below — when the applied state filter resolves to
     // exactly one state in this list, the % Tillable / soil-rating /
-    // land-type map controls unhide and their params are forwarded;
-    // otherwise they stay hidden/unsent, matching the backend's own
-    // defensive ignoring of those params for un-registered states. Absent
+    // land-type map controls unhide by default. (Since 2026-11-17 the soil
+    // / tillable / $-per-soil-point PARAMS are sent in every scope — see
+    // src/lib/mapFilterParams.ts; this list only gates dots + defaults.) Absent
     // or empty on older backend responses → no state is ever in scope,
     // same fail-closed default as unlimited/subscribed_state_abbrevs above.
     parcel_data_states?: string[]
@@ -6530,6 +6499,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     () => resolveParcelDataScope(filters.stateFilter, regridConfig?.parcel_data_states),
     [filters.stateFilter, regridConfig]
   )
+  // Range rows for soil / tillable / $ per soil point in the filter panel —
+  // see parcelDataControls in src/lib/mapFilterParams.ts.
+  const panelParcelControls = parcelDataControls(filters, appliedFilters, parcelDataScope, {
+    soil: SOIL_FILTER_ENABLED, tillable: TILLABLE_FILTER_ENABLED,
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -13258,33 +13232,19 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
             {/* Range filters */}
             {[
-              // Two distinct soil-rating concepts share soilRatingMin/Max:
-              // SOIL_FILTER_ENABLED (currently false) is the old NATIONWIDE
-              // tract-level filter, hidden until soil data is cleaned up
-              // across every state — the filter state + buildFilterParams
-              // plumbing is left intact so re-enabling is a one-line flag
-              // flip. parcelDataScope (2026-08-15) is the NEW registry-gated
-              // PARCEL-level filter: it unhides the same control, independent
-              // of that flag, only for a single applied state the backend has
-              // confirmed it understands (GET /api/regrid/config's
-              // parcel_data_states). Either condition shows the control.
-              // Label used to say "PI Rating" / "WAPI" / "CSR2" by guessing
-              // from the applied state — an owner-confirmed wrong guess
-              // (some IN parcels are NCCPI, not WAPI). No single record
-              // backs this state-wide filter control, so it stays generic
-              // rather than repeat that guess. See src/lib/soilRatingLabel.ts.
-              ...(SOIL_FILTER_ENABLED && filters.stateFilter || parcelDataScope ? [{
-                label: 'Soil Rating',
-                minKey: 'soilRatingMin' as keyof FilterState,
-                maxKey: 'soilRatingMax' as keyof FilterState
-              }] : []),
+              // Soil rating / % tillable / tillable acres / $ per soil point:
+              // which rows show is decided in src/lib/mapFilterParams.ts
+              // (parcelDataControls). Same defaults as before (soil and %
+              // tillable for a registry state, or behind their feature
+              // flags), PLUS any pair that is set in the draft or the
+              // applied filters — those params are always sent now, so a
+              // Goat Search value must always be visible and clearable.
+              // Label stays generic ("Soil Rating"; see
+              // src/lib/soilRatingLabel.ts) except across states, where the
+              // backend filters NCCPI and the label says so.
+              ...(panelParcelControls.soil ? [panelParcelControls.soil] : []),
               { label: 'Acreage', minKey: 'acreageMin' as keyof FilterState, maxKey: 'acreageMax' as keyof FilterState },
-              // % Tillable hidden behind TILLABLE_FILTER_ENABLED (2026-07-27):
-              // parcels carry no tillable data nationwide, so it blanks the
-              // parcel dots and drops the county circles to tract-only
-              // counts. parcelDataScope unhides it for a registry state the
-              // same way it does soil rating above — see the comment there.
-              ...(TILLABLE_FILTER_ENABLED || parcelDataScope ? [{ label: '% Tillable', minKey: 'pctTillableMin' as keyof FilterState, maxKey: 'pctTillableMax' as keyof FilterState }] : []),
+              ...panelParcelControls.tillable,
             ].map(({ label, minKey, maxKey }) => (
               <div key={label} style={{ marginBottom: 20 }}>
                 <div style={{ color: '#CCCCCC', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
