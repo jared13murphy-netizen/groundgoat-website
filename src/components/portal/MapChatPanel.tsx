@@ -738,11 +738,12 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
         style={{
           filter: 'drop-shadow(0 3px 12px rgba(0,0,0,0.7)) drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
         }}
-        className="group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-white border border-black/10"
+        className="gg-goat-search group relative rounded-full flex items-center gap-2 pl-5 pr-1.5 py-1.5 overflow-hidden bg-white border border-black/10"
       >
         <Sparkles size={18} className="flex-shrink-0 text-gg-pink" />
 
         <div className="relative flex-1 min-w-0 h-9 flex items-center">
+          {/* Owner 11/16: no inner box — the input blends into the white pill. */}
           <input
             ref={inputRef}
             value={input}
@@ -753,7 +754,7 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
                 : 'Ask the map…  e.g. Iowa CSR2 75+ upcoming auctions'
             }
             disabled={loading}
-            className="absolute inset-0 w-full bg-white outline-none text-sm text-[#111] placeholder-gray-500 px-1"
+            className="gg-bare-input absolute inset-0 w-full bg-transparent outline-none text-sm text-[#111] placeholder-gray-500 px-1"
           />
         </div>
 
