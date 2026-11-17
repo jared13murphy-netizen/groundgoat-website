@@ -489,13 +489,14 @@ export default function SavedProjectsPanel({
                        <button type="button" style={grayBtn} onClick={() => setCreating(null)}>Cancel</button>
                      </div>
                    )}
-                   {/* Report Logo (owner 11/2) */}
-                   <div data-gg-report-logo style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 12, padding: '8px 10px' }}>
-                     <button type="button" onClick={() => setLogoOpen((v) => !v)}
-                             style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, width: '100%', fontSize: 12, fontWeight: 700, fontFamily: 'inherit' }}>
-                       {logoOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                       <ImageIcon size={13} /> Report Logo
-                       <span style={{ ...muted, marginLeft: 'auto', fontWeight: 400 }}>
+                   {/* Report Logo (owner 11/2). Owner 11/16: the row is a solid
+                       pink button with black text, icons and status. */}
+                   <div data-gg-report-logo>
+                     <button type="button" data-testid="report-logo-toggle" onClick={() => setLogoOpen((v) => !v)}
+                             style={{ background: PINK, border: 'none', borderRadius: 10, color: '#000', cursor: 'pointer', padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 6, width: '100%', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
+                       {logoOpen ? <ChevronDown size={14} color="#000" /> : <ChevronRight size={14} color="#000" />}
+                       <ImageIcon size={14} color="#000" /> Report Logo
+                       <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: '#000' }}>
                          {selectedLogoId ? 'Logo selected' : brandLoaded ? 'No logo' : ''}
                        </span>
                      </button>
