@@ -345,7 +345,7 @@ export function deriveParcelDetail(
   const TILLABLE_MIN_SHARE = 0.25
   const tillableShare = (typeof tillableAcres === 'number' && typeof gisacre === 'number' && gisacre > 0)
     ? tillableAcres / gisacre : null
-  const perTillable = (validSalePrice && typeof tillableAcres === 'number' && tillableAcres > 0
+  const perTillable = (validSalePrice && typeof tillableAcres === 'number' && tillableAcres >= 1
                        && tillableShare != null && tillableShare >= TILLABLE_MIN_SHARE)
     ? (saleprice as number) / tillableAcres : null
   // Same 25% floor as $/tillable acre. A soil rating describes CROP

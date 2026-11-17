@@ -112,7 +112,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       pct_tillable: t.pctTillable != null ? Math.round(t.pctTillable) : (t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) : null),
       soil_rating: t.soilRating,
       price_per_acre: t.pricePerAcre,
-      price_per_tillable_acre: t.tillableAcres && t.totalAcres && t.pricePerAcre && t.tillableAcres > 0
+      price_per_tillable_acre: t.tillableAcres && t.totalAcres && t.pricePerAcre && t.tillableAcres >= 1
         ? (t.pricePerAcre * t.totalAcres) / t.tillableAcres : null,
       price_per_soil_rating: t.soilRating && t.pricePerAcre && t.soilRating > 0
         ? t.pricePerAcre / t.soilRating : null,
