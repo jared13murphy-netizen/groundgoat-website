@@ -1180,6 +1180,7 @@ function AccessPortalPageInner() {
             ? (row) => { const t = row as unknown as TractSaleData; if (!reportIds.has(t.id)) handleToggleReport(t) }
             : undefined}
           onDragToReportStart={() => { if (!showComparablesReportPanel) setShowMainReportPanel(true) }}
+          onOpenReportPanel={() => { if (!showComparablesReportPanel) setShowMainReportPanel(true) }}
           onView3DTerrain={handleView3DTerrain}
           isInReport={(id) => reportIds.has(id)}
           reportIds={reportIds}

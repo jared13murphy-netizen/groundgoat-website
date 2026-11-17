@@ -11,7 +11,7 @@ import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from '@/components/portal/SubjectStrip'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import NotesStep from '@/components/notes/NotesStep'
 import { DEFAULT_NOTES_PRINT, noteItemsForReportBody, notesPrintBody, type NotesPrint } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -259,8 +259,9 @@ export default function ComparablesReportPage({ params }: { params: { id: string
 
         {/* Action buttons. Download is web-only; Email works for both web
             and mobile and produces the same PDF attachment. */}
-        <div className="-mx-5 mb-3">
-          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} items={noteItemsForReportBody(buildReportBody())} />
+        <div className="mb-3">
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#A1A1AA', marginBottom: 8 }}>NOTES TO INCLUDE</div>
+          <NotesStep items={noteItemsForReportBody(buildReportBody()) || []} value={notesPrint} onChange={setNotesPrint} maxListHeight={260} />
         </div>
         <div className="flex gap-3">
           <button

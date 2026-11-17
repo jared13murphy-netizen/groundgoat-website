@@ -17,12 +17,10 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Mail, Download, Check, Loader2, Layers, BarChart3, Plus } from 'lucide-react'
+import { Check, Layers, BarChart3, Plus, FileText } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import reportJobEnqueue from '@/lib/reportJobs'
 import NotesTimeline from '@/components/notes/NotesTimeline'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
+import { openReports } from '@/lib/reportsPanel'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
@@ -175,6 +173,8 @@ export interface LandDetailClickData {
   /** Opened from a Notes search result (owner 11/10): never auto-close, so
       the notes timeline shows even when the parcel record can't load. */
   noteKey?: string | null
+  /** Notes "+ New" in My Maps (owner 11/15): open with a new note started. */
+  startNote?: boolean
 }
 
 interface LandDetailPanelProps {
@@ -325,17 +325,6 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
   const onGeometryResolvedRef = useRef(onGeometryResolved)
   useEffect(() => { onGeometryResolvedRef.current = onGeometryResolved }, [onGeometryResolved])
 
-  // "Email me this report" / "Download report" — single-parcel PDF, mirrors
-  // TractDetailActionBar's handlers in PortalTractDetail.tsx. Backend
-  // contract: POST /api/parcels/{ll_uuid}/report/email|pdf, no body, auth
-  // header only. 403 = not entitled, 400 = no email on account.
-  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
-  const [emailMessage, setEmailMessage] = useState<string | null>(null)
-  const [downloading, setDownloading] = useState(false)
-  const [downloadError, setDownloadError] = useState<string | null>(null)
-  // "Notes on this report" (owner 11/10): which timeline entries print.
-  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
-
   // Prefer the tile-carried ll_uuid (durable-dot clicks, which keep
   // working exactly as before). Fall back to the id captured off the
   // fetched /api/regrid/parcel record when the tile carried none — this
@@ -360,97 +349,6 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
   // state/county lookup on the backend.
   const ownedGroundLat = clickData?.parcelProps?.centroid_lat ?? clickData?.clickLat ?? null
   const ownedGroundLng = clickData?.parcelProps?.centroid_lng ?? clickData?.clickLng ?? null
-
-  // Reset transient send/download state whenever the clicked parcel changes.
-  // Keyed on `clickData` itself (a fresh object literal per click — see
-  // its declaration comment) rather than `llUuid`, so it resets on every
-  // new click even in the point-fallback case where llUuid stays null
-  // across two different parcels.
-  useEffect(() => {
-    setEmailStatus('idle')
-    setEmailMessage(null)
-    setDownloading(false)
-    setDownloadError(null)
-  }, [clickData])
-
-  const parseReportError = async (res: Response): Promise<string> => {
-    if (res.status === 403) return 'Not available for your account'
-    if (res.status === 404) return 'No parcel found at that location'
-    if (res.status === 429) {
-      // Report-queue per-user cap — the server's text says what to do.
-      try {
-        const body = await res.json()
-        return body?.detail || 'Too many reports in progress — wait for one to finish'
-      } catch {
-        return 'Too many reports in progress — wait for one to finish'
-      }
-    }
-    if (res.status === 400) {
-      try {
-        const body = await res.json()
-        return body?.detail || body?.message || 'No email on file for your account'
-      } catch {
-        return 'No email on file for your account'
-      }
-    }
-    return 'Something went wrong — try again'
-  }
-
-  // Both handlers below prefer the resolved ll_uuid (existing single-
-  // parcel endpoints, unchanged). When no id has resolved — the ordinary
-  // parcel-fill click before/without fetchData's own id lookup landing —
-  // they fall back to the by-point endpoints with the raw click
-  // coordinate, which resolve their own ll_uuid server-side (see
-  // main.py's _resolve_ll_uuid_by_point).
-  // Fire-and-forget (owner, 2026-09-01: never trap the user on a
-  // "Building..." button). This only enqueues the job — the floating
-  // ReportJobsIndicator (root layout) owns polling, the download
-  // hand-off, and the "sent" confirmation from here on, so the user is
-  // free to keep browsing the map immediately. Creation-time errors
-  // (403/429/400) still surface right here since they come back on the
-  // enqueue call.
-  const handleEmailReport = async () => {
-    if (!llUuid && !reportPoint) return
-    setEmailStatus('sending')
-    setEmailMessage(null)
-    try {
-      const res = llUuid
-        ? await reportJobEnqueue('parcel', 'email', { ll_uuid: llUuid, notes_print: notesPrintBody(notesPrint) })
-        : await reportJobEnqueue('parcel_by_point', 'email', { ...reportPoint!, notes_print: notesPrintBody(notesPrint) })
-      if (!res.ok) {
-        setEmailStatus('error')
-        setEmailMessage(await parseReportError(res))
-        return
-      }
-      setEmailStatus('sent')
-      setTimeout(() => setEmailStatus('idle'), 1500)
-    } catch (e) {
-      console.error('Parcel report email error:', e)
-      setEmailStatus('error')
-      setEmailMessage('Something went wrong — try again')
-    }
-  }
-
-  const handleDownloadReport = async () => {
-    if (!llUuid && !reportPoint) return
-    setDownloading(true)
-    setDownloadError(null)
-    try {
-      const res = llUuid
-        ? await reportJobEnqueue('parcel', 'download', { ll_uuid: llUuid, notes_print: notesPrintBody(notesPrint) })
-        : await reportJobEnqueue('parcel_by_point', 'download', { ...reportPoint!, notes_print: notesPrintBody(notesPrint) })
-      if (!res.ok) {
-        setDownloadError(await parseReportError(res))
-        setDownloading(false)
-        return
-      }
-      setTimeout(() => setDownloading(false), 1500)
-    } catch (e) {
-      console.error('Parcel report download error:', e)
-      setDownloadError('Something went wrong — try again')
-      setDownloading(false)
-    }
-  }
 
   // "+ Report" (2026-08-17) — same shared multi-tract comparables report
   // ExploreMap's `reportIds`/`onToggleReport` already drive for
@@ -1174,7 +1072,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
               <NotesTimeline theme="light" itemKey={clickData?.noteKey || `p:${String(llUuid).toLowerCase()}`}
                              label={owner || null} county={county && county !== 'Unknown' ? county : null}
                              state={state && state !== 'Unknown' ? state : null}
-                             latitude={ownedGroundLat} longitude={ownedGroundLng} />
+                             latitude={ownedGroundLat} longitude={ownedGroundLng}
+                             startAdding={!!clickData?.startNote} />
             </div>
           )}
 
@@ -1187,11 +1086,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
           </div>
         </div>
 
-        {/* ── Footer: Email me this report / Download report ──────────
-            Visual language mirrors TractDetailActionBar's second row
-            (PortalTractDetail.tsx) — same padding, rounded buttons, pink
-            primary — reimplemented in this file's inline-style idiom
-            since this panel doesn't use Tailwind classes. Gated on
+        {/* ── Footer: Map It · Find Comps · + Add Comp · Reports ─────────
+            Gated on
             `llUuid || reportPoint` (second-attempt fix, 2026-07-15):
             llUuid covers durable-dot clicks and any parcel click whose
             id has resolved (tile-carried or fetched); reportPoint is the
@@ -1204,70 +1100,19 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
             point in the first place. */}
         {(llUuid || reportPoint) && (
           <div style={{ flexShrink: 0, borderTop: '1px solid rgba(0,0,0,0.06)', padding: '12px', background: '#fff' }}>
-            {/* One row of actions (owner 2026-10-27, option A): every button
-                the same — pink fill, white icon over a one-word label, a
-                slightly darker pink border — so nothing competes and
-                nothing wraps. The full action name is the tooltip. Gating
-                is unchanged: Configure Map and Find Comps need a resolved
-                ll_uuid; Download / Email / Find Comps need report access;
-                in comp mode only the Report toggle shows. */}
-            {canUseReports && !compMode && (
-              <div style={{ marginBottom: 8, color: 'rgba(0,0,0,0.6)' }}>
-                <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint}
-                                  items={(() => {
-                                    // the key the server prints from (by-point resolves to the parcel's p: key)
-                                    const k = llUuid ? `p:${String(llUuid).toLowerCase()}` : clickData?.noteKey
-                                    return k ? [{ key: k, label: 'This parcel' }] : null
-                                  })()} />
-              </div>
-            )}
+            {/* Reports panel (owner 11/15): Map It · Find Comps · + Add Comp,
+                then one wide Reports button — every report, its notes and
+                Download / Email live in that panel now. Labels are two words
+                at most (owner rule). In comp mode only + Add Comp shows. */}
             <div style={{ display: 'flex', gap: 6 }}>
               {llUuid && !compMode && onMapIt && (
-                <button
-                  onClick={() => onMapIt(llUuid)}
-                  title="Map It"
-                  style={ACTION_BTN}
-                >
+                <button onClick={() => onMapIt(llUuid)} title="Map It" style={ACTION_BTN}>
                   <Layers size={16} /> Map It
                 </button>
               )}
-              {onToggleReport && (canUseReports || compMode) && (
-                <button
-                  onClick={handleToggleReport}
-                  disabled={!reportId}
-                  title={isInReport ? 'Remove from report' : 'Add to report'}
-                  style={{ ...ACTION_BTN, cursor: reportId ? 'pointer' : 'default', opacity: reportId ? 1 : 0.5 }}
-                >
-                  {isInReport ? <Check size={16} /> : <Plus size={16} />}
-                  {isInReport ? 'Added' : 'Report'}
-                </button>
-              )}
-              {canUseReports && !compMode && (
-                <>
-                  <button
-                    onClick={handleDownloadReport}
-                    disabled={downloading}
-                    title="Download Parcel"
-                    style={{ ...ACTION_BTN, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.8 : 1 }}
-                  >
-                    {downloading ? <Check size={16} /> : <Download size={16} />}
-                    {downloading ? 'Queued' : 'Download'}
-                  </button>
-                  <button
-                    onClick={handleEmailReport}
-                    disabled={emailStatus === 'sending' || emailStatus === 'sent'}
-                    title="Email Parcel"
-                    style={{ ...ACTION_BTN, cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer', opacity: emailStatus === 'sending' ? 0.8 : 1 }}
-                  >
-                    {emailStatus === 'sent' ? <Check size={16} />
-                      : emailStatus === 'sending' ? <Loader2 size={16} className="animate-spin" />
-                      : <Mail size={16} />}
-                    {emailStatus === 'sent' ? 'Queued' : emailStatus === 'sending' ? 'Sending' : 'Email'}
-                  </button>
-                </>
-              )}
               {onFindComparables && canUseReports && !compMode && llUuid && (
                 <button
+                  data-testid="parcel-find-comps"
                   onClick={() => onFindComparables({
                     ll_uuid: llUuid,
                     county: county && county !== 'Unknown' ? county : '',
@@ -1275,26 +1120,41 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
                     lat: ownedGroundLat,
                     lng: ownedGroundLng,
                   })}
-                  title="Find Comps"
+                  title="Find comps for this parcel"
                   style={ACTION_BTN}
                 >
-                  <BarChart3 size={16} /> Comps
+                  <BarChart3 size={16} /> Find Comps
+                </button>
+              )}
+              {onToggleReport && (canUseReports || compMode) && (
+                <button
+                  data-testid="parcel-add-comp"
+                  onClick={handleToggleReport}
+                  disabled={!reportId}
+                  title={isInReport ? 'Remove from the comp report' : 'Add to the comp report as a comp'}
+                  style={{ ...ACTION_BTN, cursor: reportId ? 'pointer' : 'default', opacity: reportId ? 1 : 0.5 }}
+                >
+                  {isInReport ? <Check size={16} /> : <Plus size={16} />}
+                  {isInReport ? 'Added' : 'Add Comp'}
                 </button>
               )}
             </div>
-            {/* Success is no longer reported here: the job is only queued
-                at this point, so the floating ReportJobsIndicator (root
-                layout) shows the real "sent" confirmation once it's
-                actually done. */}
-            {(emailStatus === 'error' || downloadError) && (
-              <div style={{ marginTop: 8 }}>
-                {emailStatus === 'error' && emailMessage && (
-                  <p style={{ fontSize: 11, color: '#d33', margin: 0 }}>{emailMessage}</p>
-                )}
-                {downloadError && (
-                  <p style={{ fontSize: 11, color: '#d33', margin: 0 }}>{downloadError}</p>
-                )}
-              </div>
+            {!compMode && (
+              <button
+                data-testid="parcel-reports"
+                onClick={() => openReports({
+                  target: {
+                    type: 'parcel', title: owner || 'Parcel',
+                    meta: [county && county !== 'Unknown' ? `${county} County` : null, state && state !== 'Unknown' ? state : null].filter(Boolean).join(', ') || undefined,
+                    llUuid: llUuid || null, lat: reportPoint?.lat ?? null, lng: reportPoint?.lng ?? null,
+                    noteKey: clickData?.noteKey || null,
+                  },
+                  backLabel: 'Parcel', canUseReports: Boolean(canUseReports), canUseMapIt: Boolean(onMapIt),
+                })}
+                style={{ ...ACTION_BTN, flexDirection: 'row', gap: 8, padding: '12px 10px', fontSize: 14, width: '100%', marginTop: 8 }}
+              >
+                <FileText size={17} /> Reports
+              </button>
             )}
           </div>
         )}

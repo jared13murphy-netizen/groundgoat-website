@@ -1,7 +1,7 @@
 'use client'
 
 import NotesTimeline from '@/components/notes/NotesTimeline'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
+import NotesStep from '@/components/notes/NotesStep'
 import { DEFAULT_NOTES_PRINT, noteKeyForRow, noteItemsForReportBody, notesPrintBody, type NotesPrint } from '@/lib/notes'
 import CardThumb from '@/components/CardThumb'
 import { useState, useMemo } from 'react'
@@ -92,6 +92,11 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
     tract_id: subjectInfo?.tract_id || null,
     subject_county: subjectInfo?.county || null,
     subject_state: subjectInfo?.state || null,
+    // The parcel behind a parcel subject (same as PortalComparablesReportPanel):
+    // without it the server cannot re-read the subject's figures or draw its
+    // Subject Parcel page (owner 11/16).
+    subject_ll_uuid: subjectInfo?.subject_ll_uuid || null,
+    subject_cm_id: subjectInfo?.subject_cm_id || null,
     subject_acres: subjectInfo?.subject_acres ? String(subjectInfo.subject_acres) : null,
     subject_tillable_pct: subjectInfo?.subject_pct_tillable
       ? String(Math.round(subjectInfo.subject_pct_tillable)) + '%' : null,
@@ -376,7 +381,10 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
           Email works for both web and mobile and produces the same PDF. */}
       {tracts.length > 0 && (
         <div className="border-t border-white/5 shrink-0">
-        <NotesPrintChoice value={notesPrint} onChange={setNotesPrint} items={noteItemsForReportBody(buildReportBody())} />
+        <div className="px-5 pt-3">
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#A1A1AA', marginBottom: 8 }}>NOTES TO INCLUDE</div>
+          <NotesStep items={noteItemsForReportBody(buildReportBody()) || []} value={notesPrint} onChange={setNotesPrint} maxListHeight={200} />
+        </div>
         <div className="px-5 py-4 shrink-0 flex gap-2">
           <button
             onClick={handleSaveReport}

@@ -10,37 +10,28 @@
  * configurableMapping.ts; the host (ExploreMap) refreshes its map layer via
  * onChanged and owns what "Edit in Map It" and "Add a New Tract" do.
  */
-import useSlide from '@/lib/useSlide'
 import CardThumb from '@/components/CardThumb'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  Check, ChevronDown, ChevronRight, Download, Folder, FolderPlus, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Pencil, Plus, StickyNote, Trash2, Upload, X,
-  Share2,
+  Check, ChevronDown, ChevronRight, Folder, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Plus, StickyNote, Trash2, Upload, X,
 } from 'lucide-react'
 import {
-  createProject, deleteFarm, deleteReport, downloadReport, duplicateProject, firmMembers,
-  getProject, linkParcels, listProjects, listReports, parcelProjects, projectShares, queueReport, renameParcel, unlinkParcel,
-  reportFilename, setProjectShares, updateProject, updateProjectAerialYear,
-  REPORT_BUSY_LABEL, REPORT_LABEL, USES_ELEVATION,
+  createProject, deleteFarm, duplicateProject, firmMembers,
+  getProject, linkParcels, listProjects, parcelProjects, projectShares, renameParcel, unlinkParcel,
+  setProjectShares, updateProject, updateProjectAerialYear,
   addLibraryLogo, deleteLibraryLogo, fetchLibraryLogoUrl, getBranding, setBranding,
   listSavedReports, renameSavedReport, deleteSavedReport, type SavedReportRow,
-  type FirmMember, type LibraryLogo, type Project, type ReportKind, type ReportRow, type SavedParcelRow,
+  type FirmMember, type LibraryLogo, type Project, type SavedParcelRow,
 } from '@/lib/configurableMapping'
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
 import { SavedReportCard } from '@/components/mapping/SavedReportsPanel'
+import MyMapsShell, {
+  CardPicture, ListEmpty, MyMapsCard, Tag, applyControls, fmtModified, grayBtn, offBtn, pinkBtn as shellPink, useListControls, whiteInput,
+} from '@/components/mapping/MyMapsShell'
 import NotesTimeline from '@/components/notes/NotesTimeline'
-import NotesSearch from '@/components/notes/NotesSearch'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotesPrint } from '@/lib/notes'
-import type { NoteSearchResult } from '@/lib/notes'
+import { openReports } from '@/lib/reportsPanel'
 
 const PINK = '#F58CDE'
-/** Same default the old Configure Map slider started at. */
-const DEFAULT_EXAGGERATION = 2.5
-/** Stop polling a report that never finishes (~5 min at 3 s). */
-const POLL_MS = 3000
-const POLL_CAP_MS = 5 * 60 * 1000
-const MAP_REPORT_KINDS: ReportKind[] = ['soil_map', 'ground_goat', 'elevation_3d']
 
 export interface PanelTract { id: string; name: string; projectId: string; projectName: string }
 
@@ -63,20 +54,12 @@ interface Props {
   newProjectNonce?: number
   /** Owner 11/3: open a saved comp report (rebuilt live) in the report panel. */
   onOpenSavedReport?: (id: string) => void
-  /** Owner 11/10: open the item a Notes search result points at. */
-  onOpenNoteResult?: (r: NoteSearchResult) => void
-  /** Bumped by the My Maps "Notes" tile: open straight to the Notes search. */
-  notesNonce?: number
+  /** Back to the My Maps menu (owner 11/15: every My Maps screen has it). */
+  onBack: () => void
+  /** Firm account: show the All / Mine / Team chips. */
+  isFirm?: boolean
 }
 
-const panel: CSSProperties = {
-  position: 'absolute', top: 0, right: 0, bottom: 0, zIndex: 540,
-  width: 'min(340px, calc(100% - 24px))', boxSizing: 'border-box',
-  background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)', color: '#fff',  // owner 11/1: less see-through
-  boxShadow: '-4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column',
-  transition: 'transform 240ms ease',
-  fontSize: 13,
-}
 const input: CSSProperties = {
   // Owner 11/3: input boxes are ALWAYS white with a light gray border —
   // never a dark box, even inside a dark panel.
@@ -122,17 +105,16 @@ type Detail = { loading: boolean; error?: string; parcels: SavedParcelRow[] }
 
 export default function SavedProjectsPanel({
   open, onClose, reloadNonce, focus, onEditTract, onAddTract, onShowTract, onShowProject, onChanged, newProjectNonce = 0, onOpenSavedReport,
-  onOpenNoteResult, notesNonce = 0,
+  onBack, isFirm = false,
 }: Props) {
-  // Owner 11/10: the cross-item Notes search, and which tract cards show their timeline.
-  const [notesOpen, setNotesOpen] = useState(false)
-  useEffect(() => { if (notesNonce > 0) setNotesOpen(true) }, [notesNonce])
+  // Which tract cards show their notes timeline (owner 11/10).
   const [notesFor, setNotesFor] = useState<Record<string, boolean>>({})
   const [noteCounts, setNoteCounts] = useState<Record<string, number>>({})
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
+  // Search box, All / Mine / Team and sort (shared My Maps controls, owner 11/15).
+  const c = useListControls()
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [details, setDetails] = useState<Record<string, Detail>>({})
   const detailsRef = useRef(details); detailsRef.current = details
@@ -247,26 +229,9 @@ export default function SavedProjectsPanel({
   }
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
-  // "Notes on this report" (owner 11/10): which timeline entries print.
-  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
-  const [reportsOpen, setReportsOpen] = useState<Record<string, boolean>>({})
-  const [reports, setReports] = useState<Record<string, ReportRow[]>>({})
-  const reportsOpenRef = useRef(reportsOpen); reportsOpenRef.current = reportsOpen
-  const [queuing, setQueuing] = useState<string | null>(null)   // '<projectId>:<kind>:<parcelId>'
-  const [deletingReport, setDeletingReport] = useState<string | null>(null)
   const [members, setMembers] = useState<FirmMember[] | null>(null)
   const [sharing, setSharing] = useState<{ projectId: string; ids: string[] } | null>(null)
   const [yearFor, setYearFor] = useState<string | null>(null)   // project id
-  const [mapReportFor, setMapReportFor] = useState<string | null>(null) // tract id
-
-  const loadReports = useCallback(async (projectId: string) => {
-    try {
-      const r = await listReports({ projectId })
-      setReports((x) => ({ ...x, [projectId]: r.reports || [] }))
-    } catch (e: any) {
-      setMsg(e?.message || 'Could not load the reports.')
-    }
-  }, [])
 
   const loadProjects = useCallback(async () => {
     setLoading(true); setError(null)
@@ -293,9 +258,8 @@ export default function SavedProjectsPanel({
   const refreshAll = useCallback(async () => {
     await loadProjects()
     for (const id of Object.keys(detailsRef.current)) void loadDetail(id, true)
-    for (const id of Object.keys(reportsOpenRef.current)) if (reportsOpenRef.current[id]) void loadReports(id)
     void loadSavedReports()
-  }, [loadProjects, loadDetail, loadReports, loadSavedReports])
+  }, [loadProjects, loadDetail, loadSavedReports])
 
   useEffect(() => { if (open) void loadProjects() }, [open, loadProjects])
   useEffect(() => { if (open) void loadSavedReports() }, [open, loadSavedReports])
@@ -304,22 +268,6 @@ export default function SavedProjectsPanel({
     firmMembers().then((r) => setMembers(r.members || [])).catch(() => setMembers([]))
   }, [open, members])
 
-  // Poll a project's reports every 3 s while any is queued/running, for at
-  // most ~5 min; the effect re-arms only when the pending set changes.
-  const pendingIds = Object.entries(reports)
-    .filter(([, rows]) => rows.some((r) => r.status === 'queued' || r.status === 'running'))
-    .map(([id]) => id)
-  const pendingKey = pendingIds.join(',')
-  useEffect(() => {
-    if (!open || !pendingKey) return
-    const started = Date.now()
-    const ids = pendingKey.split(',')
-    const t = setInterval(() => {
-      if (Date.now() - started > POLL_CAP_MS) { clearInterval(t); return }
-      ids.forEach((id) => void loadReports(id))
-    }, POLL_MS)
-    return () => clearInterval(t)
-  }, [open, pendingKey, loadReports])
   const firstNonce = useRef(reloadNonce)
   useEffect(() => {
     if (reloadNonce === firstNonce.current) return
@@ -344,7 +292,7 @@ export default function SavedProjectsPanel({
 
   // Typing in the filter searches map names too: fetch the maps of
   // projects not loaded yet (bounded, a few at a time).
-  const q = filter.trim().toLowerCase()
+  const q = c.q.trim().toLowerCase()
   useEffect(() => {
     if (q.length < 2) return
     const todo = projects.filter((p) => !detailsRef.current[p.id]).slice(0, 60)
@@ -375,6 +323,17 @@ export default function SavedProjectsPanel({
     }
     return out
   }, [projects, details, q])
+  // Chips + sort over what the search left (the search itself also finds map names).
+  const ctl = useMemo(() => {
+    const r = applyControls(visible, { ...c, q: '' }, {
+      mine: (v) => v.p.mine ?? !v.p.shared,
+      name: (v) => v.p.name || '',
+      modified: (v) => v.p.updated_at,
+      text: () => '',
+    })
+    const mineN = projects.filter((p) => p.mine ?? !p.shared).length
+    return { shown: r.shown, counts: { all: projects.length, mine: mineN, team: projects.length - mineN } }
+  }, [visible, projects, c])
 
   const run = async (label: string, fn: () => Promise<unknown>, then?: () => void) => {
     setBusy(label); setMsg(null)
@@ -417,41 +376,23 @@ export default function SavedProjectsPanel({
     void run('Renaming…', () => (kind === 'p' ? updateProject(id, { name: text }) : renameParcel(id, text)))
   }
 
-  const openReports = (projectId: string) => {
-    setReportsOpen((x) => ({ ...x, [projectId]: true }))
-    setExpanded((x) => ({ ...x, [projectId]: true }))
-    void loadDetail(projectId)
-    void loadReports(projectId)
-  }
-
-  const queue = async (projectId: string, kind: ReportKind, parcelId?: string) => {
-    const key = `${projectId}:${kind}:${parcelId || ''}`
-    setQueuing(key); setMsg(null)
-    try {
-      await queueReport(
-        parcelId ? { parcelId } : { projectId }, kind,
-        { ...(USES_ELEVATION.includes(kind) ? { exaggeration: DEFAULT_EXAGGERATION } : {}), notes_print: notesPrintBody(notesPrint) })
-      await loadReports(projectId)
-    } catch (e: any) {
-      setMsg(e?.message || 'Could not start that report.')
-    } finally { setQueuing(null) }
-  }
-
-  const download = async (projectName: string, r: ReportRow) => {
+  // Owner 11/15: Reports opens the one Reports panel — the project (Aerial
+  // Map, or any farm's report after choosing the farm) or one farm.
+  const projectReports = async (pr: { id: string; name: string }, farmId?: string) => {
     setMsg(null)
-    try { await downloadReport(r.id, reportFilename(projectName, r.kind)) }
-    catch (e: any) { setMsg(e?.message || 'That report could not be downloaded.') }
-  }
-
-  const removeReport = async (projectId: string, r: ReportRow) => {
-    if (!window.confirm(`Delete this ${REPORT_LABEL[r.kind] || 'report'}?`)) return
-    setDeletingReport(r.id); setMsg(null)
     try {
-      await deleteReport(r.id)
-      setReports((x) => ({ ...x, [projectId]: (x[projectId] || []).filter((o) => o.id !== r.id) }))
+      const parcels = detailsRef.current[pr.id]?.parcels?.length ? detailsRef.current[pr.id]!.parcels : (await getProject(pr.id)).parcels || []
+      const farms = parcels.map((x: any) => ({ id: String(x.id), name: x.name || 'Untitled' }))
+      const farm = farmId ? farms.find((f) => f.id === farmId) : null
+      openReports(farm
+        ? { target: { type: 'farm', parcelId: farm.id, title: farm.name, meta: pr.name, projectId: pr.id, projectName: pr.name },
+            backLabel: 'Projects', canUseReports: true, canUseMapIt: true }
+        : { target: { type: 'project', projectId: pr.id, projectName: pr.name, title: pr.name,
+                      meta: `${farms.length} farm${farms.length === 1 ? '' : 's'}`, farms },
+            backLabel: 'Projects', canUseReports: true, canUseMapIt: true })
     } catch (e: any) {
-      setMsg(e?.message || 'That report could not be deleted.')
-    } finally { setDeletingReport(null) }
+      setMsg(e?.message || 'Could not open the reports.')
+    }
   }
 
   const openShare = async (projectId: string) => {
@@ -477,49 +418,8 @@ export default function SavedProjectsPanel({
     } finally { setBusy(null) }
   }
 
-  const slide = useSlide(open, 240)
-  if (!slide.mounted) return null
-
-  return (
-    <div data-gg-saved-panel="" style={{ ...panel, transform: slide.shown ? 'translateX(0)' : 'translateX(100%)' }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-      {notesOpen && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 10, background: 'rgba(0,0,0,0.97)', padding: 12, display: 'flex', flexDirection: 'column' }}>
-          <NotesSearch onClose={() => setNotesOpen(false)} onOpen={(r) => {
-            if (r.item.kind === 'saved' && r.item.project_id) {
-              // Open the project in this panel and fly to the tract, then hand off.
-              setExpanded((x) => ({ ...x, [r.item.project_id!]: true }))
-              void loadDetail(r.item.project_id, true)
-              if (r.item.id) setNotesFor((x) => ({ ...x, [r.item.id!]: true }))
-            }
-            setNotesOpen(false)
-            onOpenNoteResult?.(r)
-          }} />
-        </div>
-      )}
-      <div style={{ padding: '12px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>Saved Projects</span>
-          <button type="button" data-testid="open-notes-search" title="Search every note"
-                  style={{ ...pinkBtn, background: 'none', color: '#fff', border: '1px solid rgba(255,255,255,0.35)' }}
-                  onClick={() => setNotesOpen(true)}>
-            <StickyNote size={13} /> Notes
-          </button>
-          <button type="button" style={pinkBtn} onClick={() => setCreating(creating === null ? '' : null)}>
-            <FolderPlus size={13} /> New Project
-          </button>
-          <button type="button" style={iconBtn} onClick={onClose} aria-label="Close"><X size={16} /></button>
-        </div>
-        {/* Report Logo (owner 11/2) */}
-        <div data-gg-report-logo style={{ border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, padding: '6px 8px' }}>
-          <button type="button" onClick={() => setLogoOpen((v) => !v)}
-                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, width: '100%', fontSize: 12, fontWeight: 700 }}>
-            {logoOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-            <ImageIcon size={13} /> Report Logo
-            <span style={{ ...muted, marginLeft: 'auto', fontWeight: 400 }}>
-              {selectedLogoId ? 'Logo selected' : brandLoaded ? 'No logo' : ''}
-            </span>
-          </button>
-          {logoOpen && (
+  // The Report Logo controls (owner 11/2), shown when its row is open.
+  const logoBody = (
             <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span style={muted}>Your name and the logo you pick print on every PDF report you build.</span>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -566,141 +466,120 @@ export default function SavedProjectsPanel({
               </div>
               {brandMsg && <span style={{ ...muted, color: brandMsg.kind === 'err' ? '#fca5a5' : '#86efac' }}>{brandMsg.text}</span>}
             </div>
-          )}
-        </div>
-        {creating !== null && (
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input
-              autoFocus style={input} value={creating} placeholder="Project name"
-              onChange={(e) => setCreating(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void submitNewProject()
-                if (e.key === 'Escape') setCreating(null)
-              }} />
-            <button type="button" style={{ ...pinkBtn, opacity: creating.trim() ? 1 : 0.5 }}
-                    disabled={!creating.trim() || !!busy} onClick={() => void submitNewProject()}>Create</button>
-          </div>
-        )}
-        <input style={input} value={filter} placeholder="Find a project or map…"
-               onChange={(e) => setFilter(e.target.value)} />
-        {(msg || error) && (
-          <div style={{ fontSize: 12, color: '#fca5a5' }}>{msg || error}</div>
-        )}
-        {busy && (
-          <div style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Loader2 size={12} className="animate-spin" /> {busy}
-          </div>
-        )}
-      </div>
+  )
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 14px' }}>
-        {loading && !projects.length && (
-          <div style={{ ...muted, padding: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
-            <Loader2 size={13} className="animate-spin" /> Loading…
-          </div>
-        )}
-        {!loading && !error && !visible.length && (
-          <div style={{ ...muted, padding: 12 }}>
-            {q ? 'Nothing matches.' : 'No projects yet. Use New Project, or Map It on any parcel.'}
-          </div>
-        )}
-        {visible.map(({ p, maps, nameHit }) => {
+  return (
+    <MyMapsShell open={open} title="Saved Projects" onBack={onBack} onClose={onClose} controls={c}
+                 searchPlaceholder="Search projects and maps" showChips={isFirm} counts={ctl.counts}
+                 onNew={() => setCreating(creating === null ? '' : null)} testId="saved-projects-panel"
+                 dataAttr={{ 'data-gg-saved-panel': '' }}
+                 top={<>
+                   {creating !== null && (
+                     <div data-testid="new-project-form" style={{ display: 'flex', gap: 6 }}>
+                       <input
+                         autoFocus style={{ ...whiteInput, flex: 1 }} value={creating} placeholder="New project name"
+                         data-testid="new-project-name"
+                         onChange={(e) => setCreating(e.target.value)}
+                         onKeyDown={(e) => {
+                           if (e.key === 'Enter') void submitNewProject()
+                           if (e.key === 'Escape') setCreating(null)
+                         }} />
+                       <button type="button" data-testid="new-project-create" style={creating.trim() ? shellPink : offBtn}
+                               disabled={!creating.trim() || !!busy} onClick={() => void submitNewProject()}>Create</button>
+                       <button type="button" style={grayBtn} onClick={() => setCreating(null)}>Cancel</button>
+                     </div>
+                   )}
+                   {/* Report Logo (owner 11/2) */}
+                   <div data-gg-report-logo style={{ background: '#161616', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 12, padding: '8px 10px' }}>
+                     <button type="button" onClick={() => setLogoOpen((v) => !v)}
+                             style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, width: '100%', fontSize: 12, fontWeight: 700, fontFamily: 'inherit' }}>
+                       {logoOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                       <ImageIcon size={13} /> Report Logo
+                       <span style={{ ...muted, marginLeft: 'auto', fontWeight: 400 }}>
+                         {selectedLogoId ? 'Logo selected' : brandLoaded ? 'No logo' : ''}
+                       </span>
+                     </button>
+                     {logoOpen && logoBody}
+                   </div>
+                   {(msg || error) && (
+                     <div style={{ fontSize: 12, color: '#fca5a5' }}>{msg || error}</div>
+                   )}
+                   {busy && (
+                     <div style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6 }}>
+                       <Loader2 size={12} className="animate-spin" /> {busy}
+                     </div>
+                   )}
+                 </>}>
+      {loading && !projects.length && (
+        <div style={{ ...muted, padding: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
+          <Loader2 size={13} className="animate-spin" /> Loading…
+        </div>
+      )}
+      {!loading && !error && !projects.length && (
+        <ListEmpty>No projects yet. Use + New, or Map It on any parcel.</ListEmpty>
+      )}
+      {!loading && !error && projects.length > 0 && !ctl.shown.length && (
+        <ListEmpty>{c.chip === 'team' && !q ? 'Nothing from your team yet. Projects a teammate shares with you show here.' : c.chip === 'mine' && !q ? 'You have not made a project yet.' : 'Nothing matches.'}</ListEmpty>
+      )}
+      {ctl.shown.map(({ p, maps, nameHit }) => {
           const isOpen = !!expanded[p.id] || (!!q && !nameHit)
           const det = details[p.id]
           const where = [p.county, p.state].filter(Boolean).join(', ')
           const sm = p.summary || ({} as any)
           const pKey = `p:${p.id}`
+          const nMaps = sm.parcels ?? 0
+          const canShare = !p.shared && (members?.length ?? 0) > 0
           return (
-            <div key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', padding: '6px 4px' }}>
-              <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                <button type="button" style={{ ...iconBtn, marginTop: 1 }} onClick={() => toggle(p.id)}
-                        aria-label={isOpen ? 'Collapse' : 'Expand'}>
-                  {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                </button>
-                <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-                     onClick={() => { if (editing?.key === pKey) return; if (!expanded[p.id]) toggle(p.id); onShowProject(p.id) }}>
-                  {editing?.key === pKey ? (
-                    <input autoFocus style={input} value={editing.text}
-                           onClick={(e) => e.stopPropagation()}
-                           onChange={(e) => setEditing({ key: pKey, text: e.target.value })}
-                           onBlur={commitRename}
-                           onKeyDown={(e) => {
-                             if (e.key === 'Enter') commitRename()
-                             if (e.key === 'Escape') cancelEdit()
-                           }} />
-                  ) : (
-                    <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Folder size={14} style={{ flex: 'none', opacity: 0.8 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
-                    </div>
-                  )}
-                  <div style={muted}>
-                    {where ? `${where} · ` : ''}
-                    {sm.parcels ?? 0} map{(sm.parcels ?? 0) === 1 ? '' : 's'} · {fmt(sm.acres)} ac · {fmt(sm.tillable_acres)} tillable
-                    {p.aerial_year != null ? ` · Aerial ${p.aerial_year}` : ''}
-                  </div>
-                  {p.shared && <div style={{ ...muted, color: PINK }}>shared by {p.shared_by || 'a colleague'}</div>}
-                  {!p.shared && (p.shared_with?.length ?? 0) > 0 && (
-                    <div style={{ ...muted, color: PINK }}>shared with {p.shared_with!.map((m) => m.name).join(', ')}</div>
-                  )}
-                </div>
-                {!p.shared && (members?.length ?? 0) > 0 && (
-                  <button type="button" style={iconBtn} aria-label="Share project" title="Share with your team"
-                          data-testid="project-share"
-                          onClick={(e) => { e.stopPropagation(); if (!expanded[p.id]) toggle(p.id); void openShare(p.id) }}>
-                    <Share2 size={15} />
-                  </button>
+            <MyMapsCard key={p.id} testId="project-card"
+              picture={<CardPicture kind="saved" id={p.cover_parcel_id} icon={<Folder size={26} />} />}
+              title={editing?.key === pKey ? (
+                <input autoFocus style={{ ...whiteInput, padding: '5px 8px', fontSize: 14 }} value={editing.text}
+                       data-testid="project-rename-input"
+                       onClick={(e) => e.stopPropagation()}
+                       onChange={(e) => setEditing({ key: pKey, text: e.target.value })}
+                       onBlur={commitRename}
+                       onKeyDown={(e) => {
+                         e.stopPropagation()
+                         if (e.key === 'Enter') commitRename()
+                         if (e.key === 'Escape') cancelEdit()
+                       }} />
+              ) : p.name}
+              sub={[where, fmtModified(p.updated_at)].filter(Boolean).join(' · ')}
+              extra={<>
+                {p.shared && <div style={{ ...muted, color: PINK }}>Shared by {p.shared_by || 'a colleague'}</div>}
+                {!p.shared && (p.shared_with?.length ?? 0) > 0 && (
+                  <div style={{ ...muted, color: PINK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Shared with {p.shared_with!.map((m) => m.name).join(', ')}</div>
                 )}
-                <button type="button" style={iconBtn} aria-label="Project menu"
-                        onClick={(e) => { e.stopPropagation(); setMenu(menu === pKey ? null : pKey) }}>
-                  <MoreHorizontal size={16} />
-                </button>
-                {menu === pKey && (
-                  <div style={menuBox} onClick={(e) => e.stopPropagation()}>
-                    <button type="button" style={menuItem}
-                            onClick={() => { setMenu(null); onAddTract({ id: p.id, name: p.name }) }}>
-                      Add a New Tract
-                    </button>
-                    <button type="button" style={menuItem}
-                            onClick={() => { setMenu(null); openReports(p.id) }}>
-                      Reports…
-                    </button>
-                    {!p.shared && (
-                      <>
-                        <button type="button" style={menuItem}
-                                onClick={() => { setMenu(null); setEditing({ key: pKey, text: p.name }) }}>
-                          Rename
-                        </button>
-                        {(members?.length ?? 0) > 0 && (
-                          <button type="button" style={menuItem}
-                                  onClick={() => { setMenu(null); void openShare(p.id) }}>
-                            Share…
-                          </button>
-                        )}
-                        <button type="button" style={menuItem}
-                                onClick={() => { setMenu(null); setYearFor(p.id) }}>
-                          Aerial year…
-                        </button>
-                        <button type="button" style={menuItem}
-                                onClick={() => { setMenu(null); void duplicate(p.id) }}>
-                          Duplicate
-                        </button>
-                        <button type="button" style={{ ...menuItem, color: '#fca5a5' }}
-                                onClick={() => {
-                                  setMenu(null)
-                                  if (!window.confirm(`Delete the project "${p.name}"? Its maps are archived with it.`)) return
-                                  void run('Deleting…', () => updateProject(p.id, { archived: true }))
-                                }}>
-                          Delete project
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
+              </>}
+              tags={[
+                <Tag key="ac">{fmt(sm.acres)} ac</Tag>,
+                <Tag key="maps">{nMaps} map{nMaps === 1 ? '' : 's'}</Tag>,
+                sm.tillable_acres ? <Tag key="till">{fmt(sm.tillable_acres)} tillable</Tag> : null,
+                p.aerial_year != null ? <Tag key="yr">Aerial {p.aerial_year}</Tag> : null,
+                <button key="exp" type="button" data-testid="project-expand" onClick={(e) => { e.stopPropagation(); toggle(p.id) }}
+                        style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                                 background: 'rgba(245,140,222,0.18)', color: PINK, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  {isOpen ? <>Hide maps <ChevronDown size={11} /></> : <>Show maps <ChevronRight size={11} /></>}
+                </button>,
+              ]}
+              onOpen={() => { if (editing?.key === pKey) return; if (!expanded[p.id]) toggle(p.id); onShowProject(p.id) }}
+              actions={[
+                { label: 'Show on the map', testId: 'project-show', onClick: () => { if (!expanded[p.id]) toggle(p.id); onShowProject(p.id) } },
+                { label: 'Add a New Tract', testId: 'project-add-tract', onClick: () => onAddTract({ id: p.id, name: p.name }) },
+                { label: 'Reports', testId: 'project-reports', onClick: () => void projectReports({ id: p.id, name: p.name }) },
+                ...(!p.shared ? [
+                  { label: 'Rename', testId: 'project-rename', onClick: () => setEditing({ key: pKey, text: p.name }) },
+                  ...(canShare ? [{ label: 'Share…', testId: 'project-share', onClick: () => { if (!expanded[p.id]) toggle(p.id); void openShare(p.id) } }] : []),
+                  { label: 'Aerial year…', testId: 'project-year', onClick: () => { if (!expanded[p.id]) toggle(p.id); setYearFor(p.id) } },
+                  { label: 'Duplicate', testId: 'project-duplicate', onClick: () => void duplicate(p.id) },
+                  { label: 'Delete project', danger: true, testId: 'project-delete', onClick: () => {
+                    if (!window.confirm(`Delete the project "${p.name}"? Its maps are archived with it.`)) return
+                    void run('Deleting…', () => updateProject(p.id, { archived: true }))
+                  } },
+                ] : []),
+              ]}>
               {isOpen && (
-                <div style={{ marginLeft: 22, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ marginTop: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   {(det?.loading && !maps.length) && (
                     <div style={{ ...muted, display: 'flex', gap: 6, alignItems: 'center' }}>
                       <Loader2 size={12} className="animate-spin" /> Loading maps…
@@ -725,7 +604,7 @@ export default function SavedProjectsPanel({
                                 onClick={() => void run('Sharing…', () => setProjectShares(p.id, sharing.ids), () => setSharing(null))}>
                           Save
                         </button>
-                        <button type="button" style={{ ...pinkBtn, background: 'none', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}
+                        <button type="button" style={{ ...pinkBtn, background: '#E4E4E7', border: '1px solid #E4E4E7' }}
                                 onClick={() => setSharing(null)}>Cancel</button>
                       </div>
                     </div>
@@ -745,86 +624,8 @@ export default function SavedProjectsPanel({
                       </select>
                     </div>
                   )}
-                  {reportsOpen[p.id] && (() => {
-                    const rows = reports[p.id] || []
-                    const nameOf = (id: string | null) => (id && (det?.parcels || []).find((x) => x.id === id)?.name) || ''
-                    const mapTarget = mapReportFor && (det?.parcels || []).find((x) => x.id === mapReportFor)
-                    const inFlight = rows.some((r) => r.status === 'queued' || r.status === 'running')
-                    const btn = (kind: ReportKind, parcelId?: string) => {
-                      const working = queuing === `${p.id}:${kind}:${parcelId || ''}`
-                        || rows.some((r) => r.kind === kind && (r.parcel_id || undefined) === parcelId && (r.status === 'queued' || r.status === 'running'))
-                      return (
-                        <button key={kind} type="button" style={{ ...pinkBtn, opacity: working ? 0.6 : 1 }}
-                                disabled={working || !!queuing}
-                                onClick={() => void queue(p.id, kind, parcelId)}>
-                          {working ? (REPORT_BUSY_LABEL[kind] || 'Working…') : (REPORT_LABEL[kind] || kind)}
-                        </button>
-                      )
-                    }
-                    return (
-                      <div style={section}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                          <span style={{ fontWeight: 600, flex: 1 }}>Reports</span>
-                          <button type="button" style={iconBtn} aria-label="Close reports"
-                                  onClick={() => { setReportsOpen((x) => ({ ...x, [p.id]: false })); setMapReportFor(null) }}>
-                            <X size={13} />
-                          </button>
-                        </div>
-                        {(p.summary?.parcels ?? 0) === 0 ? (
-                          <div style={muted}>Add a tract before building a report.</div>
-                        ) : (
-                          <>
-                            <div style={{ marginBottom: 8 }}>
-                              <NotesPrintChoice compact value={notesPrint} onChange={setNotesPrint}
-                                                items={(det?.parcels || []).map((x) => ({ key: `cm:${String(x.id).toLowerCase()}`, label: x.name || 'Untitled' }))} />
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{btn('aerial')}</div>
-                            {mapTarget && (
-                              <div style={{ marginTop: 8 }}>
-                                <div style={{ ...muted, marginBottom: 4 }}>For &quot;{mapTarget.name || 'Untitled'}&quot;</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                  {MAP_REPORT_KINDS.map((k) => btn(k, mapTarget.id))}
-                                </div>
-                              </div>
-                            )}
-                            {!mapTarget && <div style={{ ...muted, marginTop: 6 }}>Soil, Ground Goat and 3D reports: use Reports… on a map.</div>}
-                          </>
-                        )}
-                        {inFlight && <div style={{ ...muted, marginTop: 6 }}>Building… this updates on its own.</div>}
-                        {rows.map((r) => {
-                          const label = REPORT_LABEL[r.kind] || r.kind
-                          const mapName = nameOf(r.parcel_id)
-                          const pending = r.status === 'queued' || r.status === 'running'
-                          return (
-                            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {label}{mapName ? ` · ${mapName}` : ''}
-                                </div>
-                                <div style={{ ...muted, color: r.status === 'failed' ? '#fca5a5' : muted.color }}>
-                                  {pending ? (REPORT_BUSY_LABEL[r.kind] || 'Working…')
-                                    : r.status === 'failed' ? (r.error || 'Failed')
-                                    : 'Ready'} · {new Date(r.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                                </div>
-                              </div>
-                              {r.status === 'done' && r.ready && (
-                                <button type="button" style={iconBtn} aria-label="Download"
-                                        onClick={() => void download(p.name, r)}><Download size={14} /></button>
-                              )}
-                              <button type="button" style={iconBtn} aria-label="Delete report"
-                                      disabled={deletingReport === r.id}
-                                      onClick={() => void removeReport(p.id, r)}><Trash2 size={14} /></button>
-                            </div>
-                          )
-                        })}
-                        <div style={{ ...muted, marginTop: 10 }}>
-                          Report logo: see <button type="button" onClick={() => setLogoOpen(true)} style={{ background: 'none', border: 'none', padding: 0, color: PINK, cursor: 'pointer', fontSize: 11 }}>Report Logo</button> at the top of this panel.
-                        </div>
-                      </div>
-                    )
-                  })()}
                   {reportsForProject(p.id).length > 0 && (
-                    <div data-testid="project-saved-reports" style={{ margin: '4px 0 4px 18px' }}>
+                    <div data-testid="project-saved-reports" style={{ margin: '4px 0' }}>
                       <div style={{ ...muted, fontWeight: 600 }}>Reports</div>
                       {reportsForProject(p.id).map(reportLine)}
                     </div>
@@ -842,7 +643,7 @@ export default function SavedProjectsPanel({
                     const addTargets = projects.filter((o) => o.id !== p.id && !inIds.has(o.id))
                     return (
                       <div key={t.id} data-testid="tract-card" style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 4,
-                                               margin: '6px 0 6px 18px', padding: '10px 12px', borderRadius: 12,
+                                               margin: '6px 0', padding: '10px 12px', borderRadius: 12,
                                                background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.22)' }}>
                         {/* The tract's own outline in pink (owner 11/11), the same card
                             image the report panel shows — drawn from the saved drawing,
@@ -935,7 +736,7 @@ export default function SavedProjectsPanel({
                                             onClick={() => { const id = deleting.id; setDeleting(null); void run('Deleting…', () => deleteFarm(id)) }}>
                                       Delete farm
                                     </button>
-                                    <button type="button" style={{ ...pinkBtn, background: 'transparent', color: '#fff', borderColor: 'rgba(255,255,255,0.3)' }}
+                                    <button type="button" style={{ ...pinkBtn, background: '#E4E4E7', borderColor: '#E4E4E7' }}
                                             onClick={() => setDeleting(null)}>
                                       Cancel
                                     </button>
@@ -956,8 +757,8 @@ export default function SavedProjectsPanel({
                               Edit in Map It
                             </button>
                             <button type="button" style={menuItem}
-                                    onClick={() => { setMenu(null); setMapReportFor(t.id); openReports(p.id) }}>
-                              Reports…
+                                    onClick={() => { setMenu(null); void projectReports({ id: p.id, name: p.name }, t.id) }}>
+                              Reports
                             </button>
                             <button type="button" style={menuItem}
                                     onClick={() => { setMenu(null); setEditing({ key: tKey, text: t.name }) }}>
@@ -990,10 +791,9 @@ export default function SavedProjectsPanel({
                   )}
                 </div>
               )}
-            </div>
+            </MyMapsCard>
           )
         })}
-      </div>
-    </div>
+    </MyMapsShell>
   )
 }

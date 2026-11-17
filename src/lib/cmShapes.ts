@@ -188,6 +188,42 @@ export function simplifyShapes(shapes: Shape[]): Shape[] {
   }))
 }
 
+/** Map It "Simplify" button (owner 11/15, back by request). Thins the dots
+ *  on a land-type polygon as far as it can WITHOUT the acres noticing:
+ *  tries the coarsest tolerance first (2 m), then finer ones, and keeps the
+ *  first that changes the polygon by no more than 0.02 ac (0.1% on small
+ *  ones) and leaves every ring a simple, non-crossing shape. If none
+ *  qualifies the polygon is returned unchanged. */
+const SIMPLIFY_METRES = [2, 1.5, 1, 0.6, 0.3]
+export function simplifyShapeKeepAcres(sh: Shape): Shape {
+  const before = shapeAcres(sh)
+  const limit = Math.min(0.02, Math.max(0.002, before * 0.001))
+  const count = (x: Shape) => x.polys.reduce((n, rings) => n + rings.reduce((m, r) => m + r.length, 0), 0)
+  for (const m of SIMPLIFY_METRES) {
+    const tol = m / 111320
+    const next: Shape = { ...sh, polys: sh.polys.map((rings) => rings.map((ring) => simplifyRing(ring, tol))) }
+    if (count(next) >= count(sh)) continue
+    if (next.polys.some((rings) => rings.some((r) => r.length < 3 || ringSelfCrosses(r)))) continue
+    if (Math.abs(shapeAcres(next) - before) > limit) continue
+    return next
+  }
+  return sh
+}
+
+function ringSelfCrosses(r: Pt[]): boolean {
+  const n = r.length
+  const cross = (a: Pt, b: Pt, c: Pt) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+  for (let i = 0; i < n; i++) {
+    const a = r[i], b = r[(i + 1) % n]
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue // neighbours through the closing edge
+      const c = r[j], d = r[(j + 1) % n]
+      if (cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0) return true
+    }
+  }
+  return false
+}
+
 /** After the server's overlap clean-up, drop ONLY the vertices PostGIS
  *  inserted along shared edges (points that were not in `original` and
  *  sit on a straight line between their neighbours). A dot the user placed

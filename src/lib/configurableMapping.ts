@@ -196,6 +196,17 @@ export interface Project {
   /** Esri Wayback archive year the Configure Map + Aerial Map report use
    *  for this project. Null = "Latest" (the current mosaic). */
   aerial_year?: number | null
+  /** My Maps (owner 11/15): whose project; mine = false for one a colleague shared. */
+  owner_id?: string
+  mine?: boolean
+  /** The project's first live map (its card picture), or null when empty. */
+  cover_parcel_id?: string | null
+}
+
+/** The numbers beside each My Maps row; null = the account can't use it. */
+export interface MyMapsCounts { projects: number | null; saved_reports: number | null; notes: number | null; products: number | null }
+export function myMapsCounts() {
+  return j<MyMapsCounts>('/api/my-maps/counts')
 }
 
 export interface SavedParcelRow {
@@ -525,7 +536,7 @@ export function differenceGeometry(geometry: any, subtract: any[]) {
  *  the API (old rows keep their label below) but is no longer offered —
  *  owner 2026-09-24: "remove the Tillable Map report". */
 export const REPORT_KINDS =
-  ['aerial', 'soil_map', 'ground_goat', 'elevation_3d'] as const
+  ['aerial', 'soil_map', 'ground_goat', 'elevation_3d', 'applicator'] as const
 export type ReportKind = (typeof REPORT_KINDS)[number]
 
 /** Reports queued at the PROJECT level (no parcel_id) rather than per
@@ -540,6 +551,7 @@ export const REPORT_LABEL: Record<string, string> = {
   ground_goat: 'Ground Goat Report',
   elevation_3d: '3D Elevation Map',
   cma: 'Market Analysis',
+  applicator: 'Applicator Report',
 }
 
 /** What a report button says while it is building.
@@ -555,6 +567,7 @@ export const REPORT_BUSY_LABEL: Record<string, string> = {
   ground_goat: 'Rounding it up…',
   elevation_3d: 'Climbing the hill…',
   cma: 'Reading the market…',
+  applicator: 'Laying out the fields…',
 }
 
 export interface ReportRow {
@@ -574,14 +587,30 @@ export interface ReportRow {
 /** Reports that read the elevation slider. */
 export const USES_ELEVATION: readonly string[] = ['elevation_3d']
 
+/** What a report is about: a Map It farm (parcelId) or project (projectId),
+ *  or — owner 11/16 — ANY auction tract (tractId) or Regrid parcel (llUuid,
+ *  or the parcel under lat/lng). The API resolves a tract's drawn tillable
+ *  polygons and a parcel's engine polygons itself. */
+export interface ReportTarget {
+  parcelId?: string
+  projectId?: string
+  tractId?: string
+  llUuid?: string
+  lat?: number
+  lng?: number
+}
+
 export function queueReport(
-  target: { parcelId?: string; projectId?: string },
+  target: ReportTarget,
   kind: ReportKind,
   params: Record<string, any> = {},
 ) {
   const body: Record<string, any> = { kind, params }
   if (target.parcelId) body.parcel_id = target.parcelId
   if (target.projectId) body.project_id = target.projectId
+  if (target.tractId) body.tract_id = target.tractId
+  if (target.llUuid) body.ll_uuid = target.llUuid
+  if (target.lat != null && target.lng != null) { body.lat = target.lat; body.lng = target.lng }
   return j<{ id: string; kind: string; status: string }>('/api/mapping/reports', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -978,7 +1007,7 @@ export function getSavedTractDetail(id: string) {
  *  any component so a download the user asked for still lands if they
  *  close the panel while it builds (~5 min cap, polled every 3 s). */
 export async function queueAndDownloadReport(
-  target: { parcelId?: string; projectId?: string },
+  target: ReportTarget,
   kind: ReportKind,
   projectName: string | null | undefined,
   params: Record<string, any> = {},
@@ -987,8 +1016,10 @@ export async function queueAndDownloadReport(
   const started = Date.now()
   while (Date.now() - started < 5 * 60 * 1000) {
     await new Promise((r) => setTimeout(r, 3000))
+    // A tract/parcel report belongs to no farm or project: it is in the
+    // caller's own unfiltered list.
     const { reports } = await listReports(
-      target.parcelId ? { parcelId: target.parcelId } : { projectId: target.projectId })
+      target.parcelId ? { parcelId: target.parcelId } : target.projectId ? { projectId: target.projectId } : {})
     const row = (reports || []).find((r) => r.id === q.id)
     if (!row) throw new Error('That report went missing.')
     if (row.status === 'failed') throw new Error(row.error || 'The report failed to build.')

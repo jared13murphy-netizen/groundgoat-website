@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Mountain, BarChart3, FileText, Mail, Download, Check, Play, Maximize2, Plus, Layers } from 'lucide-react'
+import { Loader2, Mountain, BarChart3, FileText, Check, Play, Maximize2, Plus, Layers } from 'lucide-react'
 import { ACTION_BTN } from '@/components/map/LandDetailPanel'
 import fetchWithAuth from '@/lib/fetchWithAuth'
-import reportJobEnqueue from '@/lib/reportJobs'
+import { openReports } from '@/lib/reportsPanel'
 import { formatAcres } from '@/lib/format'
 import { formatTillable } from '@/lib/tillable'
 import { formatAuctionDate } from '@/lib/auctionTime'
@@ -14,8 +14,7 @@ import GroundTruthPanel from './GroundTruthPanel'
 import NdviPanel from './NdviPanel'
 import AuctionCountdown from '../AuctionCountdown'
 import NotesTimeline from '@/components/notes/NotesTimeline'
-import NotesPrintChoice from '@/components/notes/NotesPrintChoice'
-import { DEFAULT_NOTES_PRINT, noteKeyForRow, notesPrintBody, type NotesPrint } from '@/lib/notes'
+import { noteKeyForRow } from '@/lib/notes'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -697,9 +696,11 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           processed this tract). */}
       {tract.tractId && <NdviPanel tractId={tract.tractId} />}
 
-      {/* Notes timeline (owner 11/10): this auction tract's dated entries. */}
+      {/* Notes timeline (owner 11/10): this auction tract's dated entries.
+          pb-12 (owner 11/15): the action bar's 40px fade sat over the
+          Notes header when scrolled to the bottom; this lifts it clear. */}
       {noteKeyForRow({ tractId: tract.tractId || tract.id }) && (
-        <div data-testid="tract-notes" className="pt-2">
+        <div data-testid="tract-notes" className="pt-2 pb-12">
           <NotesTimeline theme="dark" itemKey={noteKeyForRow({ tractId: tract.tractId || tract.id })}
                          label={[tract.companyName, tract.county ? `${tract.county} Co` : null].filter(Boolean).join(' · ') || null}
                          county={tract.county || null} state={tract.state || null}
@@ -758,94 +759,7 @@ export function TractDetailActionBar({
 }: TractDetailActionBarProps) {
   const hasBoundaries = !!(tract.polygonCoordinates && tract.polygonCoordinates.length > 0)
 
-  // "Email me this report" / "Download report" — single-tract PDF, separate
-  // from the multi-tract comparables report (PortalComparablesReportPanel).
-  // Backend contract: POST /api/tracts/{tract_id}/report/email|pdf, no body,
-  // auth header only (fetchWithAuth attaches it). 403 = not entitled,
-  // 400 = no email on account.
-  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
-  const [emailMessage, setEmailMessage] = useState<string | null>(null)
-  const [downloading, setDownloading] = useState(false)
-  const [downloadError, setDownloadError] = useState<string | null>(null)
-  // "Notes on this report" (owner 11/10): which timeline entries print.
-  const [notesPrint, setNotesPrint] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
-
-  // Reset transient send/download state when the user switches tracts —
-  // the action bar's component instance persists across tract selections
-  // (the slide-out pane doesn't remount), so a stale "Sent!" from the
-  // previous tract must not carry over.
   const reportTractId = tract.tractId || tract.id
-  useEffect(() => {
-    setEmailStatus('idle')
-    setEmailMessage(null)
-    setDownloading(false)
-    setDownloadError(null)
-  }, [reportTractId])
-
-  const parseErrorMessage = async (res: Response): Promise<string> => {
-    if (res.status === 403) return 'Not available for your account'
-    if (res.status === 429) {
-      // Report-queue per-user cap — the server's text says what to do.
-      try {
-        const body = await res.json()
-        return body?.detail || 'Too many reports in progress — wait for one to finish'
-      } catch {
-        return 'Too many reports in progress — wait for one to finish'
-      }
-    }
-    if (res.status === 400) {
-      try {
-        const body = await res.json()
-        return body?.detail || body?.message || 'No email on file for your account'
-      } catch {
-        return 'No email on file for your account'
-      }
-    }
-    return 'Something went wrong — try again'
-  }
-
-  // Fire-and-forget (owner, 2026-09-01: never trap the user on a
-  // "Building..." button). This only enqueues the job — the floating
-  // ReportJobsIndicator (root layout) owns polling, the download
-  // hand-off, and the "sent" confirmation from here on, so the user is
-  // free to keep browsing immediately. Creation-time errors (403/429/400)
-  // still surface right here since they come back on the enqueue call.
-  const handleEmailReport = async () => {
-    setEmailStatus('sending')
-    setEmailMessage(null)
-    try {
-      const res = await reportJobEnqueue('tract', 'email', { tract_id: reportTractId, notes_print: notesPrintBody(notesPrint) })
-      if (!res.ok) {
-        setEmailStatus('error')
-        setEmailMessage(await parseErrorMessage(res))
-        return
-      }
-      setEmailStatus('sent')
-      setTimeout(() => setEmailStatus('idle'), 1500)
-    } catch (e) {
-      console.error('Tract report email error:', e)
-      setEmailStatus('error')
-      setEmailMessage('Something went wrong — try again')
-    }
-  }
-
-  const handleDownloadReport = async () => {
-    setDownloading(true)
-    setDownloadError(null)
-    try {
-      const res = await reportJobEnqueue('tract', 'download', { tract_id: reportTractId, notes_print: notesPrintBody(notesPrint) })
-      if (!res.ok) {
-        setDownloadError(await parseErrorMessage(res))
-        setDownloading(false)
-        return
-      }
-      setTimeout(() => setDownloading(false), 1500)
-    } catch (e) {
-      console.error('Tract report download error:', e)
-      setDownloadError('Something went wrong — try again')
-      setDownloading(false)
-    }
-  }
 
   return (
     // shrink-0 keeps the row at its natural height; the parent scroll
@@ -859,15 +773,10 @@ export function TractDetailActionBar({
           look the same"): pink fill, darker pink border, icon over a
           one-word label, one row — with one difference: View Auction /
           View Listing stays a wide button of its own above the row.
-          Gating is unchanged from before: 3D Map needs boundaries, the
-          listing button needs a listing (looser in comp mode), and
-          Download / Email / Comps are hidden in comp mode. */}
-      {!compMode && (
-        <div className="-mb-2">
-          <NotesPrintChoice value={notesPrint} onChange={setNotesPrint}
-                            items={reportTractId ? [{ key: `t:${String(reportTractId).toLowerCase()}`, label: 'This tract' }] : null} />
-        </div>
-      )}
+          3D Map needs boundaries, the listing button needs a listing
+          (looser in comp mode); Find Comps and Reports are hidden in comp
+          mode (owner 11/15: Map It · 3D Map · Find Comps · + Add Comp,
+          then one wide Reports button). */}
       <div className="px-5 pt-4 pb-4 flex flex-col gap-2">
         {onViewListing && (
           compMode
@@ -906,69 +815,50 @@ export function TractDetailActionBar({
             </button>
           )}
 
+          {onFindComparables && !compMode && (
+            <button
+              data-testid="tract-find-comps"
+              onClick={() => onFindComparables(tract.id, tract.county, tract.state)}
+              title="Find comps for this tract"
+              style={ACTION_BTN}
+            >
+              <BarChart3 size={16} /> Find Comps
+            </button>
+          )}
+
           {onToggleReport && (
             <button
+              data-testid="tract-add-comp"
               onClick={() => onToggleReport(tract)}
-              title={isInReport ? 'Remove from report' : 'Add to report'}
+              title={isInReport ? 'Remove from the comp report' : 'Add to the comp report as a comp'}
               style={ACTION_BTN}
             >
               {isInReport ? <Check size={16} /> : <Plus size={16} />}
-              {isInReport ? 'Added' : 'Report'}
-            </button>
-          )}
-
-          {!compMode && (
-            <button
-              onClick={handleDownloadReport}
-              disabled={downloading}
-              title="Download report"
-              style={{ ...ACTION_BTN, cursor: downloading ? 'wait' : 'pointer', opacity: downloading ? 0.8 : 1 }}
-            >
-              {downloading ? <Check size={16} /> : <Download size={16} />}
-              {downloading ? 'Queued' : 'Download'}
-            </button>
-          )}
-
-          {!compMode && (
-            <button
-              onClick={handleEmailReport}
-              disabled={emailStatus === 'sending' || emailStatus === 'sent'}
-              title="Email me this report"
-              style={{ ...ACTION_BTN, cursor: (emailStatus === 'sending' || emailStatus === 'sent') ? 'default' : 'pointer', opacity: emailStatus === 'sending' ? 0.8 : 1 }}
-            >
-              {emailStatus === 'sent' ? <Check size={16} />
-                : emailStatus === 'sending' ? <Loader2 size={16} className="animate-spin" />
-                : <Mail size={16} />}
-              {emailStatus === 'sent' ? 'Queued' : emailStatus === 'sending' ? 'Sending' : 'Email'}
-            </button>
-          )}
-
-          {onFindComparables && !compMode && (
-            <button
-              onClick={() => onFindComparables(tract.id, tract.county, tract.state)}
-              title="Find Comps"
-              style={ACTION_BTN}
-            >
-              <BarChart3 size={16} /> Comps
+              {isInReport ? 'Added' : 'Add Comp'}
             </button>
           )}
         </div>
+
+        {/* Reports panel (owner 11/15): every report, its notes and
+            Download / Email in one place. */}
+        {!compMode && reportTractId && (
+          <button
+            data-testid="tract-reports"
+            onClick={() => openReports({
+              target: {
+                type: 'tract', tractId: String(reportTractId),
+                title: [tract.companyName, tract.county ? `${tract.county} County` : null].filter(Boolean).join(' · ') || 'Tract',
+                meta: [tract.state, tract.totalAcres ? `${formatAcres(tract.totalAcres)} ac` : null].filter(Boolean).join(' · ') || undefined,
+              },
+              backLabel: 'Tract', canUseReports: true, canUseMapIt: Boolean(onMapIt),
+            })}
+            style={{ ...ACTION_BTN, flexDirection: 'row', gap: 8, padding: '12px 10px', fontSize: 14, width: '100%' }}
+          >
+            <FileText size={17} /> Reports
+          </button>
+        )}
       </div>
 
-      {/* Inline status — failures show the parsed error (403/400/other).
-          Success is no longer reported here: the job is only queued at
-          this point, so the floating ReportJobsIndicator (root layout)
-          shows the real "sent" confirmation once it's actually done. */}
-      {(emailStatus === 'error' || downloadError) && (
-        <div className="px-5 pb-4 -mt-2">
-          {emailStatus === 'error' && emailMessage && (
-            <p className="text-[11px] text-red-400">{emailMessage}</p>
-          )}
-          {downloadError && (
-            <p className="text-[11px] text-red-400">{downloadError}</p>
-          )}
-        </div>
-      )}
     </div>
   )
 }

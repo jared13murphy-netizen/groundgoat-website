@@ -46,8 +46,10 @@ import GroundTruthPanel from '@/components/portal/GroundTruthPanel'
 import NdviPanel from '@/components/portal/NdviPanel'
 import LandDetailPanel, { type LandDetailClickData, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
 import MapItToolbar from '@/components/mapping/MapItToolbar'
+import ReportsPanel from '@/components/reports/ReportsPanel'
 import { useTractEditor, type SavedInfo, type TractStart } from '@/components/mapping/useTractEditor'
 import SavedProjectsPanel from '@/components/mapping/SavedProjectsPanel'
+import ProductsPanel from '@/components/mapping/ProductsPanel'
 import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
 import ElevatorPanel from './ElevatorPanel'
@@ -101,8 +103,13 @@ import {
   Folder as SavedProjectsIcon,
   Bookmark as SavedReportsIcon,
   StickyNote,
+  Package as ProductsIcon,
+  ChevronRight as ChevronRightIcon,
 } from 'lucide-react'
-import { locateNoteItem } from '@/lib/notes'
+import { locateNoteItem, type NoteSearchResult } from '@/lib/notes'
+import NotesPanel from '@/components/notes/NotesPanel'
+import { myMapsCounts, type MyMapsCounts } from '@/lib/configurableMapping'
+import { pinMinZoom, tileDotMinZoom, saleDotFade } from '@/lib/pinZooms'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -775,7 +782,9 @@ const TRACT_PIN_MIN_ZOOM = 12
 // Owner 11/13: while a Goat Search is active its result pins (tract pins,
 // the search's sale dots) show at ANY zoom; the search framed at county zoom
 // showed nothing. Clearing the search brings the zoom-12 floor back.
-const SEARCH_PIN_MIN_ZOOM = 0
+// Owner 11/16: while building a comp report (subjectTractId set) the pins
+// you pick comps from show from z9 again, as before 11/12. Both rules live
+// in src/lib/pinZooms.ts (pinMinZoom), shared with the app.
 // The server answers no sale dots for a box wider than this (Bill Sullivan
 // crash, 11/13); don't ask for one when a search lets the dots load zoomed out.
 const SALE_DOTS_MAX_SPAN_LAT = 15
@@ -1674,6 +1683,8 @@ interface ExploreMapProps {
   onFindParcelComparables?: (p: { ll_uuid: string; county: string; state: string; lat: number | null; lng: number | null; saved_id?: string }) => void
   /** Owner 11/3: open a saved comp report from the Saved Projects panel. */
   onOpenSavedReport?: (id: string) => void
+  /** Owner 11/15: Saved Reports "+ New" opens the comp report panel. */
+  onOpenReportPanel?: () => void
   subjectTractId?: string | null
   subjectTractLocation?: { lat: number; lng: number } | null
   resetFiltersSignal?: number
@@ -1787,6 +1798,43 @@ interface ExploreMapProps {
 // 2026-09-08: same look as the mobile app — #111 tile, 1px #333 border,
 // radius 12, icon over a 12px regular-weight label, pink #F58CDE when
 // active) ────────────────────────────────────────────────────────────────
+/** My Maps menu section label (owner 11/15). */
+function MyMapsSectionLabel({ children, first = false }: { children: React.ReactNode; first?: boolean }) {
+  return (
+    <div style={{ padding: first ? '2px 2px 8px' : '18px 2px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#A1A1AA', textTransform: 'uppercase' }}>
+      {children}
+    </div>
+  )
+}
+
+/** "+ New Project" / "+ New Product" — solid pink, black text. */
+function MyMapsCreateButton({ label, onClick, testId }: { label: string; onClick: () => void; testId: string }) {
+  return (
+    <button type="button" data-testid={testId} onClick={onClick}
+            style={{ height: 48, borderRadius: 12, border: 'none', background: '#F58CDE', color: '#000', fontSize: 14, fontWeight: 600,
+                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', fontFamily: 'inherit' }}>
+      <PlusIcon size={16} strokeWidth={2.6} /> {label}
+    </button>
+  )
+}
+
+/** One "My Saved" row: icon, label, count, chevron. */
+function MyMapsRow({ icon, label, count, onClick, testId, last = false }: {
+  icon: React.ReactNode; label: string; count?: number | null; onClick: () => void; testId: string; last?: boolean
+}) {
+  return (
+    <button type="button" data-testid={testId} onClick={onClick}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, height: 50, padding: '0 12px', background: 'none', border: 'none',
+                     borderBottom: last ? 'none' : '1px solid rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontWeight: 500,
+                     textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}>
+      {icon}
+      <span style={{ flex: 1 }}>{label}</span>
+      {count != null && <span data-testid={`${testId}-count`} style={{ fontSize: 13, color: '#A1A1AA' }}>{count.toLocaleString()}</span>}
+      <ChevronRightIcon size={16} color="#71717A" />
+    </button>
+  )
+}
+
 function UtilityTile({
   icon,
   label,
@@ -1883,7 +1931,7 @@ function tractProjectIds(t: PortfolioTract): string[] {
   return t.projects?.length ? t.projects.map(p => p.id) : (t.project_id ? [t.project_id] : [])
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, searchActive = false, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, searchActive = false, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, onOpenReportPanel, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -2164,6 +2212,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const [editingTractId, setEditingTractId] = useState<string | null>(null)
   // Saved Projects slide-out (replaces the separate portfolio screens).
   const [savedPanelOpen, setSavedPanelOpen] = useState(false)
+  // Firm Products slide-out (owner 11/13): managed over the map, opened
+  // from the My Maps "Products" tile. The tile shows only when the
+  // account is a firm admin or firm user (set from /api/auth/me).
+  const [productsPanelOpen, setProductsPanelOpen] = useState(false)
+  const [canUseProducts, setCanUseProducts] = useState(false)
   // Owner 11/3: Saved Reports slide-out, opened from the My Maps tile.
   const [savedReportsOpen, setSavedReportsOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
@@ -2171,8 +2224,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Owner 11/2: bumped by the My Maps "New Project" tile; the panel opens
   // its New Project name box when it changes.
   const [savedPanelNewProject, setSavedPanelNewProject] = useState(0)
-  // Owner 11/10: bumped by the My Maps "Notes" tile — opens the Notes search.
-  const [savedPanelNotes, setSavedPanelNotes] = useState(0)
+  // Owner 11/15: Notes is its own My Maps screen (was a layer inside Saved Projects).
+  const [notesPanelOpen, setNotesPanelOpen] = useState(false)
+  // Bumped by My Maps "+ New Product": Products opens with its Add form up.
+  const [productsAddNonce, setProductsAddNonce] = useState(0)
+  // Notes "+ New": the next parcel tapped opens with a new note started.
+  const [noteArmed, setNoteArmed] = useState(false)
+  const noteArmedRef = useRef(false); noteArmedRef.current = noteArmed
+  // The numbers beside each My Maps row (owner 11/15), refreshed whenever the menu opens.
+  const [myMapsCountsState, setMyMapsCountsState] = useState<MyMapsCounts | null>(null)
+  /** Open ONE My Maps screen (they share the same spot), closing the menu. */
+  const openMyMapsScreen = useCallback((which: 'projects' | 'reports' | 'notes' | 'products' | null) => {
+    setSavedPanelOpen(which === 'projects')
+    setSavedReportsOpen(which === 'reports')
+    setNotesPanelOpen(which === 'notes')
+    setProductsPanelOpen(which === 'products')
+    if (which) setUtilitiesOpen(false)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   // Old /map-portfolio and /configure-map links arrive as /access?project=<id>:
   // open the Saved Projects panel on that project, then drop the param.
   useEffect(() => {
@@ -3422,19 +3490,79 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     })
   }, [mapItTractRequest?.key]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Owner 11/1: the Saved Projects slide-out closes on ANY click outside
-  // it (a parcel, the map, a nav item), same rule as the My Maps panel.
+  // Owner 11/1: a My Maps screen (Saved Projects, Saved Reports, Notes,
+  // Products) closes on ANY click outside it (a parcel, the map, a nav
+  // item), same rule as the My Maps panel.
+  const anyMyMapsScreen = savedPanelOpen || savedReportsOpen || notesPanelOpen || productsPanelOpen
   useEffect(() => {
-    if (!savedPanelOpen) return
+    if (!anyMyMapsScreen) return
     const onDown = (e: PointerEvent) => {
       const t = e.target as Element | null
       if (!t) return
-      if (t.closest('[data-gg-saved-panel]')) return
-      setSavedPanelOpen(false)
+      if (t.closest('[data-gg-mymaps-screen]') || t.closest('[data-gg-reports-panel]')) return
+      openMyMapsScreen(null)
     }
     document.addEventListener('pointerdown', onDown, true)
     return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [savedPanelOpen])
+  }, [anyMyMapsScreen, openMyMapsScreen])
+  // My Maps counts: fetched each time the menu opens, so they match the screens.
+  useEffect(() => {
+    if (!utilitiesOpen || (!canUseProjectMaps && !canUseProducts)) return
+    let live = true
+    myMapsCounts().then((c) => { if (live) setMyMapsCountsState(c) }).catch(() => { /* rows show without numbers */ })
+    return () => { live = false }
+  }, [utilitiesOpen, canUseProjectMaps, canUseProducts])
+  // "‹ My Maps" on every screen: back to the menu (owner 11/15).
+  const backToMyMaps = useCallback(() => {
+    openMyMapsScreen(null)
+    setUtilitiesView('menu')
+    setUtilitiesOpen(true)
+  }, [openMyMapsScreen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Notes "+ New": the armed banner goes once the tapped parcel's panel opens.
+  useEffect(() => { if (noteArmed && landDetail?.startNote) setNoteArmed(false) }, [landDetail, noteArmed])
+
+  // Opening a note from the Notes screen (owner 11/10): ALWAYS flies to its
+  // item and opens its panel; if the record can't load, the parcel panel
+  // still opens there with the item's notes (never a dead end).
+  const openNoteResult = (r: NoteSearchResult) => {
+    // Owner 11/10: a Notes search result ALWAYS flies to its item and
+    // opens its panel; if the record can't load, the parcel panel
+    // still opens there with the item's notes (never a dead end).
+    const it = r.item
+    setSavedPanelOpen(false)
+    setUtilitiesOpen(false)
+    if (it.kind === 'saved' && it.id) {
+      void showSavedTract(it.id)
+      setLandDetail(null)
+      setTimeout(() => setSavedTractOpen({ id: it.id! }), 0)
+      return
+    }
+    void (async () => {
+      const at = await locateNoteItem(it)
+      if (at && mapRef.current) {
+        mapRef.current.flyTo({ center: [at.lng, at.lat], zoom: Math.max(mapRef.current.getZoom(), 14.5), duration: 900 })
+      }
+      if (it.kind === 'tract' && it.id) {
+        const open = () => {
+          const t = tractMapRef.current.get(it.id!)
+          if (!t) return false
+          const sd = buildTractSaleDetail(t)
+          setLandDetail(null)
+          if (portalMode && onTractSelected) { lastPortalSaleRef.current = sd; onTractSelected(sd) } else setSelectedSale(sd)
+          return true
+        }
+        // The tract loads with the view it flew to.
+        for (let i = 0; i < 10 && !open(); i++) await new Promise((res) => setTimeout(res, 500))
+        if (tractMapRef.current.get(it.id)) return
+      }
+      setLandDetail({
+        parcelProps: null, soilProps: null, csbProps: null, ll_uuid: it.kind === 'parcel' ? it.id : null,
+        clickLng: at?.lng ?? null, clickLat: at?.lat ?? null,
+        activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null, noteKey: it.key,
+      })
+    })()
+  }
 
   // Saved Projects panel: clicking a project zooms to all of its maps
   // (owner 10/30) and turns the saved-maps layer on.
@@ -3536,7 +3664,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const onDown = (e: PointerEvent) => {
       const t = e.target as Element | null
       if (!t) return
-      if (t.closest('[data-gg-saved-tract-panel]')) return
+      if (t.closest('[data-gg-saved-tract-panel]') || t.closest('[data-gg-reports-panel]')) return
       // A click on a saved tract is handled by the map's own click handler,
       // which swaps the panel to that tract.
       if (t.closest('canvas.maplibregl-canvas') && mapRef.current) {
@@ -3975,6 +4103,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // (see canUseProjectMaps's declaration above for what it
         // actually returns per account class).
         fetchMappingAccess().then(ok => { if (!cancelled) setCanUseProjectMaps(ok) })
+        // Products tile: firm admins and firm users only (owner 11/15).
+        setCanUseProducts(me?.account_type === 'firm_admin' || me?.account_type === 'firm_user')
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
@@ -5621,7 +5751,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-circles',
         type: 'circle',
         source: 'tract-pins',
-        minzoom: TRACT_PIN_MIN_ZOOM,
+        minzoom: pinMinZoom({ comp: !!subjectTractIdRef.current }, TRACT_PIN_MIN_ZOOM),
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
           // In the comp report -> green, exactly like a selected parcel
@@ -5643,7 +5773,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-labels',
         type: 'symbol',
         source: 'tract-pins',
-        minzoom: TRACT_PIN_MIN_ZOOM,
+        minzoom: pinMinZoom({ comp: !!subjectTractIdRef.current }, TRACT_PIN_MIN_ZOOM),
         layout: {
           'text-field': ['get', 'pinLabel'],
           'text-font': ['Open Sans Bold'],
@@ -5675,7 +5805,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         id: 'tract-pin-plus',
         type: 'symbol',
         source: 'tract-pins',
-        minzoom: TRACT_PIN_MIN_ZOOM,
+        minzoom: pinMinZoom({ comp: !!subjectTractIdRef.current }, TRACT_PIN_MIN_ZOOM),
         layout: {
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
@@ -6878,6 +7008,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         activeOverlay: baseOverlayRef.current,
         source: 'parcel',
         tileGeometry,
+        startNote: noteArmedRef.current || undefined,
       })
     }
 
@@ -7077,7 +7208,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           type: 'symbol',
           source: REGRID_SOURCE,
           'source-layer': sourceLayer,
-          minzoom: REGRID_OWNER_LABEL_MIN_ZOOM, // owner 11/12: sale dots wait for the parcel labels
+          // owner 11/12: sale dots wait for the parcel labels; comp mode
+          // keeps the Regrid tile floor (11) — owner 11/16.
+          minzoom: tileDotMinZoom({ comp: inCompModeNow }, REGRID_OWNER_LABEL_MIN_ZOOM),
           filter: filterExpr,
           layout: {
             'icon-image': buildParcelSaleDotIconExpr(reportIds),
@@ -7231,6 +7364,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         activeOverlay: baseOverlayRef.current,
         source: 'parcel',
         tileGeometry,
+        startNote: noteArmedRef.current || undefined,
       })
     }
     const setPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
@@ -7372,7 +7506,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // (owner 11/13). Read through a ref: the fetch is a stable callback.
   const searchActiveRef = useRef(searchActive)
   searchActiveRef.current = searchActive
-  const durableDotMinZoom = () => (searchActiveRef.current ? SEARCH_PIN_MIN_ZOOM : DURABLE_DOT_MIN_ZOOM)
+  // Comp-report mode: z9 again (owner 11/16), see pinMinZoom.
+  const durableDotMinZoom = () => pinMinZoom(
+    { search: searchActiveRef.current, comp: !!subjectTractIdRef.current },
+    DURABLE_DOT_MIN_ZOOM,
+  )
   const DURABLE_DOT_MIN_ACRES = 10 // owner rule: never show parcel dots under 10 acres
 
   // Selected comps recolour their dot (owner, 2026-08-05: "when I add a
@@ -7482,15 +7620,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // now applies in BOTH modes (was REGRID_MIN_ZOOM in comp mode —
         // see the mode-sync effect below, kept in sync there for symmetry
         // even though it's now a constant across the mode flip).
-        minzoom: DURABLE_DOT_MIN_ZOOM,
+        minzoom: durableDotMinZoom(),
         paint: {
           // Matches ensureParcelSaleDotImage: #f58cde fill, white ring.
           'circle-color': DURABLE_DOT_COLOR,
           'circle-radius': 6,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 2,
-          'circle-opacity': ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1],
-          'circle-stroke-opacity': ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1],
+          'circle-opacity': saleDotFade(durableDotMinZoom()) as any,
+          'circle-stroke-opacity': saleDotFade(durableDotMinZoom()) as any,
         },
       })
     }
@@ -7504,7 +7642,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // DURABLE_DOT_LAYER (was pinned to REGRID_MIN_ZOOM). It's still
         // ONLY ever visible in comp mode (layout.visibility gated below),
         // just no longer gated to a higher zoom than the dot itself.
-        minzoom: DURABLE_DOT_MIN_ZOOM,
+        minzoom: durableDotMinZoom(),
         layout: {
           'text-field': '+',
           'text-font': ['Open Sans Bold'],
@@ -7581,6 +7719,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           activeOverlay: baseOverlayRef.current,
           source: 'parcel',
           tileGeometry,
+          startNote: noteArmedRef.current || undefined,
         })
         // Owner spec 2026-07-02: strong zoom-in ALONGSIDE the details panel
         // (not either/or) — z14.5 puts the parcel + its labels on screen.
@@ -8236,31 +8375,38 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Goat Search pins at any zoom (owner 11/13): while a search is on the map
-  // its tract pins and sale dots drop their zoom floor (and the dots their
-  // fade-in), then load for wherever the search framed the map. Cleared,
-  // everything goes back to the normal floors.
+  // Pin zoom floors by mode (pinMinZoom). Goat Search (owner 11/13): while a
+  // search is on the map its tract pins and sale dots show at any zoom.
+  // Comp report (owner 11/16): while building one they show from z9 again,
+  // as before 11/12, and the Regrid-tile dots take over at z11. Either way
+  // the dots then load for the current view. Leaving both restores the
+  // Explore floors (z12) exactly.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    const tractFloor = searchActive ? SEARCH_PIN_MIN_ZOOM : TRACT_PIN_MIN_ZOOM
+    const mode = { search: searchActive, comp: !!subjectTractId }
+    const tractFloor = pinMinZoom(mode, TRACT_PIN_MIN_ZOOM)
     for (const id of ['tract-pin-circles', 'tract-pin-labels', 'tract-pin-plus']) {
       try { if (map.getLayer(id)) map.setLayerZoomRange(id, tractFloor, 24) } catch {/* torn down */}
     }
     try {
       if (map.getLayer(DURABLE_DOT_LAYER)) {
-        const fade: any = searchActive ? 1
-          : ['interpolate', ['linear'], ['zoom'], DURABLE_DOT_MIN_ZOOM - 0.2, 0, DURABLE_DOT_MIN_ZOOM + 0.3, 1]
+        const fade: any = saleDotFade(durableDotMinZoom())
         map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-opacity', fade)
         map.setPaintProperty(DURABLE_DOT_LAYER, 'circle-stroke-opacity', fade)
       }
     } catch {/* torn down */}
-    if (searchActive) {
+    try {
+      if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+        map.setLayerZoomRange(PARCEL_SALE_PLUS_LAYER, tileDotMinZoom(mode, REGRID_OWNER_LABEL_MIN_ZOOM), 24)
+      }
+    } catch {/* torn down */}
+    if (mode.search || mode.comp) {
       const b = map.getBounds()
       void fetchDurableDotsForBounds({ south: b.getSouth(), north: b.getNorth(), west: b.getWest(), east: b.getEast() })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchActive, mapLoaded])
+  }, [searchActive, subjectTractId, mapLoaded])
 
   // Fetch durable dots on moveend at every zoom >= DURABLE_DOT_MIN_ZOOM, no
   // upper bound, in BOTH explore and comp mode (AUDIT FIX 2026-07-04 round
@@ -11820,6 +11966,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           }} />
       )}
 
+      {/* Reports panel (owner 11/15): every report starts here — opened by
+          the parcel / tract / saved-tract panels, the Map It bar and Saved
+          Projects via openReports(). Over whatever opened it. */}
+      <ReportsPanel />
+
+      {/* My Maps screens (owner 11/15): one design, "‹ My Maps" back on each.
+          Hidden while mapping. */}
+      {canUseProducts && !mappingMode && (
+        <ProductsPanel open={productsPanelOpen} addNonce={productsAddNonce}
+                       onClose={() => setProductsPanelOpen(false)} onBack={backToMyMaps} />
+      )}
+      {canUseProjectMaps && !mappingMode && (
+        <NotesPanel open={notesPanelOpen} isFirm={canUseProducts}
+                    onClose={() => setNotesPanelOpen(false)} onBack={backToMyMaps}
+                    onOpen={(r) => { setNotesPanelOpen(false); openNoteResult(r) }}
+                    onNewNote={() => { setNotesPanelOpen(false); setUtilitiesOpen(false); setLandDetail(null); setSavedTractOpen(null); setNoteArmed(true) }} />
+      )}
       {/* Saved Projects slide-out: opened from the My Maps menu tile
           (owner 10/30: no floating button on the map). Hidden while mapping. */}
       {canUseProjectMaps && !mappingMode && (
@@ -11828,49 +11991,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           onClose={() => setSavedPanelOpen(false)}
           reloadNonce={savedPanelNonce}
           newProjectNonce={savedPanelNewProject}
-          notesNonce={savedPanelNotes}
+          onBack={backToMyMaps}
+          isFirm={canUseProducts}
           focus={savedPanelFocus}
           onShowTract={(id) => { void showSavedTract(id) }}
           onShowProject={(id) => { void showSavedProject(id) }}
           onOpenSavedReport={onOpenSavedReport ? (id) => { setSavedPanelOpen(false); onOpenSavedReport(id) } : undefined}
-          onOpenNoteResult={(r) => {
-            // Owner 11/10: a Notes search result ALWAYS flies to its item and
-            // opens its panel; if the record can't load, the parcel panel
-            // still opens there with the item's notes (never a dead end).
-            const it = r.item
-            setSavedPanelOpen(false)
-            setUtilitiesOpen(false)
-            if (it.kind === 'saved' && it.id) {
-              void showSavedTract(it.id)
-              setLandDetail(null)
-              setTimeout(() => setSavedTractOpen({ id: it.id! }), 0)
-              return
-            }
-            void (async () => {
-              const at = await locateNoteItem(it)
-              if (at && mapRef.current) {
-                mapRef.current.flyTo({ center: [at.lng, at.lat], zoom: Math.max(mapRef.current.getZoom(), 14.5), duration: 900 })
-              }
-              if (it.kind === 'tract' && it.id) {
-                const open = () => {
-                  const t = tractMapRef.current.get(it.id!)
-                  if (!t) return false
-                  const sd = buildTractSaleDetail(t)
-                  setLandDetail(null)
-                  if (portalMode && onTractSelected) { lastPortalSaleRef.current = sd; onTractSelected(sd) } else setSelectedSale(sd)
-                  return true
-                }
-                // The tract loads with the view it flew to.
-                for (let i = 0; i < 10 && !open(); i++) await new Promise((res) => setTimeout(res, 500))
-                if (tractMapRef.current.get(it.id)) return
-              }
-              setLandDetail({
-                parcelProps: null, soilProps: null, csbProps: null, ll_uuid: it.kind === 'parcel' ? it.id : null,
-                clickLng: at?.lng ?? null, clickLat: at?.lat ?? null,
-                activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null, noteKey: it.key,
-              })
-            })()
-          }}
           onChanged={refreshMyTracts}
           onEditTract={(t) => {
             setSavedPanelOpen(false)
@@ -11885,8 +12011,27 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {canUseProjectMaps && !mappingMode && onOpenSavedReport && (
         <SavedReportsPanel
           open={savedReportsOpen}
+          isFirm={canUseProducts}
           onClose={() => setSavedReportsOpen(false)}
+          onBack={backToMyMaps}
+          onNewReport={onOpenReportPanel ? () => { setSavedReportsOpen(false); onOpenReportPanel() } : undefined}
           onOpenReport={(id) => { setSavedReportsOpen(false); onOpenSavedReport(id) }} />
+      )}
+
+      {/* Notes "+ New" (owner 11/15): a note always belongs to a place, so
+          the next parcel tapped opens with a new note started. */}
+      {noteArmed && (
+        <div data-testid="note-armed-banner"
+             style={{ position: 'absolute', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 560, display: 'flex', alignItems: 'center', gap: 10,
+                      background: '#0B0B0B', color: '#fff', borderRadius: 12, padding: '10px 12px 10px 14px', boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+                      border: '1px solid rgba(255,255,255,0.14)', fontSize: 14, maxWidth: 'calc(100% - 24px)' }}>
+          <StickyNote size={16} color="#F58CDE" style={{ flex: 'none' }} />
+          <span>Tap the parcel this note is for.</span>
+          <button type="button" data-testid="note-armed-cancel" onClick={() => setNoteArmed(false)}
+                  style={{ height: 32, padding: '0 12px', borderRadius: 8, border: 'none', background: '#E4E4E7', color: '#000', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
+            Cancel
+          </button>
+        </div>
       )}
 
       {/* Goat Search animation overlay — renders while a chat-driven
@@ -12185,6 +12330,49 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
           {utilitiesView === 'menu' && (
             <>
+              {/* Owner 11/15 (mockup "My Maps option 3"): labeled sections —
+                  Create, My Saved (with counts), Map Tools, Show on Map. Every
+                  row keeps the gate its old tile had. */}
+              {(canUseProjectMaps || canUseProducts) && (
+                <>
+                  <MyMapsSectionLabel first>Create</MyMapsSectionLabel>
+                  <div style={{ display: 'grid', gridTemplateColumns: canUseProjectMaps && canUseProducts ? 'repeat(2, minmax(0, 1fr))' : '1fr', gap: 10 }}>
+                    {/* Owner 11/2: New Project opens Saved Projects with its name box. */}
+                    {canUseProjectMaps && (
+                      <MyMapsCreateButton testId="mymaps-new-project" label="New Project"
+                        onClick={() => { openMyMapsScreen('projects'); setSavedPanelNewProject(n => n + 1) }} />
+                    )}
+                    {canUseProducts && (
+                      <MyMapsCreateButton testId="mymaps-new-product" label="New Product"
+                        onClick={() => { openMyMapsScreen('products'); setProductsAddNonce(n => n + 1) }} />
+                    )}
+                  </div>
+                </>
+              )}
+              {canUseProjectMaps && (
+                <>
+                  <MyMapsSectionLabel>My Saved</MyMapsSectionLabel>
+                  <div style={{ borderRadius: 12, background: '#161616', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                    {/* Owner 10/30: Saved Projects opens from here, never a floating map button. */}
+                    <MyMapsRow testId="mymaps-saved-projects" icon={<SavedProjectsIcon size={20} />} label="Saved Projects"
+                               count={myMapsCountsState?.projects} onClick={() => openMyMapsScreen('projects')} />
+                    {/* Owner 11/3: every comp report this account emailed, downloaded or saved. */}
+                    {onOpenSavedReport && (
+                      <MyMapsRow testId="mymaps-saved-reports" icon={<SavedReportsIcon size={20} />} label="Saved Reports"
+                                 count={myMapsCountsState?.saved_reports} onClick={() => openMyMapsScreen('reports')} />
+                    )}
+                    {/* Owner 11/10: every note (own + firm) across items. */}
+                    <MyMapsRow testId="mymaps-notes" icon={<StickyNote size={20} />} label="Notes"
+                               count={myMapsCountsState?.notes} onClick={() => openMyMapsScreen('notes')} last={!canUseProducts} />
+                    {/* Owner 11/13: the firm's product list (firm admins and users). */}
+                    {canUseProducts && (
+                      <MyMapsRow testId="mymaps-products" icon={<ProductsIcon size={20} />} label="Products"
+                                 count={myMapsCountsState?.products} onClick={() => openMyMapsScreen('products')} last />
+                    )}
+                  </div>
+                </>
+              )}
+              <MyMapsSectionLabel first={!canUseProjectMaps && !canUseProducts}>Map Tools</MyMapsSectionLabel>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                 {layersEnabled && (
                   <UtilityTile
@@ -12238,50 +12426,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   label="Goat Search"
                   onClick={() => { setUtilitiesOpen(false); onOpenGoatSearch?.() }}
                 />
-                {/* Restored from the old "Hi, Jared" dropdown (owner 9/9):
-                    Configurable Mapping and Map Portfolio used to be
-                    nav-dropdown links; they now live here instead. Gated
-                    by canUseProjectMaps — see its declaration above for
-                    exactly what it checks. */}
-                {/* "New Map Project" tile removed 10/30 (owner): new maps
-                    start from Map It on a parcel or from a project in the
-                    Saved Projects slide-out. */}
-                {/* Owner 10/30: the Saved Projects slide-out opens from
-                    here, never from a floating map button. */}
-                {canUseProjectMaps && (
-                  <UtilityTile
-                    icon={<SavedProjectsIcon size={20} />}
-                    label="Saved Projects"
-                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true) }}
-                  />
-                )}
-                {/* Owner 11/3: every comp report this account emailed,
-                    downloaded or saved — cards with Avg $/Acre, searchable. */}
-                {canUseProjectMaps && onOpenSavedReport && (
-                  <UtilityTile
-                    icon={<SavedReportsIcon size={20} />}
-                    label="Saved Reports"
-                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(false); setSavedReportsOpen(true) }}
-                  />
-                )}
-                {/* Owner 11/10: search every note (own + firm) across items. */}
-                {canUseProjectMaps && (
-                  <UtilityTile
-                    icon={<StickyNote size={20} />}
-                    label="Notes"
-                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true); setSavedPanelNotes(n => n + 1) }}
-                  />
-                )}
-                {/* Owner 11/2: New Project here opens the Saved Projects
-                    slide-out and starts its New Project flow. */}
-                {canUseProjectMaps && (
-                  <UtilityTile
-                    icon={<PlusIcon size={20} />}
-                    label="New Project"
-                    onClick={() => { setUtilitiesOpen(false); setSavedPanelOpen(true); setSavedPanelNewProject(n => n + 1) }}
-                  />
-                )}
               </div>
+              <MyMapsSectionLabel>Show on Map</MyMapsSectionLabel>
               {/* ── Show My Project Maps — restored from history (commits
                   e781c43, 182d91e: "My Tracts"). Draws the ground this
                   subscriber drew in Configurable Mapping (fill, outline,
@@ -12297,7 +12443,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 <>
                   <div
                     onClick={() => toggleMyTracts()}
-                    style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
+                    style={{ display: 'flex', alignItems: 'center', height: 40, padding: '0 2px', cursor: 'pointer', gap: 8 }}
                   >
                     <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#2563eb', border: '1px solid rgba(255,255,255,0.2)' }} />
                     <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Show My Saved Maps</span>
@@ -12336,7 +12482,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 <>
                   <div
                     onClick={() => toggleElevators()}
-                    style={{ display: 'flex', alignItems: 'center', height: 40, marginTop: canUseProjectMaps ? 0 : 12, padding: '0 2px', cursor: 'pointer', gap: 8 }}
+                    style={{ display: 'flex', alignItems: 'center', height: 40, padding: '0 2px', cursor: 'pointer', gap: 8 }}
                   >
                     <span style={{ width: 14, height: 14, borderRadius: 2, flexShrink: 0, backgroundColor: '#FFD21F', border: '1px solid rgba(0,0,0,0.6)' }} />
                     <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>Grain Elevators</span>

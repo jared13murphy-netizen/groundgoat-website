@@ -25,7 +25,7 @@ import {
 } from '@/lib/configurableMapping'
 import { savedTractNeedsEngine } from '@/lib/savedTractLandTypes'
 import {
-  SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, stripInsertedVertices,
+  SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, simplifyShapeKeepAcres, stripInsertedVertices,
   pointInRing, dropDegenerateHoles, pointInBoundary, ringCentre, polysToGeometry,
   shapeAcres, boundaryAcresOf, bboxOf, snapTargetsNear, type Shape,
 } from '@/lib/cmShapes'
@@ -521,6 +521,21 @@ export function useTractEditor({
       ...sh, polys: sh.polys.map((rings) => rings.slice(0, 1)),
     })
     mutate(() => next)
+    void enforceRef.current(next, id)
+  }, [mutate])
+
+  /** Simplify button: the selected polygon, or every polygon when none is
+   *  selected. One undo step; the overlap clean-up then re-fits shared edges. */
+  const simplify = useCallback(() => {
+    const id = selectedRef.current
+    const before = shapesRef.current
+    const next = before.map((sh) => (!id || sh.id === id) ? simplifyShapeKeepAcres(sh) : sh)
+    const dots = (xs: typeof before) => xs.reduce((n, sh) => n + sh.polys.reduce((m, rings) => m + rings.reduce((k, r) => k + r.length, 0), 0), 0)
+    const removed = dots(before) - dots(next)
+    if (removed <= 0) { setNotice('Nothing to simplify — those dots already follow the shape.'); return }
+    mutate(() => next)
+    shapesRef.current = next
+    setNotice(`Simplified: ${removed} dot${removed === 1 ? '' : 's'} removed. Undo puts them back.`)
     void enforceRef.current(next, id)
   }, [mutate])
 
@@ -1343,7 +1358,7 @@ export function useTractEditor({
     hasEngineStart: !!detail?.polygons?.length,
     // actions
     setMode, setDrawClass, startDrawTract, startDrawPolygon, toggleCut, toggleErase,
-    deleteSelected, fillHoles, clearPolygons, startOver, snapToParcel,
+    deleteSelected, fillHoles, simplify, clearPolygons, startOver, snapToParcel,
     finishDraft, cancelDraft, undo, redo, save, loadParcel,
     clearMessages: () => { setNotice(null); setError(null) },
   }
