@@ -116,7 +116,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
       pct_tillable: c.tillable_acres && c.total_acres ? Math.round((c.tillable_acres / c.total_acres) * 100) : null,
       soil_rating: c.soil_rating,
       price_per_acre: c.price_per_acre,
-      price_per_tillable_acre: c.tillable_acres && c.total_acres && c.price_per_acre && c.tillable_acres > 0
+      price_per_tillable_acre: c.tillable_acres && c.total_acres && c.price_per_acre && c.tillable_acres >= 1
         ? (c.price_per_acre * c.total_acres) / c.tillable_acres : null,
       price_per_soil_rating: c.soil_rating && c.price_per_acre && c.soil_rating > 0
         ? c.price_per_acre / c.soil_rating : null,

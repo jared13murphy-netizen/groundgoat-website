@@ -74,4 +74,13 @@ test('computeCompAverages mirrors summarizeComps', () => {
   near(a.avgSoilRating, 101.667)
 })
 
+test('under 1 tillable acre stays out of $/till (owner 11/16)', () => {
+  const s = summarizeComps([
+    { total_acres: 11.2, tillable_acres: 0.01, sale_price: 165000 },
+    { total_acres: 80, tillable_acres: 75, sale_price: 900000 },
+  ])
+  near(s.avgPricePerTillable, 12000)
+  assert.equal(summarizeComps([{ total_acres: 11.2, tillable_acres: 0.01, sale_price: 165000 }]).avgPricePerTillable, null)
+})
+
 console.log(`${passed} passed`)
