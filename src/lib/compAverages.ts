@@ -108,7 +108,7 @@ export function summarizeComps(comps: CompAverageInput[]): CompSummary {
       anySale = true
       saleSum += sale
       if (acres) { ppaNum += sale; ppaDen += acres }
-      if (till) { pptaNum += sale; pptaDen += till }
+      if (till && till >= 1) { pptaNum += sale; pptaDen += till } // owner 11/16: <1 tillable ac → no $/till
       if (soil && acres) { ppsrNum += sale; ppsrDen += soil * acres }
     }
     if (soil && till) { soilNum += soil * till; soilDen += till; rated++ }
