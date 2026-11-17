@@ -10,6 +10,9 @@
 import { useEffect, useRef } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
+import { figuresPatch } from '@/lib/parcelFiguresPatch'
+
+export { figuresPatch }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -18,16 +21,6 @@ export function parcelRowUuid(t: TractSaleData): string | null {
   if (t.tractId || t.savedId) return null
   const id = t.llUuid || t.id
   return id && UUID_RE.test(id) ? id : null
-}
-
-export function figuresPatch(f: any): Partial<TractSaleData> {
-  const patch: Partial<TractSaleData> = {}
-  if (!f) return patch
-  if (f.tillable_acres != null) patch.tillableAcres = Number(f.tillable_acres)
-  if (f.pct_tillable != null) patch.pctTillable = Number(f.pct_tillable)
-  if (f.soil_rating != null) patch.soilRating = Number(f.soil_rating)
-  if (f.soil_rating_type) patch.soilRatingType = String(f.soil_rating_type)
-  return patch
 }
 
 export default function useFreshParcelFigures(
