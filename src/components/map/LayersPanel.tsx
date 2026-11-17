@@ -120,8 +120,6 @@ export type ToggleLayer = {
 }
 
 export type LayersPanelProps = {
-  /** "Land owned by …" results are on the map: add the purple legend row. */
-  searchResultsShown?: boolean
   baseOverlay: BaseOverlayValue
   setBaseOverlay: (v: BaseOverlayValue) => void
   engineAvailable: boolean
@@ -214,7 +212,8 @@ const TILE_CSS = `
 // auction); the legend shows the row only while those results are on the map.
 export const SEARCH_RESULT_COLOR = '#8B3DFF'
 
-const TRACT_STATUS_ROWS = [
+// Owner 11/16: the Tract Status dot key moved from Layers to the My Maps menu.
+export const TRACT_STATUS_ROWS = [
   { label: 'Sold', color: '#f58cde' },
   { label: 'Auction', color: '#2563eb' },
   { label: 'Listed', color: '#eab308' },
@@ -338,12 +337,11 @@ export default function LayersPanel(p: LayersPanelProps) {
   ]
   const infrastructure: LayerDef[] = [...overlay('transmission'), ...overlay('railroads'), ...overlay('airports'), ...overlay('poi'), ...overlay('light')]
 
-  const groups: Array<{ id: string; name: string; layers: LayerDef[]; note?: string; extra?: React.ReactNode; alwaysShow?: boolean }> = [
+  const groups: Array<{ id: string; name: string; layers: LayerDef[]; note?: string; extra?: React.ReactNode }> = [
     { id: 'soil', name: 'Soil and crops', layers: soilCrops, note: 'One soil, crop or rain layer at a time.' },
     { id: 'water', name: 'Water and flood', layers: water },
     { id: 'land', name: 'Land and boundaries', layers: land },
-    // Markets always shows: the Tract Status legend lives here for everyone.
-    { id: 'markets', name: 'Markets', layers: markets, alwaysShow: true },
+    { id: 'markets', name: 'Markets', layers: markets },
     { id: 'infrastructure', name: 'Infrastructure', layers: infrastructure },
   ]
 
@@ -424,7 +422,6 @@ export default function LayersPanel(p: LayersPanelProps) {
           </div>
         )
       case 'savedMaps':
-      case 'elevators':
         return p[l.id].status
           ? <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>{p[l.id].status}</div>
           : null
@@ -597,7 +594,7 @@ export default function LayersPanel(p: LayersPanelProps) {
       </div>
 
       {/* 4. Groups */}
-      {groups.filter(g => g.layers.length > 0 || g.alwaysShow).map(g => {
+      {groups.filter(g => g.layers.length > 0).map(g => {
         const isCollapsed = !!collapsed[g.id]
         const onCount = g.layers.filter(l => l.on).length
         return (
@@ -625,18 +622,8 @@ export default function LayersPanel(p: LayersPanelProps) {
                 {g.layers.some(l => l.preview) && (
                   <div className="gg-lt-grid">{g.layers.map(layerTile)}</div>
                 )}
-                {g.layers.filter(l => l.on).map(settingsStrip)}
-                {g.id === 'markets' && (
-                  <div style={{ marginTop: g.layers.length ? 6 : 0 }}>
-                    <div style={sectionLabel}>Tract Status</div>
-                    {[...TRACT_STATUS_ROWS, ...(p.searchResultsShown ? [{ label: 'Search results', color: SEARCH_RESULT_COLOR }] : [])].map(({ label, color }) => (
-                      <div key={label} style={{ display: 'flex', alignItems: 'center', height: 30, gap: 8 }}>
-                        <span style={{ width: 14, height: 14, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
-                        <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>{label}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* Owner 11/16: no info card for Grain elevators (the tile is enough). */}
+                {g.layers.filter(l => l.on && l.id !== 'elevators').map(settingsStrip)}
               </div>
             )}
           </div>

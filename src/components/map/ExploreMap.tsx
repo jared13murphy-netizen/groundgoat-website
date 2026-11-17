@@ -53,7 +53,7 @@ import ProductsPanel from '@/components/mapping/ProductsPanel'
 import SavedReportsPanel from '@/components/mapping/SavedReportsPanel'
 import SavedTractPanel from './SavedTractPanel'
 import ElevatorPanel from './ElevatorPanel'
-import LayersPanel, { applyOverlayOpacity, loadOverlayOpacity, saveOverlayOpacity, OVERLAY_DEFAULT_OPACITY, SEARCH_RESULT_COLOR, type OpacityLayerKey } from './LayersPanel'
+import LayersPanel, { TRACT_STATUS_ROWS, applyOverlayOpacity, loadOverlayOpacity, saveOverlayOpacity, OVERLAY_DEFAULT_OPACITY, SEARCH_RESULT_COLOR, type OpacityLayerKey } from './LayersPanel'
 import {
   NATIONAL_LAYERS, NATIONAL_OVERLAY_KEYS, EMPTY_AVAILABILITY, fetchNationalAvailability, isLayerAvailable,
   addNationalLayer, setNationalLayerVisible, nationalLayerIds, nationalClickLayerIds, describeNationalFeature,
@@ -12535,6 +12535,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, flexShrink: 0, minWidth: 28, textAlign: 'right' }}>{terrainExaggeration.toFixed(1)}×</span>
                 </div>
               )}
+              {/* Tract Status dot key (owner 11/16: moved here from Layers). */}
+              <MyMapsSectionLabel>Tract Status</MyMapsSectionLabel>
+              <div data-testid="mymaps-tract-status" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px', padding: '0 2px' }}>
+                {[...TRACT_STATUS_ROWS, ...(ownerSearchActive ? [{ label: 'Search results', color: SEARCH_RESULT_COLOR }] : [])].map(({ label, color }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', height: 28, gap: 8 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
+                    <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>{label}</span>
+                  </div>
+                ))}
+              </div>
             </>
           )}
 
@@ -12568,7 +12578,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   ? 'You have not saved any project maps yet.'
                   : `${myTracts.length} project map${myTracts.length === 1 ? '' : 's'}`,
               }}
-              searchResultsShown={ownerSearchActive}
               elevators={{
                 available: true,
                 on: elevatorsOn,

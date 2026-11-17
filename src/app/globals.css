@@ -161,7 +161,8 @@ select {
   border: 1px solid #d1d5db !important;
 }
 
-/* Owner 11/16: an input that sits INSIDE a white box (My Maps search):
+/* Owner 11/16: an input that sits INSIDE a white box (My Maps search,
+   Goat Search pill):
    no border or focus ring of its own — the box is the input. */
 input.gg-bare-input,
 input.gg-bare-input:focus {
@@ -170,7 +171,8 @@ input.gg-bare-input:focus {
   outline: none !important;
   background-color: transparent !important;
 }
-.gg-mm-search:focus-within {
+.gg-mm-search:focus-within,
+.gg-goat-search:focus-within {
   box-shadow: 0 0 0 3px rgba(245, 140, 222, 0.35);
 }
 
