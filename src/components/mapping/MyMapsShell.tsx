@@ -156,10 +156,14 @@ export default function MyMapsShell({
         </button>
       </div>
       <div style={{ padding: '14px 16px 6px', display: 'flex', gap: 8 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, height: 44, padding: '0 12px', borderRadius: 10, background: '#FFFFFF',
-                        border: '1px solid #D4D4D8', color: '#52525B', flex: 1, minWidth: 0, boxSizing: 'border-box' }}>
+        {/* Owner 11/16: a clean white box — no gray outline and no inner
+            rectangle (the global white-input rule gave the <input> its own
+            border; .gg-bare-input strips it). Focus = the soft pink ring
+            other inputs use, on the whole box (globals.css .gg-mm-search). */}
+        <label className="gg-mm-search" style={{ display: 'flex', alignItems: 'center', gap: 8, height: 44, padding: '0 12px', borderRadius: 10, background: '#FFFFFF',
+                        border: 'none', color: '#52525B', flex: 1, minWidth: 0, boxSizing: 'border-box' }}>
           <Search size={16} style={{ flex: 'none' }} />
-          <input data-testid="mm-search" placeholder={searchPlaceholder} aria-label={searchPlaceholder} value={c.q}
+          <input data-testid="mm-search" className="gg-bare-input" placeholder={searchPlaceholder} aria-label={searchPlaceholder} value={c.q}
                  onChange={(e) => c.setQ(e.target.value)}
                  style={{ border: 'none', outline: 'none', flex: 1, minWidth: 0, fontSize: 14, color: '#111111', background: 'transparent', fontFamily: 'inherit' }} />
           {c.q && (

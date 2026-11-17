@@ -2217,6 +2217,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // account is a firm admin or firm user (set from /api/auth/me).
   const [productsPanelOpen, setProductsPanelOpen] = useState(false)
   const [canUseProducts, setCanUseProducts] = useState(false)
+  // Firm member (Mine / Team chips on the My Maps lists). Not the same as
+  // canUseProducts: Ground Goat admins have products but no team.
+  const [isFirmAccount, setIsFirmAccount] = useState(false)
   // Owner 11/3: Saved Reports slide-out, opened from the My Maps tile.
   const [savedReportsOpen, setSavedReportsOpen] = useState(false)
   const [savedPanelNonce, setSavedPanelNonce] = useState(0)
@@ -4103,8 +4106,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // (see canUseProjectMaps's declaration above for what it
         // actually returns per account class).
         fetchMappingAccess().then(ok => { if (!cancelled) setCanUseProjectMaps(ok) })
-        // Products tile: firm admins and firm users only (owner 11/15).
-        setCanUseProducts(me?.account_type === 'firm_admin' || me?.account_type === 'firm_user')
+        // Products tile: firm admins and firm users (owner 11/15) and
+        // Ground Goat admins (owner 11/16: their own shared staff list).
+        const firm = me?.account_type === 'firm_admin' || me?.account_type === 'firm_user'
+        setIsFirmAccount(firm)
+        setCanUseProducts(firm || me?.account_type === 'groundgoat_admin')
         // The tile-server discovery fetch that used to live here has
         // been removed. It populated `adminParcelStates`, which fed
         // the "Show Parcels" admin toggle — but that toggle has been
@@ -11978,7 +11984,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                        onClose={() => setProductsPanelOpen(false)} onBack={backToMyMaps} />
       )}
       {canUseProjectMaps && !mappingMode && (
-        <NotesPanel open={notesPanelOpen} isFirm={canUseProducts}
+        <NotesPanel open={notesPanelOpen} isFirm={isFirmAccount}
                     onClose={() => setNotesPanelOpen(false)} onBack={backToMyMaps}
                     onOpen={(r) => { setNotesPanelOpen(false); openNoteResult(r) }}
                     onNewNote={() => { setNotesPanelOpen(false); setUtilitiesOpen(false); setLandDetail(null); setSavedTractOpen(null); setNoteArmed(true) }} />
@@ -11992,7 +11998,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           reloadNonce={savedPanelNonce}
           newProjectNonce={savedPanelNewProject}
           onBack={backToMyMaps}
-          isFirm={canUseProducts}
+          isFirm={isFirmAccount}
           focus={savedPanelFocus}
           onShowTract={(id) => { void showSavedTract(id) }}
           onShowProject={(id) => { void showSavedProject(id) }}
@@ -12011,7 +12017,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       {canUseProjectMaps && !mappingMode && onOpenSavedReport && (
         <SavedReportsPanel
           open={savedReportsOpen}
-          isFirm={canUseProducts}
+          isFirm={isFirmAccount}
           onClose={() => setSavedReportsOpen(false)}
           onBack={backToMyMaps}
           onNewReport={onOpenReportPanel ? () => { setSavedReportsOpen(false); onOpenReportPanel() } : undefined}
@@ -12364,7 +12370,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                     {/* Owner 11/10: every note (own + firm) across items. */}
                     <MyMapsRow testId="mymaps-notes" icon={<StickyNote size={20} />} label="Notes"
                                count={myMapsCountsState?.notes} onClick={() => openMyMapsScreen('notes')} last={!canUseProducts} />
-                    {/* Owner 11/13: the firm's product list (firm admins and users). */}
+                    {/* Owner 11/13: the firm's product list (firm admins and users); GG admins 11/16. */}
                     {canUseProducts && (
                       <MyMapsRow testId="mymaps-products" icon={<ProductsIcon size={20} />} label="Products"
                                  count={myMapsCountsState?.products} onClick={() => openMyMapsScreen('products')} last />

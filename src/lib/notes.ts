@@ -292,7 +292,7 @@ export function loadFirmProducts(force = false): Promise<ProductsState> {
 }
 
 /** The Products page list. include_retired / notes_using only for the firm admin. */
-export async function fetchFirmProducts(includeRetired = false): Promise<{ products: FirmProduct[]; can_add: boolean; can_manage: boolean }> {
+export async function fetchFirmProducts(includeRetired = false): Promise<{ products: FirmProduct[]; can_add: boolean; can_manage: boolean; scope?: 'firm' | 'staff' | null }> {
   const q = includeRetired ? '?include_retired=true' : ''
   return json(await fetchWithAuth(`${API_URL}/api/notes/products${q}`))
 }

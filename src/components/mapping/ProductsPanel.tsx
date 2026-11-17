@@ -60,6 +60,8 @@ export default function ProductsPanel({ open, onClose, onBack, addNonce = 0 }: P
   const [loaded, setLoaded] = useState(false)
   const [products, setProducts] = useState<FirmProduct[]>([])
   const [canManage, setCanManage] = useState(false)
+  // Ground Goat admins share one staff list (owner 11/16): no firm, no team.
+  const [staff, setStaff] = useState(false)
   const [adding, setAdding] = useState<ProductInput | null>(null)
   const [editing, setEditing] = useState<{ id: string; p: ProductInput; updateExisting: boolean } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
@@ -76,6 +78,7 @@ export default function ProductsPanel({ open, onClose, onBack, addNonce = 0 }: P
       if (r.can_manage) r = await fetchFirmProducts(true)
       setProducts(r.products || [])
       setCanManage(!!r.can_manage)
+      setStaff(r.scope === 'staff')
       setLoaded(true)
     } catch (e: any) {
       setMsg({ kind: 'err', text: e?.message || 'Could not load products.' })
@@ -111,7 +114,7 @@ export default function ProductsPanel({ open, onClose, onBack, addNonce = 0 }: P
     try {
       const p = await addFirmProduct(adding)
       setAdding(null)
-      setMsg({ kind: 'ok', text: `Added "${p.name}". Everyone in your firm can pick it on a note.` })
+      setMsg({ kind: 'ok', text: `Added "${p.name}". ${staff ? 'Every Ground Goat admin' : 'Everyone in your firm'} can pick it on a note.` })
       await load()
     } catch (e: any) {
       setMsg({ kind: 'err', text: e?.message || 'Could not add that product.' })
@@ -231,7 +234,7 @@ export default function ProductsPanel({ open, onClose, onBack, addNonce = 0 }: P
 
   return (
     <MyMapsShell open={open} title="Products" onBack={onBack} onClose={onClose} controls={c}
-                 searchPlaceholder="Search products" showChips counts={ctl.counts} testId="products-panel"
+                 searchPlaceholder="Search products" showChips={!staff} counts={ctl.counts} testId="products-panel"
                  dataAttr={{ 'data-gg-products-panel': '' }}
                  onNew={() => { setAdding(adding ? null : blankProduct()); setEditing(null); setConfirmDelete(null); setMsg(null) }}
                  top={<>
@@ -274,8 +277,10 @@ export default function ProductsPanel({ open, onClose, onBack, addNonce = 0 }: P
         )}
         {loaded && (
           <div style={{ ...muted, padding: '4px 2px' }}>
-            Anyone on your team can add a product here or from a note.
-            {canManage ? ' Only you can edit or delete them.' : ' Your firm admin can edit or delete them.'}
+            {staff
+              ? 'Shared by every Ground Goat admin: anyone can add, edit or delete. Firms never see this list.'
+              : <>Anyone on your team can add a product here or from a note.
+                  {canManage ? ' Only you can edit or delete them.' : ' Your firm admin can edit or delete them.'}</>}
           </div>
         )}
       </div>
