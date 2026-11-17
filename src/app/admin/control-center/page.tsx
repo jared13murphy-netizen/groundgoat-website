@@ -8,6 +8,7 @@ import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save, Exte
 import { toRings } from '@/lib/polygonRings'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
+import { localIsoDate } from '@/lib/localDate'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -178,7 +179,7 @@ export default function ControlCenterPage() {
     if (day === 'today') return undefined
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
-    return tomorrow.toISOString().split('T')[0]
+    return localIsoDate(tomorrow)
   }
 
   useEffect(() => {

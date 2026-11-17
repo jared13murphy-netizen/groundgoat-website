@@ -110,6 +110,7 @@ import { locateNoteItem, type NoteSearchResult } from '@/lib/notes'
 import NotesPanel from '@/components/notes/NotesPanel'
 import { myMapsCounts, type MyMapsCounts } from '@/lib/configurableMapping'
 import { pinMinZoom, tileDotMinZoom, saleDotFade } from '@/lib/pinZooms'
+import { localIsoDate } from '@/lib/localDate'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -1220,7 +1221,7 @@ const DEFAULT_PARCEL_SALE_WINDOW_YEARS = 6
 function defaultParcelSaleFrom(): string {
   const d = new Date()
   d.setFullYear(d.getFullYear() - DEFAULT_PARCEL_SALE_WINDOW_YEARS)
-  return d.toISOString().split('T')[0]
+  return localIsoDate(d)
 }
 
 // Registry-gated map filters (step 3, 2026-08-15). regridConfig.parcel_data_states
@@ -1263,7 +1264,7 @@ function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | n
     if (filters.dateFrom) params.date_from = filters.dateFrom
     if (filters.dateTo) params.date_to = filters.dateTo
   } else if (filters.dateRange === 'upcoming') {
-    params.date_from = new Date().toISOString().split('T')[0]
+    params.date_from = localIsoDate()
   // DEFAULT_DATE_RANGE must be excluded here as well as 'all': it is not a
   // month preset, so it would fall through the ternary chain below to the
   // final `: 24` and silently send a 24-month date_from.
@@ -1275,11 +1276,11 @@ function buildFilterParams(filters: FilterState, parcelDataStates?: string[] | n
       : 24
     const cutoff = new Date()
     cutoff.setMonth(cutoff.getMonth() - months)
-    params.date_from = cutoff.toISOString().split('T')[0]
+    params.date_from = localIsoDate(cutoff)
     // Also bound the upper end at today — without this, a "last 6 months"
     // query lets future-dated upcoming auctions through because the API
     // filter is just `auction_datetime >= cutoff` with no ceiling.
-    params.date_to = new Date().toISOString().split('T')[0]
+    params.date_to = localIsoDate()
   }
   if (filters.statuses?.length > 0) params.sale_status = filters.statuses.flatMap(s => s.split(',')).join(',')
   // Restricted user, no state chip picked (spec §3, owner 2026-09-15 item
@@ -1355,7 +1356,7 @@ function resolveDateWindow(filters: FilterState): {
     return { from: filters.dateFrom || undefined, to: filters.dateTo || undefined, upcomingOnly: false }
   }
   if (filters.dateRange === 'upcoming') {
-    return { from: new Date().toISOString().split('T')[0], to: undefined, upcomingOnly: true }
+    return { from: localIsoDate(), to: undefined, upcomingOnly: true }
   }
   if (filters.dateRange === 'all') {
     // Explicitly chosen "All time" — genuinely unbounded. Distinct from the
@@ -1381,8 +1382,8 @@ function resolveDateWindow(filters: FilterState): {
   const cutoff = new Date()
   cutoff.setMonth(cutoff.getMonth() - months)
   return {
-    from: cutoff.toISOString().split('T')[0],
-    to: new Date().toISOString().split('T')[0],
+    from: localIsoDate(cutoff),
+    to: localIsoDate(),
     upcomingOnly: false,
   }
 }

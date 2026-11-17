@@ -1,5 +1,7 @@
 'use client'
 
+import '@/lib/timezoneHeader'
+
 /**
  * First-party page-view beacon (owner 2026-10-20, "build our own").
  *
