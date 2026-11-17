@@ -31,6 +31,7 @@ import PortalWatchlistPanel from '@/components/portal/PortalWatchlistPanel'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 import { isAllowedForExplore, getAllowedStates, formatStateList } from '@/lib/stateAccess'
+import { countyFilterMatches } from '@/lib/countyFilter'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
@@ -590,8 +591,9 @@ function AccessPortalPageInner() {
         rows = rows.filter(l => states.includes(l.state?.toUpperCase()))
       }
       if (filters.countyFilters.length > 0) {
-        const counties = filters.countyFilters.map(c => c.toLowerCase())
-        rows = rows.filter(l => counties.includes(l.county?.toLowerCase()))
+        // Goat Search sends "Adams (IL)" / "Adams|IL" when a question pairs
+        // counties with different states (owner 11/17) — match county AND state.
+        rows = rows.filter(l => countyFilterMatches(filters.countyFilters, l.county, l.state))
       }
     }
     return { rows, nextOffset, hasMore, total }
