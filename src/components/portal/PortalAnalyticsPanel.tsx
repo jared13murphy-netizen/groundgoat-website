@@ -6,6 +6,7 @@ import { X, Loader2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { getCountiesForState, US_STATES } from '@/data/counties'
+import { localIsoDate } from '@/lib/localDate'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -58,7 +59,7 @@ export default function PortalAnalyticsPanel({ county, state, onClose, onDataLoa
     // Default to last 12 months
     const twelveMonthsAgo = new Date()
     twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1)
-    const dateFrom = twelveMonthsAgo.toISOString().split('T')[0]
+    const dateFrom = localIsoDate(twelveMonthsAgo)
 
     const params = new URLSearchParams({ county: selectedCounty, state: selectedState, date_from: dateFrom })
 
