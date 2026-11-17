@@ -1,6 +1,7 @@
 'use client'
 
 import NotesTimeline from '@/components/notes/NotesTimeline'
+import { rowPrice, totalLabelFor } from '@/lib/tractPrice'
 import NotesStep from '@/components/notes/NotesStep'
 import { DEFAULT_NOTES_PRINT, noteKeyForRow, noteItemsForReportBody, notesPrintBody, type NotesPrint } from '@/lib/notes'
 import CardThumb from '@/components/CardThumb'
@@ -113,10 +114,8 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       pct_tillable: t.pctTillable != null ? Math.round(t.pctTillable) : (t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) : null),
       soil_rating: t.soilRating,
       price_per_acre: t.pricePerAcre,
-      price_per_tillable_acre: t.tillableAcres && t.totalAcres && t.pricePerAcre && t.tillableAcres >= 1
-        ? (t.pricePerAcre * t.totalAcres) / t.tillableAcres : null,
-      price_per_soil_rating: t.soilRating && t.pricePerAcre && t.soilRating > 0
-        ? t.pricePerAcre / t.soilRating : null,
+      price_per_tillable_acre: rowPrice(t).pricePerTillableAcre,
+      price_per_soil_rating: rowPrice(t).pricePerSoilRating,
       sale_price: t.salePrice,
       auction_date: t.auctionDate,
       company_name: t.companyName,
@@ -192,15 +191,11 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
   }
 
   // Derive per-tract metrics
-  const getPricePerTillable = (t: TractSaleData): number | null => {
-    if (!t.tillableAcres || !t.totalAcres || !t.pricePerAcre || t.tillableAcres <= 0) return null
-    return (t.pricePerAcre * t.totalAcres) / t.tillableAcres
-  }
-
-  const getPricePerSoil = (t: TractSaleData): number | null => {
-    if (!t.soilRating || !t.pricePerAcre || t.soilRating <= 0) return null
-    return t.pricePerAcre / t.soilRating
-  }
+  // The row's ONE price (owner 11/17, src/lib/tractPrice.ts): $/tillable
+  // only when tillable >= 1 ac and >= 25% of the acres; $/rating only when
+  // tillable >= 25% — the parcel panel's rule, on every row.
+  const getPricePerTillable = (t: TractSaleData): number | null => rowPrice(t).pricePerTillableAcre
+  const getPricePerSoil = (t: TractSaleData): number | null => rowPrice(t).pricePerSoilRating
 
   return (
     <motion.div
@@ -319,10 +314,17 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                         <div className="text-[10px] text-gg-gray-500">Acres</div>
                         <div className="text-sm font-medium">{t.totalAcres ? formatAcres(t.totalAcres) : '—'}</div>
                       </div>
-                      <div>
-                        <div className="text-[10px] text-gg-gray-500">$/Acre</div>
-                        <div className="text-sm font-medium text-gg-pink">{fmt(t.pricePerAcre)}</div>
-                      </div>
+                      {(() => {
+                        // Owner 11/4: <10 ac or no ag type → the total, labelled as such.
+                        const rp = rowPrice(t)
+                        const total = rp.mode === 'total' && rp.totalPrice
+                        return (
+                          <div>
+                            <div className="text-[10px] text-gg-gray-500">{total ? totalLabelFor(rp) : '$/Acre'}</div>
+                            <div className="text-sm font-medium text-gg-pink">{fmt(total ? rp.totalPrice : rp.pricePerAcre)}</div>
+                          </div>
+                        )
+                      })()}
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Tillable</div>
                         <div className="text-sm font-medium">

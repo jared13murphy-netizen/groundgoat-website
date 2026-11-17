@@ -138,17 +138,13 @@ export function getListingTillableAcres(tracts?: { tillable_acres?: number; tota
 }
 
 function getListingAvgPricePerAcre(listing: Listing): { avg: number | null; isAverage: boolean } {
-  // Use listing-level price_per_acre if available
-  const listingPpa = toNum(listing.price_per_acre)
-  if (listingPpa) {
-    return { avg: listingPpa, isAverage: (listing.tract_count || 1) > 1 }
-  }
-  // Compute from tracts
-  if (!listing.tracts?.length) return { avg: null, isAverage: false }
-  const withPrice = listing.tracts.filter(t => toNum(t.price_per_acre))
-  if (withPrice.length === 0) return { avg: null, isAverage: false }
-  const avg = withPrice.reduce((sum, t) => sum + (toNum(t.price_per_acre) ?? 0), 0) / withPrice.length
-  return { avg: Math.round(avg), isAverage: withPrice.length > 1 }
+  // The listing's ONE $/acre (owner 11/17): the backend's figure — Σ price ÷
+  // Σ acres over its sold tracts that have a price (display_price_per_acre
+  // also carries the asking rate). Never a client average of tract $/acre,
+  // which weighted a 2-acre tract like a 500-acre one.
+  const listingPpa = toNum((listing as { display_price_per_acre?: number | null }).display_price_per_acre)
+    ?? toNum(listing.price_per_acre)
+  return { avg: listingPpa || null, isAverage: !!listingPpa && (listing.tract_count || 1) > 1 }
 }
 
 export function getListingSoilRating(tracts?: { tillable_acres?: number; total_acres?: number; soil_rating?: number; csr2?: number }[]): number | null {
@@ -362,7 +358,8 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           const ppa = getListingAvgPricePerAcre(listing)
           const date = formatDate(listing)
           // Owner 11/4: small or non-ag ground shows the total, labelled as such.
-          const lump = listingPriceMode(listing) === 'total' ? totalPriceOf(listing) : null
+          const lv = listing as { price_mode?: 'per_acre' | 'total'; display_total_price?: number | null }
+          const lump = (lv.price_mode ?? listingPriceMode(listing)) === 'total' ? (lv.display_total_price ?? totalPriceOf(listing)) : null
           if (!ppa.avg && !lump && !date) return null
           return (
             <div className="mt-3 pt-2 border-t border-white/15">

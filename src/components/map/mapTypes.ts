@@ -7,6 +7,14 @@ export interface ApiTract {
   tillable_acres: number | null
   sale_price: number | null
   price_per_acre: number | null
+  price_per_tillable_acre?: number | null
+  price_per_soil_rating?: number | null
+  soil_rating_type?: string | null
+  price_basis?: 'sold' | 'asking' | null
+  price_scope?: 'tract' | 'listing'
+  price_mode?: 'per_acre' | 'total'
+  display_price_per_acre?: number | null
+  display_total_price?: number | null
   sale_status: string | null
   latitude: number | null
   longitude: number | null
@@ -37,6 +45,14 @@ export interface MapTract {
   tillableAcres: number
   salePrice: number
   pricePerAcre: number
+  /** owner 11/4 rule + one price per tract (backend tract_price_fields) */
+  priceMode?: 'per_acre' | 'total'
+  priceBasis?: 'sold' | 'asking' | null
+  priceScope?: 'tract' | 'listing'
+  totalPrice?: number | null
+  pricePerTillableAcre?: number | null
+  pricePerSoilRating?: number | null
+  soilRatingType?: string | null
   status: string
   polygon: [number, number][] | [number, number][][] | null
   lat: number | null

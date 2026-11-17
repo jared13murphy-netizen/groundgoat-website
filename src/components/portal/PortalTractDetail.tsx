@@ -15,6 +15,7 @@ import NdviPanel from './NdviPanel'
 import AuctionCountdown from '../AuctionCountdown'
 import NotesTimeline from '@/components/notes/NotesTimeline'
 import { noteKeyForRow } from '@/lib/notes'
+import { rowPrice, totalLabelFor } from '@/lib/tractPrice'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -69,6 +70,9 @@ export interface TractSaleData {
   pricePerSoilRating?: number | null
   landType?: string | null
   landTypes?: string[] | null
+  /** The tract's ONE price (owner 11/17): the backend's display figures
+   *  (src/lib/tractPrice.ts apiTractPrice). Every renderer reads rowPrice(). */
+  price?: import('@/lib/priceRules').ResolvedTractPrice | null
   // Recorded county-recorder deed(s) folded into this tract on the comp
   // map because a Regrid parcel-sale-dot's centroid sits inside the
   // tract's own polygon — see ExploreMap.tsx's recomputeCoincidentDeeds /
@@ -398,6 +402,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
   }
 
   const statusKey = tract.saleStatus?.toLowerCase() || ''
+  const price = rowPrice(tract)
 
   return (
     <motion.div
@@ -434,11 +439,20 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
         })()}
       </div>
 
-      {/* Price/Acre highlight */}
-      {tract.pricePerAcre ? (
+      {/* Price highlight — the tract's ONE price (owner 11/17, rowPrice):
+          the record's $/acre, or the TOTAL (Sale / Asking Price) under the
+          owner's 11/4 rule (<10 ac or no ag land type). */}
+      {price.mode === 'total' && price.totalPrice ? (
         <div className="bg-gg-pink/10 rounded-xl p-4 border border-gg-pink/20">
-          <div className="text-[10px] text-gg-pink uppercase tracking-wider font-semibold">Price / Acre</div>
-          <div className="text-2xl font-bold text-gg-pink mt-1">{formatCurrency(tract.pricePerAcre)}/ac</div>
+          <div className="text-[10px] text-gg-pink uppercase tracking-wider font-semibold">{totalLabelFor(price)}</div>
+          <div className="text-2xl font-bold text-gg-pink mt-1">{formatCurrency(price.totalPrice)}</div>
+        </div>
+      ) : price.pricePerAcre ? (
+        <div className="bg-gg-pink/10 rounded-xl p-4 border border-gg-pink/20">
+          <div className="text-[10px] text-gg-pink uppercase tracking-wider font-semibold">
+            {price.basis === 'asking' ? 'Asking Price / Acre' : 'Price / Acre'}{price.scope === 'listing' ? ' (whole listing)' : ''}
+          </div>
+          <div className="text-2xl font-bold text-gg-pink mt-1">{formatCurrency(price.pricePerAcre)}/ac</div>
         </div>
       ) : null}
 
@@ -448,26 +462,12 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Acres</div>
           <div className="text-lg font-bold mt-1">{tract.totalAcres != null ? `${formatAcres(tract.totalAcres)} ac` : '—'}</div>
         </div>
-        {(() => {
-          const isPT = (tract.listingType || '').toLowerCase() === 'private_treaty'
-          if (tract.salePrice) {
-            return (
-              <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-                <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Sale Price</div>
-                <div className="text-lg font-bold mt-1">{formatCurrency(tract.salePrice)}</div>
-              </div>
-            )
-          }
-          if (isPT && tract.askingPrice) {
-            return (
-              <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
-                <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">Asking Price</div>
-                <div className="text-lg font-bold mt-1">{formatCurrency(tract.askingPrice)}</div>
-              </div>
-            )
-          }
-          return null
-        })()}
+        {price.totalPrice ? (
+          <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
+            <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">{totalLabelFor(price)}</div>
+            <div className="text-lg font-bold mt-1">{formatCurrency(price.totalPrice)}</div>
+          </div>
+        ) : null}
         {tract.tillableAcres ? (() => {
           const tillableFmt = formatTillable(tract.totalAcres, tract.tillableAcres, tract.pctTillable)
           return (
@@ -490,10 +490,6 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
 
       {/* Detail Rows */}
       {(() => {
-        const isPrivateTreaty = (tract.listingType || '').toLowerCase() === 'private_treaty'
-        const askingPpa = isPrivateTreaty && tract.askingPrice && tract.totalAcres
-          ? tract.askingPrice / tract.totalAcres
-          : null
         return (
           <div className="bg-white/[0.03] rounded-xl border border-white/5 divide-y divide-white/5">
             {/* Date — always show when we have one, regardless of PT vs
@@ -516,47 +512,26 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
                 valueClassName="text-sm font-medium"
               />
             )}
-            {/* Price rows — labels reflect the tract's sale_status:
+            {/* Price rows — the record's figures (rowPrice), labels by status:
                   sold     → "Sold Price"          + "Sold Price/Acre"
                   no_sale  → "Final Bid Price"     + "Final Bid Price/Acre"
-                  PT       → "Listing Total Price" + "Listing Price/Acre" */}
+                  asking   → "Listing Total Price" + "Listing Price/Acre"
+                             (a multi-tract listing's: "whole listing") */}
             {(() => {
               const status = (tract.saleStatus || '').toLowerCase()
-              const ppa = (val: number) => tract.totalAcres ? val / tract.totalAcres : null
-
-              if (status === 'sold' && tract.salePrice) {
-                const p = ppa(tract.salePrice)
-                return (
-                  <>
-                    <DetailRow label="Sold Price" value={formatCurrency(tract.salePrice)} highlight />
-                    {p != null ? (
-                      <DetailRow label="Sold Price/Acre" value={formatCurrency(p) + '/ac'} highlight />
-                    ) : null}
-                  </>
-                )
-              }
-              if (status === 'no_sale' && tract.salePrice) {
-                const p = ppa(tract.salePrice)
-                return (
-                  <>
-                    <DetailRow label="Final Bid Price" value={formatCurrency(tract.salePrice)} highlight />
-                    {p != null ? (
-                      <DetailRow label="Final Bid Price/Acre" value={formatCurrency(p) + '/ac'} highlight />
-                    ) : null}
-                  </>
-                )
-              }
-              if (isPrivateTreaty && tract.askingPrice) {
-                return (
-                  <>
-                    <DetailRow label="Listing Total Price" value={formatCurrency(tract.askingPrice)} highlight />
-                    {askingPpa ? (
-                      <DetailRow label="Listing Price/Acre" value={formatCurrency(askingPpa) + '/ac'} highlight />
-                    ) : null}
-                  </>
-                )
-              }
-              return null
+              const total = price.totalPrice
+              const ppa = price.mode === 'total' ? null : price.pricePerAcre
+              if (!total && !ppa) return null
+              const [tLabel, aLabel] = price.basis === 'asking'
+                ? [price.scope === 'listing' ? totalLabelFor(price).replace('Asking Price', 'Listing Total Price') : 'Listing Total Price', 'Listing Price/Acre']
+                : status === 'no_sale' ? ['Final Bid Price', 'Final Bid Price/Acre']
+                : ['Sold Price', 'Sold Price/Acre']
+              return (
+                <>
+                  {total ? <DetailRow label={tLabel} value={formatCurrency(total)} highlight /> : null}
+                  {ppa ? <DetailRow label={aLabel} value={formatCurrency(ppa) + '/ac'} highlight /> : null}
+                </>
+              )
             })()}
             {/* A tract the subscriber drew (Show My Project Maps) has no
                 listing company — the name here is their own project, so
@@ -574,18 +549,19 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             {tract.pctTillable ? (
               <DetailRow label="% Tillable" value={`${Math.round(tract.pctTillable)}%`} />
             ) : null}
-            {/* $/tillable acre — use askingPpa for PT, else pricePerAcre */}
-            {tract.tillableAcres && tract.totalAcres && (askingPpa || tract.pricePerAcre) ? (
+            {/* $/tillable acre + $/rating: the record's, under the one rule
+                (>= 1 ac and >= 25% tillable; rating >= 25%) — priceRules. */}
+            {price.pricePerTillableAcre ? (
               <DetailRow
                 label="$/Tillable Acre"
-                value={formatCurrency(((askingPpa || tract.pricePerAcre || 0) * tract.totalAcres) / tract.tillableAcres) + '/ac'}
+                value={formatCurrency(price.pricePerTillableAcre) + '/ac'}
                 highlight
               />
             ) : null}
-            {tract.soilRating && (askingPpa || tract.pricePerAcre) ? (
+            {price.pricePerSoilRating ? (
               <DetailRow
                 label={perSoilRatingLabel(tract)}
-                value={formatCurrency((askingPpa || tract.pricePerAcre || 0) / tract.soilRating)}
+                value={formatCurrency(price.pricePerSoilRating)}
               />
             ) : null}
           </div>

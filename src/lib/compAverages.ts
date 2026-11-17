@@ -108,8 +108,13 @@ export function summarizeComps(comps: CompAverageInput[]): CompSummary {
       anySale = true
       saleSum += sale
       if (acres) { ppaNum += sale; ppaDen += acres }
-      if (till && till >= 1) { pptaNum += sale; pptaDen += till } // owner 11/16: <1 tillable ac → no $/till
-      if (soil && acres) { ppsrNum += sale; ppsrDen += soil * acres }
+      // ONE rule (owner 11/17, = priceRules.ts pptaOk/ppratingOk and backend
+      // comps_summary): $/till only when tillable >= 1 ac AND >= 25% of the
+      // acres; $/rating only when tillable >= 25%. Copied, not imported (this
+      // module stays import-free for its node-runnable test).
+      const share = (till && acres) ? till / acres : 0
+      if (till && till >= 1 && share >= 0.25) { pptaNum += sale; pptaDen += till }
+      if (soil && acres && share >= 0.25) { ppsrNum += sale; ppsrDen += soil * acres }
     }
     if (soil && till) { soilNum += soil * till; soilDen += till; rated++ }
   }
