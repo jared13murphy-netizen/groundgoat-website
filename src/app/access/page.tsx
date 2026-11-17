@@ -32,6 +32,7 @@ import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 import { isAllowedForExplore, getAllowedStates, formatStateList } from '@/lib/stateAccess'
 import { countyFilterMatches } from '@/lib/countyFilter'
+import { useRightPanelInset } from '@/lib/useRightPanelInset'
 
 const ExploreMap = dynamic(() => import('@/components/map/ExploreMap'), { ssr: false })
 const Tract3DModal = dynamic(() => import('@/components/Tract3DModal'), { ssr: false })
@@ -447,6 +448,8 @@ function AccessPortalPageInner() {
   // True in either comp mode. ExploreMap keys comp mode off `subjectTractId`,
   // so a parcel subject hands it a non-tract sentinel (never a real tract id).
   const compModeOn = Boolean(subjectTractId || subjectParcel)
+  // Result bar stays over the visible map, off a right-docked panel's buttons (owner 11/17).
+  const rightInset = useRightPanelInset()
   const addAllOwnedLabel = addingAllOwned ? `Adding ${addingAllOwned.done}/${addingAllOwned.total}…` : 'Add All to Report'
   const canAddAllOwned = !!ownerParcelsResult?.data?.dots?.length && !compModeOn
   const [subjectTractLocation, setSubjectTractLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -1651,7 +1654,8 @@ function AccessPortalPageInner() {
           the same spot, for anyone who cannot see the chat panel. */}
       {!compModeOn && activeSearchQuery &&
         !(user?.can_use_goat_search || user?.account_type === 'groundgoat_admin') && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2">
+        <div className="fixed bottom-6 -translate-x-1/2 z-[540] flex flex-col items-center gap-2"
+          style={{ left: rightInset ? `calc((100vw - ${rightInset}px) / 2)` : '50%' }}>
           <div
             className="flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-full text-[12px] font-medium bg-black/70 border border-gg-pink/40 backdrop-blur-md text-white"
             style={{ maxWidth: 'min(520px, calc(100vw - 96px))', filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}

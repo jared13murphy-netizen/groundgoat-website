@@ -14,6 +14,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { computeTypedChars, typewriterRate } from '@/lib/typewriterProgress'
 import type { OwnerParcelsResponse } from '@/components/map/exploreMapTypes'
 import { STATE_NAMES } from '@/components/map/mapConstants'
+import { useRightPanelInset } from '@/lib/useRightPanelInset'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -214,6 +215,8 @@ function SearchSpinner({ dotClassName = 'bg-white' }: { dotClassName?: string })
 }
 
 export default function MapChatPanel({ allowedStates, onApplyFilters, onChatReportResult, currentFilters, hasActiveFilters, onSearchStart, onSearchEnd, mapSearchError, onOwnerParcels, onSearchQueryStart, activeSearchQuery, clearActiveSearch, addAllToReport = null, openSignal, hidden = false }: MapChatPanelProps) {
+  // Keep the result bar over the visible map, never on a right-docked panel's buttons (owner 11/17).
+  const rightInset = useRightPanelInset()
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -636,8 +639,11 @@ export default function MapChatPanel({ allowedStates, onApplyFilters, onChatRepo
   }
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[540] flex flex-col items-center gap-2"
-         style={hidden ? { opacity: 0, pointerEvents: 'none', transform: 'translate(-50%, 24px)', transition: 'opacity 180ms ease, transform 180ms ease' } : { transition: 'opacity 180ms ease, transform 180ms ease' }}>
+    <div className="fixed bottom-6 -translate-x-1/2 z-[540] flex flex-col items-center gap-2"
+         style={{
+           left: rightInset ? `calc((100vw - ${rightInset}px) / 2)` : '50%',
+           ...(hidden ? { opacity: 0, pointerEvents: 'none', transform: 'translate(-50%, 24px)', transition: 'opacity 180ms ease, transform 180ms ease' } : { transition: 'opacity 180ms ease, transform 180ms ease' }),
+         }}>
       {/* Toast + optional Clear-search link */}
       <AnimatePresence>
         {toast && (

@@ -112,6 +112,7 @@ import NotesPanel from '@/components/notes/NotesPanel'
 import { myMapsCounts, type MyMapsCounts } from '@/lib/configurableMapping'
 import { pinMinZoom, tileDotMinZoom, saleDotFade } from '@/lib/pinZooms'
 import { localIsoDate } from '@/lib/localDate'
+import { fmtSaleDate } from '@/lib/calendarDate'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -13810,11 +13811,9 @@ function _titleCase(s: string): string {
   return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
 }
 
+// Calendar day, never shifted a day by the viewer's time zone (owner 11/17).
 function _fmtDate(s: any): string | null {
-  if (!s) return null
-  const d = new Date(String(s))
-  if (isNaN(d.getTime())) return String(s)
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  return fmtSaleDate(s)
 }
 
 function _esc(s: any): string {
@@ -13980,9 +13979,7 @@ function _parcelSalePopupHTML(p: any): string {
   }
   const fmtDate = (s: any) => {
     if (!s) return '—'
-    const d = new Date(s)
-    if (isNaN(d.getTime())) return _esc(s)
-    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    return _esc(fmtSaleDate(s) ?? s)
   }
   const fmtAc = (n: any) => {
     if (n === null || n === undefined) return '—'

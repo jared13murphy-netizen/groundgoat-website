@@ -17,6 +17,8 @@ import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/s
 import SubjectStrip from './SubjectStrip'
 import CompSummaryGrid from '@/components/CompSummaryGrid'
 import type { TractSaleData } from './PortalTractDetail'
+import { fmtRowDate } from '@/lib/calendarDate'
+import { titleCase } from '@/components/map/parcelDetailFields'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -30,10 +32,10 @@ function fmtNum(val?: number | null): string {
   return val.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
+// A parcel sale's bare date is a calendar day; an auction's full timestamp
+// keeps the viewer's clock (owner 11/17: comp cards showed sales a day early).
 function fmtDate(dateStr?: string | null): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return fmtRowDate(dateStr) ?? '—'
 }
 
 // Regrid's ll_uuid is a standard-shaped UUID. A parcel row's `id` (see
@@ -219,7 +221,10 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       className="fixed top-0 left-0 bottom-0 w-[400px] z-[400] bg-black border-r border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
-      <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
+      {/* pt clears the floating top menu bar (bottom ≈63px): at 1280px and
+          narrower it sat on this header's close button and the user could
+          not leave comp mode (owner 11/17, Fortress Bank). */}
+      <div className="pt-[76px] px-5 pb-4 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between">
           <div>
             {/* One parcel or tract is not a comparison (owner 11/10). */}
@@ -251,7 +256,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
               const id = subjectInfo.tract_id || subjectInfo.subject_cm_id || subjectInfo.subject_ll_uuid || null
               return k && id ? <div className="mb-2"><CardThumb kind={k} id={String(id)} size={96} className="w-full !h-24 object-cover" /></div> : null })()}
             <div className="text-sm font-bold mb-1">
-              {subjectInfo.county}, {subjectInfo.state}
+              {titleCase(subjectInfo.county || '')}, {subjectInfo.state}
               {subjectInfo.subject_township ? ` \u00B7 ${subjectInfo.subject_township}` : ''}
             </div>
             {subjectInfo.subject_land_type && (
