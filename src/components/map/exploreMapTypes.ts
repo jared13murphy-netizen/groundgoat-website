@@ -28,6 +28,17 @@ export interface ApiMapTract {
   source_url: string | null
   land_type: string | null
   land_types: string[] | null
+  // ONE price per tract (owner 11/17 — backend price_display.tract_price_fields).
+  // asking_price above is the tract's OWN (single-tract listing) only.
+  price_basis?: 'sold' | 'asking' | null
+  price_scope?: 'tract' | 'listing'
+  price_mode?: 'per_acre' | 'total'
+  display_price_per_acre?: number | null
+  display_price_per_tillable_acre?: number | null
+  display_price_per_soil_rating?: number | null
+  display_total_price?: number | null
+  listing_asking_price?: number | null
+  listing_tract_count?: number | null
 }
 
 export interface MapTractsResponse {

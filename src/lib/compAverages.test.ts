@@ -83,4 +83,13 @@ test('under 1 tillable acre stays out of $/till (owner 11/16)', () => {
   assert.equal(summarizeComps([{ total_acres: 11.2, tillable_acres: 0.01, sale_price: 165000 }]).avgPricePerTillable, null)
 })
 
+test('owner 11/17: $/till and $/rating skip comps under 25% tillable', () => {
+  const s = summarizeComps([
+    ...FIXTURE,
+    { sale_price: 190000, total_acres: 38.9, tillable_acres: 5, soil_rating: 60 }, // 12.9% — timber
+  ])
+  near(s.avgPricePerTillable, 8500)      // unchanged by the timber comp
+  near(s.avgPricePerSoil, 1_020_000 / (100 * 40 + 110 * 80 + 90 * 60), 0.0001)
+})
+
 console.log(`${passed} passed`)

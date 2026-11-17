@@ -1,6 +1,7 @@
 import { STATUS_COLORS } from './mapConstants'
 import { formatAcres } from '@/lib/format'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
+import { gatedPpta, gatedPprating, totalLabelFor } from '@/lib/priceRules'
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return 'TBD'
@@ -23,33 +24,54 @@ function getStatusBadgeStyle(status: string): string {
 
 /** The two rate rows, shared by both popup builders.
  *
- *  $/tillable acre and $/rating describe CROP value, so both are hidden
- *  below 25% tillable — the same floor the parcel sheet and the slide-out
- *  panel use. Unguarded, a mostly-timber tract renders absurd figures: a
- *  97%-timber parcel produced $1,765,863,665 per tillable acre.
- *
- *  Share is computed from acres, never from pct_tillable, which is 0-100 in
- *  backfilled states and a 0-1 fraction elsewhere — keying the threshold off
- *  it would silently blank these rows outside IL/IA.
+ *  ONE rule for every surface (owner 11/17, src/lib/priceRules.ts — the
+ *  parcel panel's): $/tillable acre only when tillable is >= 1 ac AND >= 25%
+ *  of the acres; $/rating only when tillable is >= 25%. Unguarded, a
+ *  mostly-timber tract renders absurd figures ($1,765,863,665 per tillable
+ *  acre on a 97%-timber parcel). Share is computed from acres, never from
+ *  pct_tillable (0-100 in some states, a 0-1 fraction elsewhere).
  */
 function buildRateRows(props: Record<string, unknown>): string {
-  const totalAcres = (props.totalAcres as number) || 0
-  const tillableAcres = (props.tillableAcres as number) || 0
-  const perTillable = (props.pricePerTillableAcre as number) || 0
-  const perRating = (props.pricePerSoilRating as number) || 0
+  const totalAcres = props.totalAcres as number
+  const tillableAcres = props.tillableAcres as number
+  const perTillable = gatedPpta(props.pricePerTillableAcre as number, tillableAcres, totalAcres)
+  const perRating = gatedPprating(props.pricePerSoilRating as number, tillableAcres, totalAcres)
   const ratingType = props.soilRatingType as string
-  const share = (totalAcres > 0 && tillableAcres > 0) ? tillableAcres / totalAcres : 0
-  if (share < 0.25) return ''
   return `
-    ${perTillable > 0 ? `
+    ${perTillable ? `
     <div class="tract-popup-row">
       <span class="tract-popup-label">Price/Tillable Acre</span>
       <span class="tract-popup-value">${formatCurrency(perTillable)}</span>
     </div>` : ''}
-    ${perRating > 0 && ratingType ? `
+    ${perRating && ratingType ? `
     <div class="tract-popup-row">
       <span class="tract-popup-label">Price/${ratingType}</span>
       <span class="tract-popup-value">${formatCurrency(perRating)}</span>
+    </div>` : ''}`
+}
+
+/** Price/Acre + the total, by the owner's 11/4 rule (priceMode 'total' →
+ *  the total price only, labelled Sale / Asking Price). */
+function buildPriceRows(props: Record<string, unknown>): string {
+  const mode = props.priceMode as string | undefined
+  const ppa = props.pricePerAcre as number
+  const salePrice = props.salePrice as number
+  const total = (props.totalPrice as number) || salePrice
+  const label = totalLabelFor({
+    basis: (props.priceBasis as 'sold' | 'asking' | null) ?? (salePrice > 0 ? 'sold' : null),
+    scope: props.priceScope === 'listing' ? 'listing' : 'tract',
+    listingTractCount: null,
+  })
+  return `
+    ${mode !== 'total' && ppa > 0 ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">Price/Acre</span>
+      <span class="tract-popup-value">${formatCurrency(ppa)}</span>
+    </div>` : ''}
+    ${total > 0 ? `
+    <div class="tract-popup-row">
+      <span class="tract-popup-label">${label}</span>
+      <span class="tract-popup-value">${formatCurrency(total)}</span>
     </div>` : ''}`
 }
 
@@ -60,8 +82,6 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
   const companyName = props.companyName as string
   const auctionDate = props.auctionDate as string
   const status = props.status as string
-  const pricePerAcre = props.pricePerAcre as number
-  const salePrice = props.salePrice as number
   const tillableAcres = props.tillableAcres as number
   const pricePerTillableAcre = props.pricePerTillableAcre as number
   const pricePerSoilRating = props.pricePerSoilRating as number
@@ -93,16 +113,7 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
       <span class="tract-popup-label">Acres</span>
       <span class="tract-popup-value">${formatAcres(totalAcres)}</span>
     </div>` : ''}
-    ${pricePerAcre > 0 ? `
-    <div class="tract-popup-row">
-      <span class="tract-popup-label">Price/Acre</span>
-      <span class="tract-popup-value">${formatCurrency(pricePerAcre)}</span>
-    </div>` : ''}
-    ${salePrice > 0 ? `
-    <div class="tract-popup-row">
-      <span class="tract-popup-label">Sale Price</span>
-      <span class="tract-popup-value">${formatCurrency(salePrice)}</span>
-    </div>` : ''}
+    ${buildPriceRows(props)}
     ${rateRows}
     <div class="tract-popup-row">
       <span class="tract-popup-label">Auction</span>
@@ -122,8 +133,6 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
   const companyName = props.companyName as string
   const auctionDate = props.auctionDate as string
   const status = props.status as string
-  const pricePerAcre = props.pricePerAcre as number
-  const salePrice = props.salePrice as number
   const county = props.county as string
   const state = props.state as string
   const rawTownship = props.township as string
@@ -156,16 +165,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
       <span class="tract-popup-label">Tillable</span>
       <span class="tract-popup-value">${pctTillable}%</span>
     </div>` : ''}
-    ${pricePerAcre > 0 ? `
-    <div class="tract-popup-row">
-      <span class="tract-popup-label">Price/Acre</span>
-      <span class="tract-popup-value">${formatCurrency(pricePerAcre)}</span>
-    </div>` : ''}
-    ${salePrice > 0 ? `
-    <div class="tract-popup-row">
-      <span class="tract-popup-label">Sale Price</span>
-      <span class="tract-popup-value">${formatCurrency(salePrice)}</span>
-    </div>` : ''}
+    ${buildPriceRows(props)}
     ${rateRows}
     ${soilRating ? `
     <div class="tract-popup-row">

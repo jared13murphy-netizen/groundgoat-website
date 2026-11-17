@@ -756,30 +756,20 @@ export default function ControlCenterPage() {
     const allTracts = listing.tracts || []
     let totalSalePrice = 0
     let newListingTotalAcres = 0
-    let totalTillableAcres = 0
-    let weightedSoilRatingSum = 0
-    let soilRatingAcresSum = 0
     allTracts.forEach(t => {
       const tState = tractStatesNow[t.id]
       const tractAcres = tState?.totalAcres || t.total_acres || 0
-      const tractTillable = tState?.tillableAcres || t.tillable_acres || 0
-      const tractSoilRating = tState?.soilRating ?? t.soil_rating ?? null
       newListingTotalAcres += tractAcres
-      totalTillableAcres += tractTillable
-      if (tractSoilRating && tractSoilRating > 0 && tractAcres > 0) {
-        weightedSoilRatingSum += tractSoilRating * tractAcres
-        soilRatingAcresSum += tractAcres
-      }
       const tractSalePrice = tState
         ? computePrices(tState, tractAcres).salePrice
         : Number(t.sale_price || 0)
       totalSalePrice += tractSalePrice
     })
     const listingStatus = calculateListingStatus(allTracts, tractStatesNow, listing.status)
-    const listingPricePerAcre = newListingTotalAcres > 0 ? Math.round(totalSalePrice / newListingTotalAcres) : null
-    const listingPPTA = totalTillableAcres > 0 ? Math.round(totalSalePrice / totalTillableAcres) : null
-    const weightedAvgSoilRating = soilRatingAcresSum > 0 ? weightedSoilRatingSum / soilRatingAcresSum : null
-    const listingPPSR = totalSalePrice && weightedAvgSoilRating ? Math.round(totalSalePrice / weightedAvgSoilRating) : null
+    // Listing $/acre, $/tillable and $/rating are NOT sent (owner 11/17):
+    // this screen divided by ALL tract acres and its value won, so Ranch and
+    // Farm a7be9d34 read $2,052/ac for a $48,977/ac sale. The backend derives
+    // them from the saved tracts (recalculate_listing_totals) — one formula.
 
     // Only include sold_acres when the listing has fully closed. Every tract must
     // have a final status (Sold or No Sale) AND the resolved listing status must
@@ -796,9 +786,6 @@ export default function ControlCenterPage() {
     return {
       body: {
         sale_price: totalSalePrice,
-        price_per_acre: listingPricePerAcre,
-        price_per_tillable_acre: listingPPTA,
-        price_per_soil_rating: listingPPSR,
         status: toDbStatus(listingStatus),
         ...soldAcresPayload,
         total_acres: newListingTotalAcres,
@@ -857,16 +844,15 @@ export default function ControlCenterPage() {
         const tState = tractStates[tract.id]
         if (!tState) continue
         const { salePrice, pricePerAcre } = computePrices(tState, tState.totalAcres)
-        const tractPPTA = tState.tillableAcres > 0 ? Math.round(salePrice / tState.tillableAcres) : null
-        const tractPPSR = tState.soilRating && tState.soilRating > 0 && salePrice ? Math.round(salePrice / tState.soilRating) : null
+        // $/tillable acre and $/rating point are derived by the backend
+        // (price_display.tract_rates) — never sent from here (owner 11/17:
+        // sale ÷ rating was written as $/rating point on 75 tracts).
         const tractRes = await fetch(`${API_URL}/api/tracts/${tract.id}`, {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sale_price: salePrice,
             price_per_acre: pricePerAcre,
-            price_per_tillable_acre: tractPPTA,
-            price_per_soil_rating: tractPPSR,
             sale_status: toDbStatus(tState.status),
             total_acres: tState.totalAcres,
             tillable_acres: tState.tillableAcres,
@@ -997,16 +983,15 @@ export default function ControlCenterPage() {
         const tState = tractStates[tract.id]
         if (!tState) continue
         const { salePrice, pricePerAcre } = computePrices(tState, tState.totalAcres)
-        const tractPPTA = tState.tillableAcres > 0 ? Math.round(salePrice / tState.tillableAcres) : null
-        const tractPPSR = tState.soilRating && tState.soilRating > 0 && salePrice ? Math.round(salePrice / tState.soilRating) : null
+        // $/tillable acre and $/rating point are derived by the backend
+        // (price_display.tract_rates) — never sent from here (owner 11/17:
+        // sale ÷ rating was written as $/rating point on 75 tracts).
         const tractRes = await fetch(`${API_URL}/api/tracts/${tract.id}`, {
           method: 'PATCH',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sale_price: salePrice,
             price_per_acre: pricePerAcre,
-            price_per_tillable_acre: tractPPTA,
-            price_per_soil_rating: tractPPSR,
             sale_status: toDbStatus(tState.status),
             total_acres: tState.totalAcres,
             tillable_acres: tState.tillableAcres,

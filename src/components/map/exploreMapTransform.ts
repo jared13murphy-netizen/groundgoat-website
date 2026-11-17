@@ -4,6 +4,25 @@ import { STATE_ABBR, STATE_BOUNDS, STATE_CENTERS, STATE_NAMES, derivePinStatus }
 import { formatAcres } from '@/lib/format'
 import { resolveTractDotLngLat } from '@/lib/polygonCentroid'
 import { toRings } from '@/lib/polygonRings'
+import { resolveTractPrice, totalLabelFor, type ResolvedTractPrice } from '@/lib/priceRules'
+import { tractPriceMode } from '@/lib/priceDisplay'
+
+/** The tract's one price (owner 11/17): the backend's display figures — sale
+ *  wins, else asking; a multi-tract listing's asking is the LISTING's $/ac,
+ *  never its whole asking price over one tract's acres — and the owner's
+ *  11/4 rule (<10 ac or no ag type → the total price, not $/ac). */
+export function tractPinPrice(t: ApiMapTract): { price: ResolvedTractPrice; label: string | null } {
+  const price = resolveTractPrice(t, tractPriceMode(t))
+  let label: string | null = null
+  if (price.mode === 'total') {
+    if (price.totalPrice) label = fmtCurrency(price.totalPrice)
+  } else if (price.pricePerAcre) {
+    label = `${fmtCurrency(price.pricePerAcre)}/ac`
+  }
+  return { price, label }
+}
+
+export { totalLabelFor }
 
 function getStateAbbr(state: string): string {
   return STATE_ABBR[state] || state
@@ -83,22 +102,19 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
       const hasPolygon = rings.length > 0
       const dataResolution = hasPolygon ? 'polygon' : 'point'
 
-      // Private-treaty listings (status=listed) show asking-price/acre.
-      // Pending auctions also fall back to asking_price/acre when set.
-      // Otherwise use the recorded sale_price/acre.
-      const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
-      const isPending = t.sale_status?.toLowerCase() === 'pending'
-      const displayPricePerAcre = (isPrivateTreaty || isPending) && t.asking_price && t.total_acres
-        ? t.asking_price / t.total_acres
-        : t.price_per_acre
+      // The tract's one price (tractPinPrice): sale wins, else asking; a
+      // multi-tract listing shows the listing's asking $/ac; <10 ac or no
+      // ag type shows the total price.
+      const { price, label: priceLabel } = tractPinPrice(t)
+      const displayPricePerAcre = price.pricePerAcre
 
-      // Pre-format the label exactly as the old DOM marker did:
-      //   line 1: "$1,234/ac"  (only when pricePerAcre is truthy)
+      // Pre-format the label:
+      //   line 1: "$1,234/ac" (or "$117,000" in total mode)
       //   line 2: "123.4 ac"   (only when total_acres is truthy)
       // The native tract-pin-labels symbol layer renders this string
       // verbatim via text-field=['get','pinLabel'].
       const labelLines: string[] = []
-      if (displayPricePerAcre) labelLines.push(`${fmtCurrency(displayPricePerAcre)}/ac`)
+      if (priceLabel) labelLines.push(priceLabel)
       if (t.total_acres) labelLines.push(`${fmtAcres(t.total_acres)} ac`)
       const pinLabel = labelLines.join('\n')
 
@@ -120,6 +136,12 @@ export function buildExplorePointGeoJSON(tracts: ApiMapTract[]): GeoJSON.Feature
           salePrice: t.sale_price,
           pricePerAcre: displayPricePerAcre,
           askingPrice: t.asking_price,
+          priceMode: price.mode,
+          priceBasis: price.basis,
+          priceScope: price.scope,
+          totalPrice: price.totalPrice,
+          pricePerTillableAcre: price.pricePerTillableAcre,
+          pricePerSoilRating: price.pricePerSoilRating,
           status: derivePinStatus(t.sale_status, t.listing_type),
           dataResolution,
           companyName: t.company_name || 'Unknown',
@@ -155,14 +177,10 @@ export function buildTodayPointGeoJSON(tracts: ApiMapTract[]): GeoJSON.FeatureCo
     if (lng == null || lat == null) continue
     ;[lng, lat] = applyColocationOffset(lat, lng, coordCounts)
 
-    const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
-    const isPending = (t.sale_status || '').toLowerCase() === 'pending'
-    const ppa = (isPrivateTreaty || isPending) && t.asking_price && t.total_acres
-      ? t.asking_price / t.total_acres
-      : t.price_per_acre ?? null
+    const { label: priceLabel } = tractPinPrice(t)
 
     const labelLines: string[] = []
-    if (ppa) labelLines.push(`${fmtCurrency(ppa)}/ac`)
+    if (priceLabel) labelLines.push(priceLabel)
     if (t.total_acres) labelLines.push(`${fmtAcres(t.total_acres)} ac`)
 
     features.push({
@@ -194,12 +212,9 @@ export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.Featu
         ? { type: 'Polygon' as const, coordinates: [rings[0]] }
         : { type: 'MultiPolygon' as const, coordinates: rings.map(r => [r]) }
 
-      // Same display-price-per-acre rule as the point layer
-      const isPrivateTreaty = (t.listing_type || '').toLowerCase() === 'private_treaty'
-      const isPending = t.sale_status?.toLowerCase() === 'pending'
-      const displayPricePerAcre = (isPrivateTreaty || isPending) && t.asking_price && t.total_acres
-        ? t.asking_price / t.total_acres
-        : t.price_per_acre
+      // Same one price as the point layer
+      const { price } = tractPinPrice(t)
+      const displayPricePerAcre = price.pricePerAcre
 
       return {
         type: 'Feature' as const,
@@ -211,6 +226,10 @@ export function buildExplorePolygonGeoJSON(tracts: ApiMapTract[]): GeoJSON.Featu
           status: derivePinStatus(t.sale_status, t.listing_type),
           totalAcres: t.total_acres,
           pricePerAcre: displayPricePerAcre,
+          priceMode: price.mode,
+          priceBasis: price.basis,
+          priceScope: price.scope,
+          totalPrice: price.totalPrice,
           salePrice: t.sale_price,
           askingPrice: t.asking_price,
           listingType: t.listing_type,

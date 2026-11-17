@@ -1,5 +1,6 @@
 'use client'
 
+import { pptaOk, ppratingOk } from '@/lib/priceRules'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { ArrowLeft, Mail, Download, Check } from 'lucide-react'
@@ -116,9 +117,9 @@ export default function ComparablesReportPage({ params }: { params: { id: string
       pct_tillable: c.tillable_acres && c.total_acres ? Math.round((c.tillable_acres / c.total_acres) * 100) : null,
       soil_rating: c.soil_rating,
       price_per_acre: c.price_per_acre,
-      price_per_tillable_acre: c.tillable_acres && c.total_acres && c.price_per_acre && c.tillable_acres >= 1
-        ? (c.price_per_acre * c.total_acres) / c.tillable_acres : null,
-      price_per_soil_rating: c.soil_rating && c.price_per_acre && c.soil_rating > 0
+      price_per_tillable_acre: c.price_per_acre && c.total_acres && pptaOk(c.tillable_acres, c.total_acres)
+        ? (c.price_per_acre * c.total_acres) / c.tillable_acres! : null,
+      price_per_soil_rating: c.soil_rating && c.price_per_acre && c.soil_rating > 0 && ppratingOk(c.tillable_acres, c.total_acres)
         ? c.price_per_acre / c.soil_rating : null,
       sale_price: c.sale_price,
       auction_date: c.auction_date,
@@ -221,9 +222,10 @@ export default function ComparablesReportPage({ params }: { params: { id: string
         <div className="space-y-3 mb-6">
           {comparables.map(c => {
             const pctTillable = c.tillable_acres && c.total_acres ? Math.round((c.tillable_acres / c.total_acres) * 100) : null
-            const pricePerTillable = c.tillable_acres && c.total_acres && c.price_per_acre
-              ? (c.price_per_acre * c.total_acres) / c.tillable_acres : null
-            const pricePerSoil = c.soil_rating && c.price_per_acre ? c.price_per_acre / c.soil_rating : null
+            // One rule (owner 11/17, priceRules): >= 1 ac and >= 25% tillable.
+            const pricePerTillable = c.price_per_acre && c.total_acres && pptaOk(c.tillable_acres, c.total_acres)
+              ? (c.price_per_acre * c.total_acres) / c.tillable_acres! : null
+            const pricePerSoil = c.soil_rating && c.price_per_acre && ppratingOk(c.tillable_acres, c.total_acres) ? c.price_per_acre / c.soil_rating : null
 
             return (
               <div key={c.id} className="bg-gg-gray-900 rounded-xl p-4">

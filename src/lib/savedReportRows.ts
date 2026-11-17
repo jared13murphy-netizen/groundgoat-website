@@ -7,11 +7,13 @@ import { buildParcelReportRow } from '@/lib/parcelReportRow'
 import { buildSavedReportRow } from '@/lib/savedTractRow'
 import { getSavedTractDetail, type SavedReportRow } from '@/lib/configurableMapping'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
+import { apiTractPrice } from '@/lib/tractPrice'
 
 export function tractRowFromApi(t: any): TractSaleData {
-  const isPT = (t.listing_type || '').toLowerCase() === 'private_treaty'
-  const isPending = (t.sale_status || '').toLowerCase() === 'pending'
-  const ppa = (isPT || isPending) && t.asking_price && t.total_acres ? t.asking_price / t.total_acres : (t.price_per_acre ?? null)
+  // The tract's ONE price (owner 11/17): the backend's figures — never a
+  // multi-tract listing's whole asking price over this tract's acres.
+  const price = apiTractPrice(t)
+  const ppa = price.pricePerAcre
   return {
     id: String(t.id),
     listingId: t.listing_id ?? null,
@@ -27,8 +29,11 @@ export function tractRowFromApi(t: any): TractSaleData {
     longitude: t.longitude ?? null,
     salePrice: t.sale_price ?? null,
     pricePerAcre: ppa,
-    pricePerTillableAcre: t.price_per_tillable_acre ?? null,
-    pricePerSoilRating: t.price_per_soil_rating ?? null,
+    pricePerTillableAcre: price.pricePerTillableAcre,
+    pricePerSoilRating: price.pricePerSoilRating,
+    price,
+    landType: t.land_type ?? null,
+    landTypes: t.land_types ?? null,
     county: t.county || '',
     state: t.state || '',
     township: t.township ?? null,

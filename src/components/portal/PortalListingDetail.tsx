@@ -16,7 +16,8 @@ import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { getListingTillableAcres, getListingSoilRating } from './PortalListPanel'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import AuctionCountdown from '../AuctionCountdown'
-import { listingPriceMode, tractPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
+import { listingPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
+import { apiTractPrice, totalLabelFor } from '@/lib/tractPrice'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
@@ -51,6 +52,12 @@ interface Tract {
   price_per_acre?: number
   price_per_tillable_acre?: number
   price_per_soil_rating?: number
+  // ONE price per tract (owner 11/17, backend tract_price_fields)
+  price_basis?: 'sold' | 'asking' | null
+  price_scope?: 'tract' | 'listing'
+  price_mode?: 'per_acre' | 'total'
+  display_price_per_acre?: number | null
+  display_total_price?: number | null
   estimated_value_per_acre?: number
   estimate_confidence?: number
   image_url?: string
@@ -82,6 +89,10 @@ interface Listing {
   asking_price?: number
   sale_price?: number
   price_per_acre?: number
+  price_basis?: 'sold' | 'asking' | null
+  price_mode?: 'per_acre' | 'total'
+  display_price_per_acre?: number | null
+  display_total_price?: number | null
   description?: string
   company?: Company
   company_name?: string
@@ -186,6 +197,9 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
   }
 
   const getPricePerAcre = () => {
+    // The listing's ONE $/acre (owner 11/17): the backend's display figure —
+    // Σ price ÷ Σ acres over the sold tracts that have a price, else asking.
+    if (listing?.display_price_per_acre) return listing.display_price_per_acre
     if (listing?.price_per_acre) return listing.price_per_acre
     const acres = getTotalAcres()
     if (listing?.sale_price && acres) return listing.sale_price / acres
@@ -306,7 +320,8 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
         )}
         {(() => {
           // Owner 11/4: small or non-ag ground shows the total, labelled as such.
-          const lump = listingPriceMode(listing) === 'total' ? totalPriceOf(listing) : null
+          const lump = (listing.price_mode ?? listingPriceMode(listing)) === 'total'
+            ? (listing.display_total_price ?? totalPriceOf(listing)) : null
           if (lump) return (
             <div className="text-center">
               <div className="text-lg font-bold text-gg-pink">{formatCurrency(lump)}</div>
@@ -489,6 +504,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             {/* Always numerical order, Tract 1 first (owner 9/11): the API now
                 orders them too, but never trust payload order for this. */}
             {[...listing.tracts].sort((a, b) => (a.tract_number || 0) - (b.tract_number || 0)).map((tract, index) => {
+              const tractPrice = apiTractPrice(tract)
               const handleTractClick = () => {
                 if (onTractSelected) {
                   // Mirror the field shape that ExploreMap.createMarker
@@ -508,10 +524,13 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                     pctTillable: tract.pct_tillable,
                     companyName: getCompanyName(),
                     salePrice: tract.sale_price,
-                    askingPrice: tract.asking_price ?? listing.asking_price,
-                    pricePerAcre: tract.sale_price && tract.total_acres ? tract.sale_price / tract.total_acres : tract.price_per_acre,
-                    pricePerTillableAcre: tract.price_per_tillable_acre,
-                    pricePerSoilRating: tract.price_per_soil_rating,
+                    // The tract's ONE price (owner 11/17): never the
+                    // listing's whole asking price as this tract's.
+                    askingPrice: tract.price_scope === 'listing' ? null : (tract.asking_price ?? (listing.tracts?.length === 1 ? listing.asking_price : null)),
+                    pricePerAcre: tractPrice.pricePerAcre,
+                    pricePerTillableAcre: tractPrice.pricePerTillableAcre,
+                    pricePerSoilRating: tractPrice.pricePerSoilRating,
+                    price: tractPrice,
                     county: listing.county,
                     state: listing.state,
                     township: tract.township,
@@ -593,15 +612,15 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                           <div className="text-[10px] text-gg-gray-300">{soilRatingLabel(tract)}</div>
                         </div>
                       ) : null}
-                      {tractPriceMode(tract) === 'total' && totalPriceOf(tract) ? (
+                      {tractPrice.mode === 'total' && tractPrice.totalPrice ? (
                         <div>
-                          <div className="text-sm font-semibold text-gg-pink">{formatCurrency(totalPriceOf(tract)!)}</div>
-                          <div className="text-[10px] text-gg-gray-300">{totalPriceLabel((tract as { price_basis?: 'sold' | 'asking' | null }).price_basis ?? (tract.sale_price ? 'sold' : 'asking'))}</div>
+                          <div className="text-sm font-semibold text-gg-pink">{formatCurrency(tractPrice.totalPrice)}</div>
+                          <div className="text-[10px] text-gg-gray-300">{totalLabelFor(tractPrice)}</div>
                         </div>
-                      ) : tract.sale_price && tract.total_acres ? (
+                      ) : tractPrice.pricePerAcre ? (
                         <div>
-                          <div className="text-sm font-semibold text-gg-pink">{formatCurrency(tract.sale_price / tract.total_acres)}</div>
-                          <div className="text-[10px] text-gg-gray-300">$/Acre</div>
+                          <div className="text-sm font-semibold text-gg-pink">{formatCurrency(tractPrice.pricePerAcre)}</div>
+                          <div className="text-[10px] text-gg-gray-300">{tractPrice.basis === 'asking' ? 'Asking $/Acre' : '$/Acre'}{tractPrice.scope === 'listing' ? ' (listing)' : ''}</div>
                         </div>
                       ) : null}
                     </div>

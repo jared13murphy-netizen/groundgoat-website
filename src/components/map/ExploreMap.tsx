@@ -113,6 +113,7 @@ import { myMapsCounts, type MyMapsCounts } from '@/lib/configurableMapping'
 import { pinMinZoom, tileDotMinZoom, saleDotFade } from '@/lib/pinZooms'
 import { localIsoDate } from '@/lib/localDate'
 import { fmtSaleDate } from '@/lib/calendarDate'
+import { apiTractPrice, rowPrice, totalLabelFor } from '@/lib/tractPrice'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -1015,6 +1016,8 @@ export interface SaleDetail {
   pctTillable?: number | null
   pricePerTillableAcre?: number | null
   pricePerSoilRating?: number | null
+  /** The tract's ONE price (owner 11/17, src/lib/tractPrice.ts). */
+  price?: import('@/lib/priceRules').ResolvedTractPrice | null
   sourceUrl?: string | null
   // Recorded county-recorder deed(s) folded into this tract because a
   // Regrid parcel-sale-dot's centroid sits inside the tract's own
@@ -2513,6 +2516,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
   }, [])
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null)
+  // The sale modal's ONE price (owner 11/17): rowPrice reads the record's
+  // figures under the shared rules (src/lib/tractPrice.ts).
+  const saleModalPrice = rowPrice(selectedSale ?? {})
   // Owner 11/2: a click on one of the user's OWN saved tracts opens the
   // Saved Tract slide-out (all details + reports), like Tract Details.
   const [savedTractOpen, setSavedTractOpen] = useState<{ id: string } | null>(null)
@@ -10359,16 +10365,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // handler (+ Report in the slide-out) and drag-to-report, so a dragged
   // tract is byte-identical to a clicked one.
   const buildTractSaleDetail = (tract: ApiMapTract): SaleDetail => {
-  // Same display-price-per-acre + basis rule as the old DOM loop.
-  const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-  const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
-  const markerPpa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
-    ? tract.asking_price / tract.total_acres
-    : tract.price_per_acre
-  const markerBasis: 'sold' | 'asking' | null =
-    ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
-      ? 'asking'
-      : (tract.price_per_acre ? 'sold' : null)
+  // The tract's ONE price (owner 11/17): the backend's display figures —
+  // never the listing's asking price over this tract's acres.
+  const price = apiTractPrice(tract)
+  const markerPpa = price.pricePerAcre
+  const markerBasis = price.basis
 
   return {
     id: tract.id,
@@ -10397,8 +10398,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     landType: tract.land_type,
     landTypes: tract.land_types,
     pctTillable: tract.pct_tillable,
-    pricePerTillableAcre: tract.price_per_tillable_acre,
-    pricePerSoilRating: tract.price_per_soil_rating,
+    pricePerTillableAcre: price.pricePerTillableAcre,
+    pricePerSoilRating: price.pricePerSoilRating,
+    price,
     sourceUrl: tract.source_url,
     // Coincident recorded deed(s) — see recomputeCoincidentDeeds. Read
     // from the ref (not the `tractDeeds` state directly) because this
@@ -10576,15 +10578,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!tract) return
 
     if (portalMode && onTractSelected) {
-      const isPrivateTreaty = (tract.listing_type || '').toLowerCase() === 'private_treaty'
-      const isPending = (tract.sale_status || '').toLowerCase() === 'pending'
-      const ppa = (isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres
-        ? tract.asking_price / tract.total_acres
-        : tract.price_per_acre ?? null
-      const ppaBasis: 'sold' | 'asking' | null =
-        ((isPrivateTreaty || isPending) && tract.asking_price && tract.total_acres)
-          ? 'asking'
-          : (tract.price_per_acre ? 'sold' : null)
+      const price = apiTractPrice(tract)
+      const ppa = price.pricePerAcre
+      const ppaBasis = price.basis
       // Task #26 (one click, one panel): tract is top priority — opening
       // the portal Tract Detail panel must close the parcel/land panel
       // and any comp popup left over from a previous click.
@@ -10617,8 +10613,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         landType: tract.land_type,
         landTypes: tract.land_types,
         pctTillable: tract.pct_tillable,
-        pricePerTillableAcre: tract.price_per_tillable_acre,
-        pricePerSoilRating: tract.price_per_soil_rating,
+        pricePerTillableAcre: price.pricePerTillableAcre,
+        pricePerSoilRating: price.pricePerSoilRating,
+        price,
         sourceUrl: tract.source_url,
         deeds: tractDeedsRef.current.get(tract.id),
       }
@@ -13449,13 +13446,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   <span className="sale-modal-value">{selectedSale.companyName}</span>
                 </div>
               )}
-              {selectedSale.salePrice ? (
+              {/* The row's ONE price (owner 11/17, rowPrice): total + $/acre
+                  from the record; <10 ac or no ag type → the total only. */}
+              {saleModalPrice.totalPrice ? (
                 <div className="sale-modal-row">
-                  <span className="sale-modal-label">Total Sale Price</span>
-                  <span className="sale-modal-value">{formatCurrency(selectedSale.salePrice)}</span>
+                  <span className="sale-modal-label">{saleModalPrice.basis === 'asking' ? totalLabelFor(saleModalPrice) : 'Total Sale Price'}</span>
+                  <span className="sale-modal-value">{formatCurrency(saleModalPrice.totalPrice)}</span>
                 </div>
               ) : null}
-              {selectedSale.pricePerAcre ? (
+              {saleModalPrice.mode !== 'total' && saleModalPrice.pricePerAcre ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">
                     Price/Acre
@@ -13465,7 +13464,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       </span>
                     )}
                   </span>
-                  <span className="sale-modal-value">{formatCurrency(selectedSale.pricePerAcre)}/ac</span>
+                  <span className="sale-modal-value">{formatCurrency(saleModalPrice.pricePerAcre)}/ac</span>
                 </div>
               ) : null}
               <div className="sale-modal-row">
@@ -13486,7 +13485,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   <span className="sale-modal-value">{formatTillable(selectedSale.totalAcres, selectedSale.tillableAcres, selectedSale.pctTillable).inlineText}</span>
                 </div>
               ) : null}
-              {selectedSale.tillableAcres && selectedSale.pricePerAcre && selectedSale.totalAcres ? (
+              {saleModalPrice.pricePerTillableAcre ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">
                     $/Tillable Acre
@@ -13496,10 +13495,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       </span>
                     )}
                   </span>
-                  <span className="sale-modal-value">{formatCurrency((selectedSale.pricePerAcre * selectedSale.totalAcres) / selectedSale.tillableAcres)}/ac</span>
+                  <span className="sale-modal-value">{formatCurrency(saleModalPrice.pricePerTillableAcre)}/ac</span>
                 </div>
               ) : null}
-              {selectedSale.soilRating && selectedSale.pricePerAcre ? (
+              {saleModalPrice.pricePerSoilRating ? (
                 <div className="sale-modal-row">
                   <span className="sale-modal-label">
                     {perSoilRatingLabel(selectedSale)}
@@ -13509,7 +13508,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                       </span>
                     )}
                   </span>
-                  <span className="sale-modal-value">{formatCurrency(selectedSale.pricePerAcre / selectedSale.soilRating)}</span>
+                  <span className="sale-modal-value">{formatCurrency(saleModalPrice.pricePerSoilRating)}</span>
                 </div>
               ) : null}
 
