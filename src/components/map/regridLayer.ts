@@ -12,6 +12,7 @@
  */
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
+import { fmtSaleDate } from '@/lib/calendarDate'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -85,11 +86,9 @@ function fmtAcres(n: any): string | null {
   if (!isFinite(v) || v <= 0) return null
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
 }
+// Calendar day, never shifted a day by the viewer's time zone (owner 11/17).
 function fmtDate(s: any): string | null {
-  if (!s) return null
-  const d = new Date(String(s))
-  if (isNaN(d.getTime())) return String(s)
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  return fmtSaleDate(s)
 }
 function esc(s: any): string {
   if (s === null || s === undefined) return ''

@@ -17,6 +17,7 @@ import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/s
 import SubjectStrip from './SubjectStrip'
 import CompSummaryGrid from '@/components/CompSummaryGrid'
 import type { TractSaleData } from './PortalTractDetail'
+import { fmtRowDate } from '@/lib/calendarDate'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -30,10 +31,10 @@ function fmtNum(val?: number | null): string {
   return val.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
+// A parcel sale's bare date is a calendar day; an auction's full timestamp
+// keeps the viewer's clock (owner 11/17: comp cards showed sales a day early).
 function fmtDate(dateStr?: string | null): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return fmtRowDate(dateStr) ?? '—'
 }
 
 // Same signal as PortalComparablesReportPanel.tsx — `tracts` here is fed
@@ -211,7 +212,10 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       className="fixed top-0 right-0 bottom-0 w-[480px] z-[400] bg-gg-gray-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl flex flex-col"
     >
       {/* Header */}
-      <div className="pt-8 px-5 pb-4 border-b border-white/5 shrink-0">
+      {/* pt clears the floating top menu bar (bottom ≈63px): at 1280px and
+          narrower it sat on this header's close button and the user could
+          not leave comp mode (owner 11/17, Fortress Bank). */}
+      <div className="pt-[76px] px-5 pb-4 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold">Comparable Report</h2>

@@ -25,6 +25,7 @@
  */
 
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
+import { fmtSaleDate } from '@/lib/calendarDate'
 
 // ─── Formatters ──────────────────────────────────────────────────────────
 
@@ -74,11 +75,10 @@ export function fmtRating1(v: any): string {
   return isFinite(n) ? n.toFixed(1) : String(v)
 }
 
+// Sale / transfer dates are calendar days — never shifted by the viewer's
+// time zone (owner 11/17: panel showed every sale one day early).
 export function fmtDate(s: any): string | null {
-  if (!s) return null
-  const d = new Date(String(s))
-  if (isNaN(d.getTime())) return String(s)
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  return fmtSaleDate(s)
 }
 
 const INSTRUMENT_LABELS: Record<string, string> = {

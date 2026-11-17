@@ -659,6 +659,7 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
       <div
         role="dialog"
         aria-label="Land detail"
+        data-gg-right-panel
         style={{
           position: 'absolute',
           top: 0,
