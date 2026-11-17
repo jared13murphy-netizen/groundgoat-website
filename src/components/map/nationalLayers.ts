@@ -306,7 +306,7 @@ export function nationalLayerIds(key: NationalLayerKey, states: string[]): strin
       case 'tribal': out.push(`${s}-fill`, `${s}-line`, `${s}-dash`); break
       case 'plss': out.push(`${s}-sec-hit`, `${s}-twp-hit`, `${s}-sec-line`, `${s}-twp-line`, `${s}-sec-label`, `${s}-twp-label`); break
       case 'grazing': out.push(`${s}-fill`, `${s}-line`, `${s}-label`); break
-      case 'airports': case 'poi': out.push(`${s}-circle`, `${s}-label`); break
+      case 'airports': case 'poi': out.push(`${s}-circle`, `${s}-icon`, `${s}-label`); break
       case 'light': out.push(`${s}-raster`); break
       case 'transmission': out.push(`${s}-hit`, `${s}-line`); break
       case 'railroads': out.push(`${s}-hit`, `${s}-minor`, `${s}-casing`, `${s}-ties`); break
@@ -347,13 +347,42 @@ const publicColor: any = ['match', ['get', 'mgr'],
   'BLM', PUBLIC_COLORS.BLM, 'USFS', PUBLIC_COLORS.USFS, 'NPS', PUBLIC_COLORS.NPS, 'FWS', PUBLIC_COLORS.FWS,
   ['match', ['get', 'mgr_type'], 'Federal', PUBLIC_COLORS.federal, 'State', PUBLIC_COLORS.state, PUBLIC_COLORS.other]]
 
-const airportClass: any = ['case',
-  ['==', ['get', 'type'], 'Heliport'], 'Heliport',
-  ['==', ['get', 'type'], 'Seaplane base'], 'Seaplane base',
-  ['all', ['==', ['get', 'type'], 'Airport'], ['==', ['get', 'use'], 'Public']], 'Public airport',
-  ['==', ['get', 'type'], 'Airport'], 'Private airport',
-  'Other airfield']
-const airportColor: any = ['match', airportClass, ...AIRPORT_COLORS.flat(), '#9ca3af']
+// Same expressions as the app (ground-goat-mobile src/utils/nationalLayers.js).
+// Nested 'match' instead of a 'case' with ['all'] — that shape segfaults
+// MapLibre Native on iOS (11/16 app crash); kept identical here for parity.
+const byUse = (pub: unknown, other: unknown): any => ['match', ['get', 'use'], 'Public', pub, other]
+const airportColor: any = ['match', ['get', 'type'],
+  'Heliport', AIRPORT_COLORS[2][1],
+  'Seaplane base', AIRPORT_COLORS[3][1],
+  'Airport', byUse(AIRPORT_COLORS[0][1], AIRPORT_COLORS[1][1]),
+  AIRPORT_COLORS[4][1]]
+const AIRPORT_PUBLIC: any = ['all', ['==', ['get', 'type'], 'Airport'], ['==', ['get', 'use'], 'Public']]
+const airportRadius: any = ['interpolate', ['linear'], ['zoom'], 6, byUse(4, 2.5), 10, byUse(7, 6), 14, byUse(11, 10)]
+
+// ── Dot icons (owner 11/16) ─────────────────────────────────────────────
+// A glyph on every airport / POI dot: public/map-icons/<name>.png (64 px,
+// ~60 px glyph), the same PNGs the app bundles (built by the app repo's
+// scripts/build-map-icons.mjs). glyph ≈ 1.45 × dot radius → icon-size =
+// 0.0242 × radius. Icons wait for zoom 10 (8 for public airports).
+const iconSizeFor = (r: number) => Math.round(r * 0.0242 * 1000) / 1000
+const POI_CATS = POI_COLORS.map(([c]) => c)
+export const MAP_ICON_NAMES = ['gg-airport', 'gg-heliport', ...POI_CATS.map(c => `gg-poi-${c}`)]
+const airportIconImage: any = ['match', ['get', 'type'], 'Heliport', 'gg-heliport', 'gg-airport']
+const airportIconSize: any = ['interpolate', ['linear'], ['zoom'],
+  6, byUse(iconSizeFor(4), iconSizeFor(2.5)), 10, byUse(iconSizeFor(7), iconSizeFor(6)), 14, byUse(iconSizeFor(11), iconSizeFor(10))]
+const poiRadius: any = ['interpolate', ['linear'], ['zoom'], 9, 3.5, 10, 6, 12, 8, 14, 10]
+const poiIconSize: any = ['interpolate', ['linear'], ['zoom'], 10, iconSizeFor(6), 12, iconSizeFor(8), 14, iconSizeFor(10)]
+const poiIconImage: any = ['match', ['get', 'cat'], ...POI_CATS.flatMap(c => [c, `gg-poi-${c}`]), `gg-poi-${POI_CATS[0]}`]
+
+/** Load the dot icons once per style (setStyle drops images). */
+function ensureMapIcons(map: maplibregl.Map) {
+  for (const name of MAP_ICON_NAMES) {
+    if (map.hasImage(name)) continue
+    map.loadImage(`/map-icons/${name}.png`)
+      .then(img => { try { if (!map.hasImage(name)) map.addImage(name, img.data) } catch { /* raced */ } })
+      .catch(() => { /* icon missing → plain dot */ })
+  }
+}
 
 const kv: any = ['coalesce', ['get', 'kv'], 0]
 const transmissionColor: any = ['case',
@@ -401,6 +430,7 @@ export function addNationalLayer(
   const v = clamp(opacity)
   const add = (spec: any) => { if (!map.getLayer(spec.id)) map.addLayer({ ...spec, layout: { ...(spec.layout || {}), visibility: vis } }, before) }
   if (key === 'flood') ensureHatch(map)
+  if (key === 'airports' || key === 'poi') ensureMapIcons(map)
 
   for (const st of states) {
     const s = srcId(key, st)
@@ -490,16 +520,20 @@ export function addNationalLayer(
       case 'airports':
         add({ ...base, id: `${s}-circle`, type: 'circle', 'source-layer': 'airports',
           // Public airports from z6; every strip / heliport from z9.
-          filter: ['any', ['>=', ['zoom'], 9], ['all', ['==', ['get', 'type'], 'Airport'], ['==', ['get', 'use'], 'Public']]],
+          filter: ['any', ['>=', ['zoom'], 9], AIRPORT_PUBLIC],
           paint: {
-            'circle-color': airportColor,
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, ['case', ['==', ['get', 'use'], 'Public'], 4, 2.5], 12, ['case', ['==', ['get', 'use'], 'Public'], 8, 5.5]],
+            'circle-color': airportColor, 'circle-radius': airportRadius,
             'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-opacity': v, 'circle-stroke-opacity': v,
           } })
+        // Airplane (helicopter for heliports) on the dot; never blocks labels.
+        add({ ...base, id: `${s}-icon`, type: 'symbol', 'source-layer': 'airports', minzoom: 8,
+          filter: ['any', ['>=', ['zoom'], 10], AIRPORT_PUBLIC],
+          layout: { 'icon-image': airportIconImage, 'icon-size': airportIconSize, 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+          paint: { 'icon-opacity': v } })
         add({ ...base, id: `${s}-label`, type: 'symbol', 'source-layer': 'airports', minzoom: 10,
           layout: {
-            'text-field': ['concat', ['get', 'name'], ' (', ['get', 'ident'], ')'], 'text-font': ['Open Sans Bold'], 'text-size': 11,
-            'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-max-width': 10, 'text-allow-overlap': false, 'text-optional': true,
+            'text-field': ['concat', ['coalesce', ['get', 'name'], ''], ' (', ['coalesce', ['get', 'ident'], ''], ')'], 'text-font': ['Open Sans Bold'], 'text-size': 11,
+            'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-max-width': 10, 'text-allow-overlap': false, 'text-optional': true,
           },
           paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.4, 'text-opacity': v } })
         break
@@ -507,13 +541,18 @@ export function addNationalLayer(
         add({ ...base, id: `${s}-circle`, type: 'circle', 'source-layer': 'poi',
           paint: {
             'circle-color': ['match', ['get', 'cat'], ...POI_COLORS.flatMap(([c, , col]) => [c, col]), '#9ca3af'],
-            'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3, 14, 6],
+            'circle-radius': poiRadius,
             'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.2, 'circle-opacity': v, 'circle-stroke-opacity': v,
           } })
+        // One glyph per category on the dot (school cap, cross, fuel pump, …).
+        add({ ...base, id: `${s}-icon`, type: 'symbol', 'source-layer': 'poi', minzoom: 10,
+          filter: ['in', ['get', 'cat'], ['literal', POI_CATS]],
+          layout: { 'icon-image': poiIconImage, 'icon-size': poiIconSize, 'icon-allow-overlap': true, 'icon-ignore-placement': true },
+          paint: { 'icon-opacity': v } })
         add({ ...base, id: `${s}-label`, type: 'symbol', 'source-layer': 'poi', minzoom: 13,
           layout: {
             'text-field': ['get', 'name'], 'text-font': ['Open Sans Bold'], 'text-size': 11,
-            'text-offset': [0, 0.9], 'text-anchor': 'top', 'text-max-width': 9, 'text-allow-overlap': false, 'text-optional': true,
+            'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-max-width': 9, 'text-allow-overlap': false, 'text-optional': true,
           },
           paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.4, 'text-opacity': v } })
         break
@@ -577,7 +616,8 @@ export function applyNationalOpacity(map: maplibregl.Map, key: NationalLayerKey,
       case 'grazing':
         set(`${s}-fill`, 'fill-opacity', v * 0.12); set(`${s}-line`, 'line-opacity', v); set(`${s}-label`, 'text-opacity', v); break
       case 'airports': case 'poi':
-        set(`${s}-circle`, 'circle-opacity', v); set(`${s}-circle`, 'circle-stroke-opacity', v); set(`${s}-label`, 'text-opacity', v); break
+        set(`${s}-circle`, 'circle-opacity', v); set(`${s}-circle`, 'circle-stroke-opacity', v)
+        set(`${s}-icon`, 'icon-opacity', v); set(`${s}-label`, 'text-opacity', v); break
       case 'light':
         set(`${s}-raster`, 'raster-opacity', v); break
       case 'transmission':
