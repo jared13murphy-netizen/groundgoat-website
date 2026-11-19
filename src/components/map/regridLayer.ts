@@ -6,9 +6,9 @@
  * tiles, same click → popup behavior on both.
  *
  * The popup ALWAYS renders Owner / Address / Acres / Last Sale.
- * Missing values display as "—". Backend (`/api/regrid/parcel`) is
- * responsible for filling sale price from MyDec when Regrid has $0
- * or null for IL / IN / IA / NE parcels.
+ * Missing values display as "—". Regrid is the ONLY source of parcel sale
+ * data (owner rule 11/19): the backend never fills a price from state
+ * declarations (MyDec / SDF / IA / NE).
  */
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
@@ -77,8 +77,7 @@ async function fetchRegridParcel(qs: URLSearchParams): Promise<any | null> {
 // HTML builder can simply skip the row instead of writing "—".
 function fmtMoney(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  // $0 → null: a recorded $0 deed isn't a market sale. (See backend
-  // MyDec enrichment.)
+  // $0 → null: a recorded $0 deed isn't a market sale.
   if (!isFinite(v) || v === 0) return null
   return '$' + Math.round(v).toLocaleString('en-US')
 }
