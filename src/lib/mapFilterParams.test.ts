@@ -53,7 +53,7 @@ assert.deepEqual(c.tillable.map(t => t.label), ['% Tillable'])
 // Chat-only pairs appear only when set; applied-but-cleared-in-draft stays visible until Apply.
 const pps = { ...empty, stateFilter: 'IA', pricePerSoilRatingMax: '150', tillableAcresMin: '40' }
 c = parcelDataControls({ ...empty, stateFilter: 'IA' }, pps, null)
-assert.deepEqual(c.tillable.map(t => t.label), ['Tillable Acres', '$ / Soil Point'])
+assert.deepEqual(c.tillable.map(t => t.label), ['Tillable Acres', '$ / Soil Rating'])
 // Flags still widen the defaults.
 c = parcelDataControls({ ...empty, stateFilter: 'IA' }, empty, null, { soil: true, tillable: true })
 assert.equal(c.soil?.label, 'Soil Rating')
