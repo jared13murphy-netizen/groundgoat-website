@@ -13,6 +13,7 @@
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { fmtSaleDate } from '@/lib/calendarDate'
+import { parcelFigures, fmtFigAcres, fmtFigMoney } from '@/lib/parcelFigures'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -237,10 +238,11 @@ function regridFallbackHTML(tileProps: any): string {
 }
 
 function regridPopupHTML(record: any): string {
-  const gisacre: number | null = record?.ll_gisacre ?? record?.gisacre ?? null
+  // Acres / price / $ per acre from the ONE helper (owner 11/19) — the
+  // server's figures, or the old-API fallback. Never computed here.
+  const fig = parcelFigures(record)
   const deeded = record?.deeded_acres
-  const saleprice = record?.saleprice
-  const saledate = record?.saledate
+  const saledate = fig.saledate ?? record?.saledate
   const parval = record?.parval
   const landval = record?.landval
   const improvval = record?.improvval
@@ -266,13 +268,9 @@ function regridPopupHTML(record: any): string {
   // Hero stat strip — Acres, $/Acre, Sale Price. Each cell rendered
   // only if its value is present; row hidden entirely if all three
   // are missing.
-  const acresLabel = fmtAcres(gisacre)
-  const priceLabel = fmtMoney(saleprice)
-  const validSalePrice = typeof saleprice === 'number' && saleprice > 0
-  const ppa = (validSalePrice && typeof gisacre === 'number' && gisacre > 0)
-    ? saleprice / gisacre
-    : null
-  const ppaLabel = ppa != null ? '$' + Math.round(ppa).toLocaleString('en-US') : null
+  const acresLabel = fmtFigAcres(fig.acres) && fig.acres! > 0 ? `${fmtFigAcres(fig.acres)} ac` : null
+  const priceLabel = fmtFigMoney(fig.price)
+  const ppaLabel = fmtFigMoney(fig.pricePerAcre)
 
   const heroCells: { label: string; value: string; emphasize?: boolean }[] = []
   if (acresLabel) heroCells.push({ label: 'Acres', value: acresLabel })
@@ -309,7 +307,7 @@ function regridPopupHTML(record: any): string {
   if (saleType) lastSaleRows.push(detailRow('Sale Type', saleType))
 
   const propertyRows: string[] = []
-  if (deeded && deeded !== gisacre && fmtAcres(deeded)) {
+  if (deeded && deeded !== fig.acres && fmtAcres(deeded)) {
     propertyRows.push(detailRow('Deeded Acres', fmtAcres(deeded)!))
   }
   if (usedesc) propertyRows.push(detailRow('Use', String(usedesc)))

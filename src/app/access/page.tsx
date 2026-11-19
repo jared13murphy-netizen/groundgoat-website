@@ -24,6 +24,7 @@ import { decodeArea } from '@/lib/shareLink'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import { buildParcelReportRow } from '@/lib/parcelReportRow'
+import { findServerFigures, fromServerFigures } from '@/lib/parcelFigures'
 import { getSavedReport } from '@/lib/configurableMapping'
 import { rebuildSavedReportRows } from '@/lib/savedReportRows'
 import MapChatPanel from '@/components/portal/MapChatPanel'
@@ -968,8 +969,20 @@ function AccessPortalPageInner() {
         // them in the email/download payload — backend uses tract_id to fetch
         // the subject's polygon, satellite image, and DEM grid for the PDF.
         const sc = compData.search_criteria || {}
+        // The subject's figures (owner 11/19): the server's `figures` when the
+        // payload carries them — never recomputed here. Old API: sc as before.
+        const sf = findServerFigures(sc, compData?.subject, compData)
+        const fig = sf ? fromServerFigures(sf) : null
         setComparablesSubjectInfo({
           ...sc,
+          ...(fig ? {
+            subject_acres: fig.acres ?? undefined,
+            subject_tillable_acres: fig.tillableAcres ?? undefined,
+            subject_pct_tillable: fig.pctTillable ?? undefined,
+            subject_soil_rating: fig.rating ?? undefined,
+            subject_soil_rating_type: fig.ratingLabel,
+            subject_remeasuring: fig.remeasuring,
+          } : {}),
           county: sc.county || county,
           state: sc.state || state,
           tract_id: tractId,

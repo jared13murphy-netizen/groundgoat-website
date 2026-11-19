@@ -995,6 +995,9 @@ export interface SavedTractDetail {
   boundary?: any
   tillable_polygon?: any
   source_parcels?: { ll_uuid: string; owner: string | null; acres: number | null; parcelnumb: string | null }[] | null
+  /** The server's figures for this tract (owner 11/19) — read through
+   *  src/lib/parcelFigures.ts savedTractFigures, never recomputed. */
+  figures?: import('@/lib/parcelFigures').ServerParcelFigures | null
   created_at?: string
   updated_at?: string
 }

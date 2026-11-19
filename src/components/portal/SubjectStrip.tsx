@@ -17,6 +17,7 @@
 import { toNum } from '@/lib/format'
 import { subjectTillableAcres } from '@/lib/subjectStats'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
+import { UPDATING } from '@/lib/parcelFigures'
 
 interface SubjectStripProps {
   totalAcres?: number | string | null
@@ -28,6 +29,9 @@ interface SubjectStripProps {
   soilRating?: number | string | null
   soilRatingType?: string | null
   state?: string | null
+  /** A parcel subject whose server `figures` say it is being re-measured
+   *  (src/lib/parcelFigures.ts): tillable / % / rating read "Updating…". */
+  remeasuring?: boolean | null
   /** 'grid' (default): compact 4-col portal tile — label above value.
    *  'flex': wider listings-report layout — value above label, larger text. */
   variant?: 'grid' | 'flex'
@@ -45,6 +49,7 @@ export default function SubjectStrip({
   soilRating,
   soilRatingType,
   state,
+  remeasuring,
   variant = 'grid',
 }: SubjectStripProps) {
   const totalNum = toNum(totalAcres)
@@ -54,6 +59,8 @@ export default function SubjectStrip({
   const derivedPct = tillable != null && totalNum != null && totalNum !== 0
     ? Math.round((tillable / totalNum) * 100)
     : null
+  // A parcel subject always carries the server's pct (parcelFigures), so the
+  // derived fallback only runs for tract subjects / old API payloads.
   const pct = explicitPct != null ? Math.round(explicitPct) : derivedPct
 
   const soil = toNum(soilRating)
@@ -61,9 +68,9 @@ export default function SubjectStrip({
 
   const tiles: [string, string][] = [
     ['Total Acres', fmtDecimal(toNum(totalAcres))],  // one decimal, same as the PDF and the app
-    ['Tillable Acres', fmtDecimal(tillable)],
-    ['% Tillable', pct != null ? pct + '%' : '—'],
-    [soilLabel, fmtDecimal(soil)],
+    ['Tillable Acres', remeasuring ? UPDATING : fmtDecimal(tillable)],
+    ['% Tillable', remeasuring ? UPDATING : pct != null ? pct + '%' : '—'],
+    [soilLabel, remeasuring ? UPDATING : fmtDecimal(soil)],
   ]
 
   if (variant === 'flex') {

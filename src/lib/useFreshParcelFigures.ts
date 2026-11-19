@@ -11,6 +11,8 @@ import { useEffect, useRef } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
 import { figuresPatch } from '@/lib/parcelFiguresPatch'
+import { findServerFigures, fromServerFigures, parcelRowFields } from '@/lib/parcelFigures'
+import { tractPriceMode } from '@/lib/priceDisplay'
 
 export { figuresPatch }
 
@@ -40,7 +42,13 @@ export default function useFreshParcelFigures(
       fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(uuid)}`)
         .then(r => (r.ok ? r.json() : null))
         .then(f => {
-          const patch = figuresPatch(f)
+          // Server `figures` (owner 11/19): the row takes every figure from
+          // it — price, acres, tillable, rating and the rates. Old API: the
+          // tillable / % / rating patch as before.
+          const sf = findServerFigures(f)
+          const patch: Partial<TractSaleData> = sf
+            ? parcelRowFields(fromServerFigures(sf), tractPriceMode({ total_acres: sf.acres as any, land_types: sf.land_types ?? null }))
+            : figuresPatch(f)
           if (Object.keys(patch).length) onUpdateRef.current?.(rowId, patch)
         })
         .catch(() => { done.current.delete(rowId) })

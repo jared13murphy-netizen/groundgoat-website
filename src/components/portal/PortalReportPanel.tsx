@@ -15,6 +15,7 @@ import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
+import { rowPctTillable, UPDATING } from '@/lib/parcelFigures'
 import SubjectStrip from './SubjectStrip'
 import CompSummaryGrid from '@/components/CompSummaryGrid'
 import type { TractSaleData } from './PortalTractDetail'
@@ -59,6 +60,8 @@ interface SubjectInfo {
   subject_pct_tillable?: number
   subject_soil_rating?: number
   subject_soil_rating_type?: string | null
+  /** server figures: parcel subject is being re-measured */
+  subject_remeasuring?: boolean | null
   subject_township?: string
   subject_land_type?: string
   // IDs needed by the backend to fetch polygon/image/DEM for the PDF
@@ -111,7 +114,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
       state: t.state || '',
       total_acres: t.totalAcres,
       tillable_acres: t.tillableAcres,
-      pct_tillable: t.pctTillable != null ? Math.round(t.pctTillable) : (t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) : null),
+      pct_tillable: rowPctTillable(t) != null ? Math.round(rowPctTillable(t)!) : null,
       soil_rating: t.soilRating,
       price_per_acre: t.pricePerAcre,
       price_per_tillable_acre: rowPrice(t).pricePerTillableAcre,
@@ -258,6 +261,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                   soilRating={subjectInfo.subject_soil_rating}
                   soilRatingType={subjectInfo.subject_soil_rating_type}
                   state={subjectInfo.state}
+                  remeasuring={subjectInfo.subject_remeasuring}
                 />
                 {subjectInfo.subject_auction_date && (
                   <p className="text-xs text-gg-gray-400 mt-2">
@@ -328,12 +332,12 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Tillable</div>
                         <div className="text-sm font-medium">
-                          {t.pctTillable != null ? Math.round(t.pctTillable) + '%' : t.tillableAcres && t.totalAcres ? Math.round((t.tillableAcres / t.totalAcres) * 100) + '%' : '—'}
+                          {t.remeasuring ? UPDATING : rowPctTillable(t) != null ? Math.round(rowPctTillable(t)!) + '%' : '—'}
                         </div>
                       </div>
                       <div>
                         <div className="text-[10px] text-gg-gray-500">{soilRatingLabel(t)}</div>
-                        <div className="text-sm font-medium">{t.soilRating ? fmtNum(t.soilRating) : '—'}</div>
+                        <div className="text-sm font-medium">{t.remeasuring ? UPDATING : t.soilRating ? fmtNum(t.soilRating) : '—'}</div>
                       </div>
                     </div>
 

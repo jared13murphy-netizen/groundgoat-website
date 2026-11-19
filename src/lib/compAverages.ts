@@ -16,6 +16,14 @@
 // - TOTALS sit beside the averages: total acres, total tillable acres (+ %),
 //   total sale dollars.
 //
+// PARCEL ROWS (owner 11/19): the inputs are the server's per-parcel figures
+// (price, Regrid acres, tillable acres, rating — src/lib/parcelFigures.ts);
+// this module only AGGREGATES them, with the same weighting as before:
+// $/acre = SUM(price)/SUM(acres), $/till = SUM(price)/SUM(tillable) over rows
+// passing the 1 ac / 25% rule, $/rating = SUM(price)/SUM(rating × acres),
+// rating = SUM(rating × tillable)/SUM(tillable). No per-parcel figure is
+// computed here except saleOf's $/acre × acres for rows with no price.
+//
 // Field names: call sites send snake_case (API payloads) or camelCase
 // (TractSaleData), so every accessor reads both. Every accessor coerces
 // through toNum — DECIMAL columns arrive as JSON strings and `+=` on a
@@ -32,6 +40,11 @@ export interface CompAverageInput {
   tillableAcres?: number | string | null
   soil_rating?: number | string | null
   soilRating?: number | string | null
+  /** Parcel rows (owner 11/19): every figure above is the server's per-parcel
+   *  value (src/lib/parcelFigures.ts). A parcel being re-measured shows
+   *  "Updating…", so its tillable acres and rating stay out of the totals and
+   *  averages until the server has the new numbers. */
+  remeasuring?: boolean | null
 }
 
 export interface CompSummary {
@@ -99,8 +112,8 @@ export function summarizeComps(comps: CompAverageInput[]): CompSummary {
   for (const c of comps || []) {
     count++
     const acres = pos(c.total_acres ?? c.totalAcres)
-    const till = pos(c.tillable_acres ?? c.tillableAcres)
-    const soil = pos(c.soil_rating ?? c.soilRating)
+    const till = c.remeasuring ? null : pos(c.tillable_acres ?? c.tillableAcres)
+    const soil = c.remeasuring ? null : pos(c.soil_rating ?? c.soilRating)
     const sale = saleOf(c)
     if (acres) { totAcres += acres; acresCount++; anyAcres = true }
     if (till) { totTill += till; tillCount++; anyTill = true }

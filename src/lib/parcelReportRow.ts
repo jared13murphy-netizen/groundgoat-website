@@ -6,6 +6,8 @@
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { deriveParcelDetail } from '@/components/map/parcelDetailFields'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
+import { parcelRowFields } from '@/lib/parcelFigures'
+import { tractPriceMode } from '@/lib/priceDisplay'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -37,6 +39,8 @@ export async function buildParcelReportRow(input: ParcelRowInput): Promise<Tract
   if (regridRes?.ok) {
     const body = await regridRes.json()
     parcel = body?.parcel || null
+    // `figures` may ride on the envelope instead of the record.
+    if (parcel && !parcel.figures && body?.figures) parcel = { ...parcel, figures: body.figures }
   }
   if (!parcel && !tileProps) return null
 
@@ -46,8 +50,7 @@ export async function buildParcelReportRow(input: ParcelRowInput): Promise<Tract
     || (tileProps?.path as string | undefined)
     || (lat != null && lng != null ? `parcel:${lng.toFixed(6)},${lat.toFixed(6)}` : null)
   if (!id) return null
-  const validSalePrice = typeof derived.saleprice === 'number' && derived.saleprice > 0
-  const saledate = (parcel?.saledate ?? tileProps?.saledate) as string | undefined
+  const saledate = (derived.saledate ?? parcel?.saledate ?? tileProps?.saledate) as string | undefined
 
   return {
     id,
@@ -55,17 +58,14 @@ export async function buildParcelReportRow(input: ParcelRowInput): Promise<Tract
     listingId: null,
     tractId: null,
     auctionDate: typeof saledate === 'string' ? saledate.slice(0, 10) : null,
-    totalAcres: derived.gisacre,
-    tillableAcres: derived.tillableAcres,
-    soilRating: derived.soilRating,
+    // Figure fields from the ONE helper (src/lib/parcelFigures.ts) — the
+    // server's figures, or the old-API fallback; never computed here.
+    ...parcelRowFields(derived.figures, tractPriceMode({ total_acres: derived.gisacre, land_types: derived.landTypes })),
     soilRatingType: derived.soilRatingType,
-    pctTillable: derived.pctTillable,
     companyName: null,
     owner: derived.owner && derived.owner !== 'Unknown' ? derived.owner : null,
     latitude: lat ?? parcel?.lat ?? null,
     longitude: lng ?? parcel?.lon ?? null,
-    salePrice: validSalePrice ? derived.saleprice : null,
-    pricePerAcre: derived.ppa,
     county: derived.county,
     state: derived.state,
     township: derived.township || null,

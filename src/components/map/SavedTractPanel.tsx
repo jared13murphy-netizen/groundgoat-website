@@ -18,6 +18,7 @@ import useSlide from '@/lib/useSlide'
 import { buildSavedReportRow, savedReportId } from '@/lib/savedTractRow'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { formatAcres } from '@/lib/format'
+import { savedTractFigures, fmtFigAcres, fmtFigPct, fmtFigRating, UPDATING } from '@/lib/parcelFigures'
 import { DetailRow, Section } from './parcelDetailFields'
 import { ACTION_BTN, LAND_DETAIL_PANEL_WIDTH } from './LandDetailPanel'
 import NotesTimeline from '@/components/notes/NotesTimeline'
@@ -102,11 +103,15 @@ export default function SavedTractPanel({
 
   if (!mounted) return null
 
-  const acres = detail?.acres ?? null
-  const tillable = detail?.tillable_acres ?? null
-  const pctTillable = acres && tillable != null ? Math.round((tillable / acres) * 100) : null
-  const ratingLabel = soilRatingLabel({ soil_rating_type: detail?.soil?.rating_type })
-  const rating = detail?.soil?.rating ?? null
+  // Figures from the ONE helper (src/lib/parcelFigures.ts): the server's
+  // `figures`, or the old-API numbers — never computed here.
+  const fig = savedTractFigures(detail)
+  const acres = fig.acres
+  const tillable = fig.tillableAcres
+  const pctTillable = fig.pctTillable
+  const ratingLabel = soilRatingLabel({ soil_rating_type: fig.ratingLabel })
+  const rating = fig.rating
+  const remeasuring = fig.remeasuring
   const place = [detail?.county ? `${detail.county} County` : '', detail?.state || ''].filter(Boolean).join(', ')
   // v2 (owner 11/10): a farm can be in many projects — shown as chips; a tap
   // opens Saved Projects on that project. Older API: `project` as one chip.
@@ -115,8 +120,8 @@ export default function SavedTractPanel({
     : detail?.project?.id ? [{ id: detail.project.id, name: detail.project.name || 'Project' }] : []
   const multi = farmProjects.length === 1 && (detail?.project_tract_count ?? 0) > 1
   const landRows: [string, number | null | undefined][] = [
-    ['Tillable', detail?.tillable_acres], ['Timber', detail?.timber_acres],
-    ['Water', detail?.water_acres], ['Other', detail?.other_acres],
+    ['Tillable', fig.tillableAcres], ['Timber', fig.timberAcres],
+    ['Water', fig.waterAcres], ['Other', detail?.other_acres],
   ]
   const soils = detail?.soil?.breakdown || []
   const sources = detail?.source_parcels || []
@@ -203,18 +208,20 @@ export default function SavedTractPanel({
         {detail && (
           <>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 18px 4px' }}>
-              <StatCard label="Acres" value={acres != null ? formatAcres(acres) : '—'} />
+              <StatCard label="Acres" value={fmtFigAcres(acres) ?? '—'} />
               <StatCard label="Tillable"
-                        value={tillable != null ? formatAcres(tillable) : '—'}
-                        sub={pctTillable != null ? `${pctTillable}% of acres` : undefined} />
+                        value={remeasuring ? UPDATING : fmtFigAcres(tillable) ?? '—'}
+                        sub={!remeasuring && pctTillable != null ? `${fmtFigPct(pctTillable)} of acres` : undefined} />
               <StatCard label="Soil rating"
-                        value={rating != null ? String(rating) : '—'}
-                        sub={rating != null && detail.soil?.rating_type ? ratingLabel : undefined} />
+                        value={remeasuring ? UPDATING : fmtFigRating(rating) ?? '—'}
+                        sub={!remeasuring && rating != null && fig.ratingLabel ? ratingLabel : undefined} />
             </div>
 
-            {landRows.some(([, v]) => fmtAc(v)) && (
+            {(remeasuring || landRows.some(([, v]) => fmtAc(v))) && (
               <Section title="Land types">
-                {landRows.map(([label, v]) => fmtAc(v) ? <DetailRow key={label} label={label} value={fmtAc(v)!} /> : null)}
+                {landRows.map(([label, v]) => remeasuring && label !== 'Other'
+                  ? <DetailRow key={label} label={label} value={UPDATING} />
+                  : fmtAc(v) ? <DetailRow key={label} label={label} value={fmtAc(v)!} /> : null)}
               </Section>
             )}
 

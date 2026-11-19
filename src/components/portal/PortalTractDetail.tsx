@@ -73,6 +73,11 @@ export interface TractSaleData {
   /** The tract's ONE price (owner 11/17): the backend's display figures
    *  (src/lib/tractPrice.ts apiTractPrice). Every renderer reads rowPrice(). */
   price?: import('@/lib/priceRules').ResolvedTractPrice | null
+  /** A parcel row whose server `figures` say it is being re-measured
+   *  (src/lib/parcelFigures.ts): tillable / rating read "Updating…". */
+  remeasuring?: boolean | null
+  /** true = this row's figures came from the server's `figures` object */
+  serverFigures?: boolean | null
   // Recorded county-recorder deed(s) folded into this tract on the comp
   // map because a Regrid parcel-sale-dot's centroid sits inside the
   // tract's own polygon — see ExploreMap.tsx's recomputeCoincidentDeeds /

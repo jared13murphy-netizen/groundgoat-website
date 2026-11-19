@@ -34,6 +34,7 @@ import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import useDragToReport from '@/components/map/useDragToReport'
 import { buildParcelReportRow } from '@/lib/parcelReportRow'
+import { parcelFigures, fmtFigAcres, fmtFigMoney, fmtFigPct, fmtFigRating, UPDATING } from '@/lib/parcelFigures'
 import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
 import { countActiveFilters } from '@/lib/filterBadgeCount'
@@ -13912,20 +13913,22 @@ function _enrichmentPopupSection(enrich: any): string {
   if (!enrich || typeof enrich !== 'object') return ''
   // Never default to a guessed type ('PI' was a fixed, not even state-based,
   // guess) — use the record's own soil_rating_type or the generic fallback.
-  const ratingType = soilRatingLabel({ soil_rating_type: enrich.soil_rating_type })
-  const rating = enrich.soil_rating
-  const tillable = enrich.tillable_acres
-  const pct = enrich.pct_tillable
+  const fig = parcelFigures(null, enrich)
+  const ratingType = soilRatingLabel({ soil_rating_type: fig.ratingLabel })
+  const rating = fig.rating
+  const tillable = fig.tillableAcres
+  const pct = fig.pctTillable
   const cover = enrich.dominant_landcover
   const soils: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> = Array.isArray(enrich.soils) ? enrich.soils : []
   // Hide entirely when there's nothing to show.
-  if (rating == null && tillable == null && !cover && soils.length === 0) return ''
+  if (!fig.remeasuring && rating == null && tillable == null && !cover && soils.length === 0) return ''
 
   const headlineRows: string[] = []
-  if (rating != null) headlineRows.push(_detailRow(`Soil Rating (${ratingType})`, String(rating)))
-  if (tillable != null) headlineRows.push(_detailRow(
+  if (fig.remeasuring) headlineRows.push(_detailRow(`Soil Rating (${ratingType})`, UPDATING), _detailRow('Tillable Acres', UPDATING))
+  if (!fig.remeasuring && rating != null) headlineRows.push(_detailRow(`Soil Rating (${ratingType})`, fmtFigRating(rating)!))
+  if (!fig.remeasuring && tillable != null) headlineRows.push(_detailRow(
     'Tillable Acres',
-    `${Number(tillable).toFixed(1)} ac${pct != null ? ` (${Number(pct).toFixed(0)}%)` : ''}`,
+    `${fmtFigAcres(tillable)} ac${pct != null ? ` (${fmtFigPct(pct)})` : ''}`,
   ))
   if (cover) headlineRows.push(_detailRow('Land Cover', String(cover).replace(/(^|[\s-])\S/g, m => m.toUpperCase())))
 
@@ -14021,10 +14024,12 @@ function _extractTownship(record: any): string {
 }
 
 function _regridPopupHTML(record: any): string {
-  const gisacre: number | null = record?.ll_gisacre ?? record?.gisacre ?? null
+  // Acres / price / $ per acre from the ONE helper (owner 11/19) — the
+  // server's figures, or the old-API fallback. Never computed here.
+  const fig = parcelFigures(record)
+  const gisacre: number | null = fig.acres
   const deeded = record?.deeded_acres
-  const saleprice = record?.saleprice
-  const saledate = record?.saledate
+  const saledate = fig.saledate ?? record?.saledate
   const parval = record?.parval
   const landval = record?.landval
   const improvval = record?.improvval
@@ -14099,12 +14104,9 @@ function _regridPopupHTML(record: any): string {
     .filter(s => s && s.trim())
 
   // Hero stat strip — only cells with values render
-  const acresLabel = _fmtAcres(gisacre)
-  const priceLabel = _fmtMoney(saleprice)
-  const validSalePrice = typeof saleprice === 'number' && saleprice > 0
-  const ppa = (validSalePrice && typeof gisacre === 'number' && gisacre > 0)
-    ? saleprice / gisacre : null
-  const ppaLabel = ppa != null ? '$' + Math.round(ppa).toLocaleString('en-US') : null
+  const acresLabel = gisacre != null && gisacre > 0 ? `${fmtFigAcres(gisacre)} ac` : null
+  const priceLabel = fmtFigMoney(fig.price)
+  const ppaLabel = fmtFigMoney(fig.pricePerAcre)
 
   const heroCells: { label: string; value: string; emphasize?: boolean }[] = []
   if (acresLabel) heroCells.push({ label: 'Acres', value: acresLabel })
