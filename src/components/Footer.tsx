@@ -161,6 +161,12 @@ export default function Footer() {
                   Privacy Policy
                 </Link>
               </li>
+              <li>
+                {/* California "opt out of sharing" link (Privacy Policy, 11/20/2026). */}
+                <Link href="/privacy#your-privacy-choices" className="text-gg-gray-400 hover:text-gg-pink transition-colors text-sm">
+                  Your Privacy Choices
+                </Link>
+              </li>
             </ul>
           </div>
 

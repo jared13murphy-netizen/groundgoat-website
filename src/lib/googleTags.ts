@@ -32,7 +32,7 @@
  * below is sent with sign-up so those server rows match the click.
  */
 
-import { isInternalVisitor } from '@/lib/internalVisitor'
+import { isInternalVisitor, hasGlobalPrivacyControl } from '@/lib/internalVisitor'
 
 export const GTM_ID = 'GTM-M6FXC226'
 export const GOOGLE_ADS_PURCHASE_SEND_TO = 'AW-18571440294/6XddCOKw4bsdEKbhxpdF'
@@ -128,6 +128,7 @@ const CLICK_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000 // Google Ads click lookback
 
 /** On any page load: keep the newest ad click id from the URL for 90 days. */
 export function captureAdClick() {
+  if (hasGlobalPrivacyControl()) return
   try {
     const q = new URLSearchParams(window.location.search)
     for (const kind of CLICK_KINDS) {
@@ -142,8 +143,12 @@ export function captureAdClick() {
   }
 }
 
-/** Fields for POST /api/auth/register (empty when there's no recent click). */
-export function adClickForSignup(): { ad_click_kind?: string; ad_click_id?: string } {
+/**
+ * Fields for POST /api/auth/register. With Global Privacy Control on, the
+ * person is opted out of ad sharing and no click id is sent (Privacy Policy).
+ */
+export function adClickForSignup(): { ad_click_kind?: string; ad_click_id?: string; ads_opt_out?: boolean } {
+  if (hasGlobalPrivacyControl()) return { ads_opt_out: true }
   try {
     const c = JSON.parse(localStorage.getItem(CLICK_KEY) || 'null')
     if (c && CLICK_KINDS.includes(c.kind) && c.id && Date.now() - Number(c.at) < CLICK_MAX_AGE_MS) {

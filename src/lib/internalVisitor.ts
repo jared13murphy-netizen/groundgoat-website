@@ -7,6 +7,10 @@
  * localStorage so it still holds after they sign out and browse the public
  * site. Staff pages (/admin) are always internal.
  *
+ * A browser sending Global Privacy Control (navigator.globalPrivacyControl)
+ * is treated the same way: no ad tags at all. The Privacy Policy promises
+ * this as the California "opt out of sharing" signal (owner 2026-11-20).
+ *
  * The same rule runs as plain JS in the <head> before Google Tag Manager
  * loads (INTERNAL_CHECK_JS, used by GoogleTagManager.tsx) — keep both in step.
  * The backend applies the same exclusion to server-side conversions
@@ -16,8 +20,19 @@
 export const STAFF_ACCOUNT_TYPES = ['groundgoat_admin', 'groundgoat_sales', 'groundgoat_sales_manager']
 const MARK = 'gg_internal'
 
+/** Global Privacy Control: the visitor opted out of sale/sharing. */
+export function hasGlobalPrivacyControl(): boolean {
+  try {
+    return typeof navigator !== 'undefined' && (navigator as any).globalPrivacyControl === true
+  } catch {
+    return false
+  }
+}
+
+/** True when no ad tag may run for this browser: staff, or GPC. */
 export function isInternalVisitor(): boolean {
   if (typeof window === 'undefined') return false
+  if (hasGlobalPrivacyControl()) return true
   try {
     if (window.location.pathname.startsWith('/admin')) return true
     if (localStorage.getItem(MARK) === '1') return true
@@ -34,7 +49,7 @@ export function isInternalVisitor(): boolean {
 
 /** The same check for the inline <head> script (runs before any bundle). */
 export const INTERNAL_CHECK_JS =
-  `var gi=false;try{if(location.pathname.indexOf('/admin')===0)gi=true;` +
+  `var gi=false;try{if(navigator.globalPrivacyControl===true||location.pathname.indexOf('/admin')===0)gi=true;` +
   `else if(localStorage.getItem('${MARK}')==='1')gi=true;` +
   `else{var gu=JSON.parse(localStorage.getItem('user')||'null');` +
   `if(gu&&(${JSON.stringify(STAFF_ACCOUNT_TYPES)}.indexOf(gu.account_type)>=0||/@groundgoat\\.com$/i.test(gu.email||''))){` +
