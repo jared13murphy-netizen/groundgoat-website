@@ -10,7 +10,7 @@ import { PRICING, MAX_STATES, formatPrice, planTotal, cycleUnit } from '@/config
 import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 import NeighborStatesUpsell from '@/components/NeighborStatesUpsell'
 import { trackCompleteRegistration } from '@/lib/metaPixel'
-import { trackGoogleSignUp } from '@/lib/googleTags'
+import { trackGoogleSignUp, adClickForSignup } from '@/lib/googleTags'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -733,6 +733,9 @@ function SignUpContent() {
             verification_token: verificationToken,
             terms_accepted: agreedToTerms,
             privacy_accepted: agreedToPrivacy,
+            // Google Ads click id from the landing page, for server-side
+            // conversion matching (backend ad_conversions.py).
+            ...adClickForSignup(),
           }),
         })
 

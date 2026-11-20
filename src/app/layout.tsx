@@ -6,6 +6,7 @@ import SandboxBanner from '@/components/SandboxBanner'
 import SiteAnalytics from '@/components/SiteAnalytics'
 import MetaPixel from '@/components/MetaPixel'
 import { GoogleTagManagerHead, GoogleTagManagerNoScript } from '@/components/GoogleTagManager'
+import AdClickCapture from '@/components/AdClickCapture'
 
 export const metadata: Metadata = {
   // Google Search Console 11/15: "Duplicate without user-selected canonical".
@@ -60,6 +61,7 @@ export default function RootLayout({
         <SiteAnalytics />
         {/* Meta Pixel for TEDDYco's Facebook/Instagram ads (owner 11/20). */}
         <MetaPixel />
+        <AdClickCapture />
       </body>
     </html>
   )

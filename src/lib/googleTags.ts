@@ -23,8 +23,16 @@
  *   Data Layer Variables ecommerce.value / ecommerce.currency /
  *   ecommerce.transaction_id.
  *
- * Off on the sandbox site so test sign-ups and test payments never count.
+ * Off on the sandbox site so test sign-ups and test payments never count,
+ * and for Ground Goat staff (src/lib/internalVisitor.ts).
+ *
+ * The BACKEND also records sign-ups, trial starts and trial → paid for every
+ * platform — including App Store purchases, which never touch this site —
+ * and feeds them to Google Ads (ad_conversions.py). The ad click id captured
+ * below is sent with sign-up so those server rows match the click.
  */
+
+import { isInternalVisitor } from '@/lib/internalVisitor'
 
 export const GTM_ID = 'GTM-M6FXC226'
 export const GOOGLE_ADS_PURCHASE_SEND_TO = 'AW-18571440294/6XddCOKw4bsdEKbhxpdF'
@@ -38,7 +46,7 @@ declare global {
 }
 
 function push(event: Record<string, unknown>) {
-  if (!GOOGLE_TAGS_ENABLED || typeof window === 'undefined') return
+  if (!GOOGLE_TAGS_ENABLED || typeof window === 'undefined' || isInternalVisitor()) return
   window.dataLayer = window.dataLayer || []
   window.dataLayer.push(event)
 }
@@ -110,4 +118,39 @@ export function trackGooglePurchase(result: CheckoutResult): boolean {
     // Tracking must never break the account page.
     return false
   }
+}
+
+// ── Ad click id (gclid / gbraid / wbraid) ───────────────────────────────────
+
+const CLICK_KEY = 'gg_ad_click'
+const CLICK_KINDS = ['gclid', 'gbraid', 'wbraid'] as const
+const CLICK_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000 // Google Ads click lookback
+
+/** On any page load: keep the newest ad click id from the URL for 90 days. */
+export function captureAdClick() {
+  try {
+    const q = new URLSearchParams(window.location.search)
+    for (const kind of CLICK_KINDS) {
+      const id = q.get(kind)
+      if (id && /^[A-Za-z0-9._-]{1,512}$/.test(id)) {
+        localStorage.setItem(CLICK_KEY, JSON.stringify({ kind, id, at: Date.now() }))
+        return
+      }
+    }
+  } catch {
+    // Storage blocked: the server still matches on hashed email.
+  }
+}
+
+/** Fields for POST /api/auth/register (empty when there's no recent click). */
+export function adClickForSignup(): { ad_click_kind?: string; ad_click_id?: string } {
+  try {
+    const c = JSON.parse(localStorage.getItem(CLICK_KEY) || 'null')
+    if (c && CLICK_KINDS.includes(c.kind) && c.id && Date.now() - Number(c.at) < CLICK_MAX_AGE_MS) {
+      return { ad_click_kind: c.kind, ad_click_id: c.id }
+    }
+  } catch {
+    // ignore
+  }
+  return {}
 }
