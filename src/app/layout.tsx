@@ -4,6 +4,7 @@ import ConditionalShell from '@/components/ConditionalShell'
 import ReportJobsIndicator from '@/components/ReportJobsIndicator'
 import SandboxBanner from '@/components/SandboxBanner'
 import SiteAnalytics from '@/components/SiteAnalytics'
+import MetaPixel from '@/components/MetaPixel'
 
 export const metadata: Metadata = {
   // Google Search Console 11/15: "Duplicate without user-selected canonical".
@@ -50,6 +51,8 @@ export default function RootLayout({
         <ReportJobsIndicator />
         {/* Our own page-view counter — no third party, no cookies. */}
         <SiteAnalytics />
+        {/* Meta Pixel for TEDDYco's Facebook/Instagram ads (owner 11/20). */}
+        <MetaPixel />
       </body>
     </html>
   )
