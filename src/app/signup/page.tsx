@@ -9,6 +9,7 @@ import { parseApiError } from '@/lib/parseApiError'
 import { PRICING, MAX_STATES, formatPrice, planTotal, cycleUnit } from '@/config/pricing'
 import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 import NeighborStatesUpsell from '@/components/NeighborStatesUpsell'
+import { trackCompleteRegistration } from '@/lib/metaPixel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -755,6 +756,9 @@ function SignUpContent() {
           }
         } else {
           authData = await registerResponse.json()
+          // Meta conversion: the account was just created. Not on the
+          // "already registered → log in" fallback above.
+          trackCompleteRegistration()
         }
 
         accessToken = authData.access_token
