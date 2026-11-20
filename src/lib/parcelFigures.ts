@@ -41,6 +41,11 @@ export interface ServerDisplay {
   price_per_tillable_acre?: string
   price_per_rating?: string
   pct_tillable?: string
+  pct_timber?: string
+  pct_water?: string
+  pct_pasture?: string
+  deed_price?: string
+  deed_parcel_count?: string
   rating?: string
   rating_label?: string
   sale_date?: string
@@ -289,12 +294,12 @@ export function rowDisplay(
   return t.tractId || t.savedId ? null : DASH
 }
 
-/** "38.69 ac (52%)" — the server's acres string plus its % tillable string
- *  when it sent one (it has no % for timber); "Updating…" alone while the
+/** "38.69 ac (52%)" — the server's acres string plus its % string
+ *  (pct_tillable / pct_timber) when it sent one; "Updating…" alone while the
  *  parcel is re-measured; "—" when neither exists. */
 export function compositionText(f: { display?: ServerDisplay | null }, which: 'tillable' | 'timber'): string {
   const acres = figDisplay(f, which === 'tillable' ? 'tillable_acres' : 'timber_acres')
-  const pct = which === 'tillable' ? figDisplay(f, 'pct_tillable') : DASH
+  const pct = figDisplay(f, which === 'tillable' ? 'pct_tillable' : 'pct_timber')
   if (!figShown(acres)) return figShown(pct) ? pct : DASH
   if (acres === UPDATING) return acres
   return figShown(pct) ? `${acres} ac (${pct})` : `${acres} ac`

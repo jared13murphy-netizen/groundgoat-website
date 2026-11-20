@@ -28,18 +28,20 @@ function fmtRating(val?: number | null): string {
   return val.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
-/** The server's comp-report totals object (comps_summary.summarize + the one
- *  formatter): `display` carries ready-to-print strings keyed like the
- *  summary (total_acres, total_tillable, pct_tillable, total_sale, avg_ppa,
- *  avg_ppta, avg_ppsr, avg_acres, avg_till, soil_rating). */
+/** The server's comp-report totals (POST /api/comparables/summary, via
+ *  useServerCompTotals): `display` strings are printed verbatim. */
 export interface ServerCompTotals {
   display?: Record<string, string> | null
+  ratedCount?: number | null
+  count?: number | null
 }
 
 interface Props {
   comps: CompAverageInput[]
-  /** Server totals (owner 11/20): when given, every tile prints the server's
-   *  display string verbatim and nothing is aggregated here. */
+  /** Server totals (owner 11/20): when this prop is passed (even while
+   *  loading, display null) every tile prints the server's display string, or
+   *  "—", and nothing is aggregated on the client. Omit it only for the
+   *  tract-only listing report pages. */
   totals?: ServerCompTotals | null
   /** label for the soil rating tiles, e.g. "Avg PI" / "Avg Soil Rating" */
   soilLabel: string
@@ -52,7 +54,8 @@ interface Props {
 }
 
 export default function CompSummaryGrid({ comps, totals, soilLabel, perSoilLabel, tone = 'panel', title }: Props) {
-  const s = useMemo(() => summarizeComps(comps), [comps])
+  const serverMode = totals !== undefined
+  const s = useMemo(() => summarizeComps(serverMode ? [] : comps), [comps, serverMode])
   const tile = tone === 'panel'
     ? 'bg-white/[0.03] rounded-xl p-3 border border-white/5'
     : 'bg-gg-gray-900 rounded-lg p-3'
@@ -66,14 +69,17 @@ export default function CompSummaryGrid({ comps, totals, soilLabel, perSoilLabel
   const rowLabel = 'text-[10px] font-semibold text-gg-gray-500 uppercase tracking-wider mb-1.5'
   // Server display strings win; a key the server did not send is "—".
   const sd = totals?.display ?? null
-  const T = (key: string, fallback: string) => (sd ? (sd[key] || '—') : fallback)
-  const soilRated = s.ratedCount < s.count && s.count > 0 ? ` · ${s.ratedCount} of ${s.count} rated` : ''
+  const T = (key: string, fallback: string) => (serverMode ? (sd?.[key] || '—') : fallback)
+  const nCountShown = serverMode ? comps.length : s.count
+  const nRated = serverMode ? totals?.ratedCount ?? null : s.ratedCount
+  const nCount = serverMode ? totals?.count ?? null : s.count
+  const soilRated = nRated != null && nCount != null && nRated < nCount && nCount > 0 ? ` · ${nRated} of ${nCount} rated` : ''
 
   return (
     <div data-testid="comp-summary">
       {title && (
         <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-3">
-          {title}{s.count > 0 ? ` (${s.count} sale${s.count !== 1 ? 's' : ''})` : ''}
+          {title}{nCountShown > 0 ? ` (${nCountShown} sale${nCountShown !== 1 ? 's' : ''})` : ''}
         </h3>
       )}
       <div className={`${rowLabel} text-gg-pink/80`}>Totals</div>
@@ -84,7 +90,7 @@ export default function CompSummaryGrid({ comps, totals, soilLabel, perSoilLabel
         </div>
         <div className={totalTile}>
           <FitText max={maxPx} className={value}>{T('total_tillable', s.totalTillable ? formatAcres(s.totalTillable) : '—')}</FitText>
-          <div className={totalLabel}>Total Tillable{sd ? (sd.pct_tillable && sd.pct_tillable !== '—' ? ` \u00B7 ${sd.pct_tillable}` : '') : pct(s.pctTillable)}</div>
+          <div className={totalLabel}>Total Tillable{serverMode ? (sd?.pct_tillable && sd.pct_tillable !== '—' ? ` \u00B7 ${sd.pct_tillable}` : '') : pct(s.pctTillable)}</div>
         </div>
         <div className={totalTile}>
           <FitText max={maxPx} className={`${value} text-gg-pink`}>{T('total_sale', fmtDollars(s.totalSale))}</FitText>
@@ -111,7 +117,7 @@ export default function CompSummaryGrid({ comps, totals, soilLabel, perSoilLabel
         </div>
         <div className={tile}>
           <FitText max={maxPx} className={value}>{T('avg_till', s.avgTillable ? formatAcres(s.avgTillable) : '—')}</FitText>
-          <div className={label}>Avg Tillable{sd ? (sd.pct_tillable && sd.pct_tillable !== '—' ? ` \u00B7 ${sd.pct_tillable}` : '') : pct(s.pctTillable)}</div>
+          <div className={label}>Avg Tillable{serverMode ? (sd?.pct_tillable && sd.pct_tillable !== '—' ? ` \u00B7 ${sd.pct_tillable}` : '') : pct(s.pctTillable)}</div>
         </div>
         <div className={tile}>
           <FitText max={maxPx} className={value}>{T('soil_rating', fmtRating(s.soilRating))}</FitText>

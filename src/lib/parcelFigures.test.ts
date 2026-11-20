@@ -17,7 +17,7 @@ function test(name: string, fn: () => void) { fn(); passed++; console.log(`ok - 
 const DISPLAY = {
   acres: '40.12', tillable_acres: '36.50', timber_acres: '2.10', water_acres: '0.40', pasture_acres: '0.00',
   pond_acres: '0.40', price: '$257,931', price_per_acre: '$6,429', price_per_tillable_acre: '$7,067',
-  price_per_rating: '$49', pct_tillable: '91%', rating: '131.2', rating_label: 'PI', sale_date: '03/14/2025',
+  price_per_rating: '$49', pct_tillable: '91%', pct_timber: '5%', deed_price: '$1,400,820', deed_parcel_count: '9', rating: '131.2', rating_label: 'PI', sale_date: '03/14/2025',
 }
 
 const SERVER = {
@@ -185,7 +185,9 @@ test('a parcel row with no display is dashes; a tract row keeps its own formatti
 test('composition + rating text join the server strings only', () => {
   const f = fromServerFigures(SERVER as any)
   assert.equal(compositionText(f, 'tillable'), '36.50 ac (91%)')
-  assert.equal(compositionText(f, 'timber'), '2.10 ac')
+  assert.equal(compositionText(f, 'timber'), '2.10 ac (5%)')
+  assert.equal(figDisplay(f, 'deed_price'), '$1,400,820')
+  assert.equal(figDisplay(f, 'deed_parcel_count'), '9')
   assert.equal(ratingText(f, 'Soil Rating'), 'PI 131.2')
   const u = fromServerFigures({ ...SERVER, updating: true, display: { ...DISPLAY, tillable_acres: UPDATING, pct_tillable: UPDATING, rating: UPDATING } } as any)
   assert.equal(compositionText(u, 'tillable'), UPDATING)

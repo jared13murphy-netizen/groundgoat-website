@@ -18,6 +18,7 @@ import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/s
 import { rowPctTillable, rowCells, figShown, UPDATING } from '@/lib/parcelFigures'
 import SubjectStrip from './SubjectStrip'
 import CompSummaryGrid from '@/components/CompSummaryGrid'
+import useServerCompTotals from '@/lib/useServerCompTotals'
 import type { TractSaleData } from './PortalTractDetail'
 import type { ServerDisplay } from '@/lib/parcelFigures'
 import { fmtRowDate } from '@/lib/calendarDate'
@@ -192,6 +193,9 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
       items: body.comparables,
     }
   }
+  // Totals + averages: the server's (POST /api/comparables/summary), debounced on every row change.
+  const compTotals = useServerCompTotals(buildReportBody, reportTracts.length)
+
   const handleEmail = async () => {
     setSending(true)
     try {
@@ -301,6 +305,7 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
                 {/* Totals + averages — one shared block for every report surface (owner 2026-10-27) */}
         <CompSummaryGrid
           comps={reportTracts}
+          totals={compTotals}
           title="Report Summary"
           soilLabel={avgSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, reportTracts)}
           perSoilLabel={'Avg ' + perSoilRatingLabel({ soil_rating_type: subjectInfo?.subject_soil_rating_type }, reportTracts)}

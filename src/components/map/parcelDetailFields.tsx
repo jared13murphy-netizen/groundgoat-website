@@ -454,11 +454,10 @@ export function LastSaleRows({ d }: { d: ParcelDetailFields }) {
       {/* Never present an allocated share as the recorded price. $257,931
           is our arithmetic; $1,400,820 is what the deed says, and a
           lender will check. */}
-      {d.isDeedShare && (
+      {d.isDeedShare && figShown(figDisplay(d.figures, 'deed_price')) && (
         <div style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)', lineHeight: 1.45, padding: '6px 0 2px' }}>
-          This parcel&apos;s share of a {d.deedParcels ? `${d.deedParcels}-parcel` : 'multi-parcel'} sale
-          {d.deedAcres != null ? ` covering ${fmtAcres(d.deedAcres)}` : ''}
-          {d.rawSalePrice != null ? ` for ${fmtMoney(d.rawSalePrice)}` : ''}, allocated by acreage.
+          This parcel&apos;s share of a {figShown(figDisplay(d.figures, 'deed_parcel_count')) ? `${figDisplay(d.figures, 'deed_parcel_count')}-parcel` : 'multi-parcel'} sale
+          for {figDisplay(d.figures, 'deed_price')}, allocated by acreage.
         </div>
       )}
       {d.saleType && <DetailRow label="Sale Type" value={d.saleType} />}

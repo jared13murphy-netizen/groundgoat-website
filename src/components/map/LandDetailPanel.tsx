@@ -851,7 +851,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
                         value={dText('rating')}
                         sub={!remeasuring && soilRating != null ? (state || undefined) : undefined} />
               <StatCard label="Timber"
-                        value={statAcres(dText('timber_acres'))} />
+                        value={statAcres(dText('timber_acres'))}
+                        sub={figShown(dText('pct_timber')) && !remeasuring ? `${dText('pct_timber')} of parcel` : undefined} />
               {/* Pasture acres are not shown (owner 10/1: the figure is
                   always wrong) — the field stays on the record. */}
             </div>
