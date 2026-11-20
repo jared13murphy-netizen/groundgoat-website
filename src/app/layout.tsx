@@ -5,6 +5,7 @@ import ReportJobsIndicator from '@/components/ReportJobsIndicator'
 import SandboxBanner from '@/components/SandboxBanner'
 import SiteAnalytics from '@/components/SiteAnalytics'
 import MetaPixel from '@/components/MetaPixel'
+import { GoogleTagManagerHead, GoogleTagManagerNoScript } from '@/components/GoogleTagManager'
 
 export const metadata: Metadata = {
   // Google Search Console 11/15: "Duplicate without user-selected canonical".
@@ -40,7 +41,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        {/* Google Tag Manager — as high in <head> as possible (Google's install guide). */}
+        <GoogleTagManagerHead />
+      </head>
       <body className="min-h-screen flex flex-col sandbox-body-offset">
+        {/* Google Tag Manager (noscript) — immediately after the opening <body>. */}
+        <GoogleTagManagerNoScript />
         <SandboxBanner />
         <ConditionalShell>
           {children}

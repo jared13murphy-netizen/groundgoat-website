@@ -10,6 +10,7 @@ import { PRICING, MAX_STATES, formatPrice, planTotal, cycleUnit } from '@/config
 import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 import NeighborStatesUpsell from '@/components/NeighborStatesUpsell'
 import { trackCompleteRegistration } from '@/lib/metaPixel'
+import { trackGoogleSignUp } from '@/lib/googleTags'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -759,6 +760,8 @@ function SignUpContent() {
           // Meta conversion: the account was just created. Not on the
           // "already registered → log in" fallback above.
           trackCompleteRegistration()
+          // Google (GTM dataLayer `sign_up`): same moment, same rule.
+          trackGoogleSignUp()
         }
 
         accessToken = authData.access_token
