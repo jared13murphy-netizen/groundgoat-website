@@ -1,29 +1,54 @@
-// THE parcel figures for every website surface (owner 11/19): the website
-// DISPLAYS parcel figures, it never computes them. The backend sends one
-// `figures` object on every parcel payload (parcel detail, map parcel
-// enrichment, comps lists, saved tracts, owner lookup):
+// THE parcel figures for every website surface (owner 11/20, "one number
+// everywhere"): the website DISPLAYS parcel figures, it never computes or
+// formats them. The backend sends one `figures` object on every parcel
+// payload (parcel detail, map parcel enrichment, comps lists, saved tracts,
+// owner lookup) and ONE Python formatter turns it into `figures.display` —
+// ready-to-print strings the site renders verbatim:
 //
-//   price            split share or Regrid price — the server decides
-//   acres            Regrid GIS acres
-//   pct_tillable     tillable ÷ Regrid acres (0..1)
-//   price_per_acre   price ÷ acres
-//   price_per_tillable_acre   price ÷ tillable acres
-//   price_per_rating $/acre ÷ the state rating ("$/<rating_label>", never "soil point")
-//   remeasuring      true → tillable / timber / water / rating show "Updating…"
+//   display.acres / tillable_acres / timber_acres / water_acres /
+//     pasture_acres / pond_acres      "1,234.57"
+//   display.price                     "$1,234,567"
+//   display.price_per_acre / price_per_tillable_acre / price_per_rating
+//                                     "$9,644"
+//   display.pct_tillable              "88%"
+//   display.rating / rating_label     "69.2" / "CSR2"
+//   display.sale_date                 "MM/DD/YYYY"
+//   (every value "—" when null; "Updating…" while the parcel is re-measured)
+//   price_mode  "total" | "per_acre"  decided once server-side (owner 11/4)
+//   updating    true while remeasuring
 //
-// Every surface reads `parcelFigures(...)` and formats with the fmtFig*
-// helpers below — display rounding only: whole dollars, acres 2 decimals,
-// whole percent, rating 1 decimal.
+// There is NO fallback: a parcel payload without `figures` shows "—", never
+// a number derived from tile props, pin props or an older payload.
 //
-// OLD API (no `figures`): `legacyParcelFigures` is the derivation the parcel
-// panel (parcelDetailFields.deriveParcelDetail) used before 11/19, moved here
-// verbatim so the site keeps working against production unchanged. Delete it
-// once every backend payload carries `figures`.
+// The numeric fields stay on ParcelFigures for logic only (is there a price,
+// is it split) — never for printing a parcel figure.
 //
 // Zero local imports on purpose (see tillable.ts): runnable with
 // `node src/lib/parcelFigures.test.ts`.
 
 export type RatingLabel = 'PI' | 'CSR2' | 'CPI' | 'WAPI' | 'NCCPI'
+
+/** Ready-to-print strings from the backend's one formatter (contract keys). */
+export interface ServerDisplay {
+  acres?: string
+  tillable_acres?: string
+  timber_acres?: string
+  water_acres?: string
+  pasture_acres?: string
+  pond_acres?: string
+  price?: string
+  price_per_acre?: string
+  price_per_tillable_acre?: string
+  price_per_rating?: string
+  pct_tillable?: string
+  rating?: string
+  rating_label?: string
+  sale_date?: string
+}
+export type DisplayKey = keyof ServerDisplay
+
+/** What every surface prints for a figure that is missing. */
+export const DASH = '\u2014'
 
 /** The backend's `figures` object, exactly as sent (snake_case, pct 0..1). */
 export interface ServerParcelFigures {
@@ -49,11 +74,15 @@ export interface ServerParcelFigures {
   price_per_rating?: number | string | null
   remeasuring?: boolean | null
   land_types?: string[] | null
+  display?: ServerDisplay | null
+  price_mode?: 'total' | 'per_acre' | string | null
+  updating?: boolean | null
 }
 
 /** One parcel's figures, as every surface shows them. Percents are 0-100. */
 export interface ParcelFigures {
-  /** true = read from the server's `figures`; false = old-API fallback */
+  /** true = read from the server's `figures`; false = the payload had none
+   *  (every figure null, display null → "—" everywhere) */
   fromServer: boolean
   price: number | null
   priceSource: 'split' | 'regrid' | null
@@ -78,8 +107,14 @@ export interface ParcelFigures {
   pricePerAcre: number | null
   pricePerTillableAcre: number | null
   pricePerRating: number | null
+  /** server `updating` (or the older `remeasuring`) */
   remeasuring: boolean
   landTypes: string[] | null
+  /** the server's print strings — render verbatim */
+  display: ServerDisplay | null
+  /** server-decided: 'total' → show the total price labelled "Sale Price",
+   *  no $/acre; null = payload did not say */
+  priceMode: 'total' | 'per_acre' | null
 }
 
 function num(v: unknown): number | null {
@@ -129,71 +164,47 @@ export function fromServerFigures(f: ServerParcelFigures): ParcelFigures {
     pricePerAcre: num(f.price_per_acre),
     pricePerTillableAcre: num(f.price_per_tillable_acre),
     pricePerRating: num(f.price_per_rating),
-    remeasuring: f.remeasuring === true,
+    remeasuring: f.updating === true || f.remeasuring === true,
     landTypes: Array.isArray(f.land_types) ? f.land_types.map(String) : null,
+    display: f.display && typeof f.display === 'object' ? f.display : null,
+    priceMode: f.price_mode === 'total' || f.price_mode === 'per_acre' ? f.price_mode : null,
   }
 }
 
-// ── OLD API fallback — the pre-11/19 parcel-panel derivation, unchanged ──
-// $/tillable only when tillable >= 1 ac and >= 25% of the acres; $/rating
-// only when tillable >= 25% (owner 8/22). pct_tillable passes through in
-// whatever unit the old payload used (0-100 in backfilled states).
-const LEGACY_MIN_TILL_SHARE = 0.25
-
-export function legacyParcelFigures(record: any, enrich?: any, tileProps?: any): ParcelFigures {
-  const r = record ?? tileProps ?? {}
-  const acres = num(r?.ll_gisacre ?? r?.gisacre ?? tileProps?.ll_gisacre ?? tileProps?.gisacre)
-  const raw = num(r?.saleprice)
-  const allocated = num(r?.parcel_sale_price)
-  const price = allocated ?? raw
-  const validPrice = price !== null && price > 0
-  const ppa = validPrice && acres !== null && acres > 0 ? price! / acres : null
-  const tillableAcres = num(enrich?.tillable_acres ?? record?.tillable_acres)
-  const rating = num(enrich?.soil_rating ?? record?.soil_rating)
-  const share = tillableAcres !== null && acres !== null && acres > 0 ? tillableAcres / acres : null
-  const pptaOk = validPrice && tillableAcres !== null && tillableAcres >= 1 && share !== null && share >= LEGACY_MIN_TILL_SHARE
-  const prOk = ppa !== null && rating !== null && rating > 0 && share !== null && share >= LEGACY_MIN_TILL_SHARE
-  const deedParcels = num(r?.deed_parcel_count)
-  const timberAcres = num(enrich?.timber_acres ?? record?.timber_acres)
-  const landTypes = enrich?.land_types ?? record?.land_types ?? null
+/** A parcel payload with no `figures`: every figure null, nothing to print. */
+export function emptyParcelFigures(): ParcelFigures {
   return {
     fromServer: false,
-    price,
-    priceSource: allocated !== null && deedParcels !== null && deedParcels > 1 ? 'split' : (price !== null ? 'regrid' : null),
-    regridSalePrice: raw,
-    saledate: r?.saledate ?? null,
-    acres,
-    tillableAcres,
-    pctTillable: num(enrich?.pct_tillable ?? record?.pct_tillable),
-    timberAcres,
-    // The slide-out's old "x% of parcel" under Timber was timber ÷ acres.
-    pctTimber: num(enrich?.pct_timber ?? record?.pct_timber)
-      ?? (timberAcres !== null && acres !== null && acres > 0 ? (timberAcres / acres) * 100 : null),
-    waterAcres: null,
-    pctWater: null,
-    pastureAcres: num(enrich?.pasture_acres ?? record?.pasture_acres),
-    pctPasture: null,
-    pondAcres: null,
-    pctPond: null,
-    rating,
-    ratingLabel: (enrich?.soil_rating_type ?? record?.soil_rating_type) || null,
-    pricePerAcre: ppa,
-    pricePerTillableAcre: pptaOk ? price! / tillableAcres! : null,
-    pricePerRating: prOk ? ppa! / rating! : null,
-    remeasuring: false,
-    landTypes: Array.isArray(landTypes) ? landTypes : null,
+    price: null, priceSource: null, regridSalePrice: null, saledate: null,
+    acres: null, tillableAcres: null, pctTillable: null,
+    timberAcres: null, pctTimber: null, waterAcres: null, pctWater: null,
+    pastureAcres: null, pctPasture: null, pondAcres: null, pctPond: null,
+    rating: null, ratingLabel: null,
+    pricePerAcre: null, pricePerTillableAcre: null, pricePerRating: null,
+    remeasuring: false, landTypes: null, display: null, priceMode: null,
   }
+}
+
+/** The server's string for one figure, verbatim; "\u2014" when absent. */
+export function figDisplay(f: { display?: ServerDisplay | null } | null | undefined, key: DisplayKey): string {
+  const v = f?.display?.[key]
+  return typeof v === 'string' && v !== '' ? v : DASH
+}
+
+/** true when a display string is a real value (not "\u2014" / empty). */
+export function figShown(v: string | null | undefined): boolean {
+  return !!v && v !== DASH
 }
 
 /**
  * The ONE read. `record` = the parcel record (/api/regrid/parcel `parcel`),
- * `enrich` = /api/parcel-enrichment/by-uuid, `tileProps` = tile feature
- * properties. Server `figures` win from whichever payload carries them
- * (enrichment first — it is re-read on demand); otherwise the old derivation.
+ * `enrich` = /api/parcel-enrichment/by-uuid. Server `figures` win from
+ * whichever payload carries them (enrichment first — it is re-read on
+ * demand). No `figures` anywhere → empty figures (every surface prints "\u2014").
  */
-export function parcelFigures(record: any, enrich?: any, tileProps?: any): ParcelFigures {
-  const f = findServerFigures(enrich, record, tileProps)
-  return f ? fromServerFigures(f) : legacyParcelFigures(record, enrich, tileProps)
+export function parcelFigures(record: any, enrich?: any): ParcelFigures {
+  const f = findServerFigures(enrich, record)
+  return f ? fromServerFigures(f) : emptyParcelFigures()
 }
 
 /**
@@ -221,17 +232,18 @@ export function savedTractFigures(d: any): ParcelFigures {
     pricePerAcre: null, pricePerTillableAcre: null, pricePerRating: null,
     remeasuring: false,
     landTypes: null,
+    display: null, priceMode: null,
   }
 }
 
 // ── Report rows ──────────────────────────────────────────────────────────
 
 /** The figure fields of a parcel report row (TractSaleData, camelCase).
- *  From server figures the row also carries `price` (ResolvedTractPrice
- *  shape) so rowPrice() shows the server's rates and never re-derives them;
- *  `mode` is the caller's tractPriceMode (a display choice, not a figure).
- *  From the old API the row keeps its pre-11/19 fields and no `price`, so
- *  rowPrice() behaves exactly as before. */
+ *  From server figures the row carries `figuresDisplay` (the server's print
+ *  strings — every renderer shows those verbatim) and `price` (the
+ *  ResolvedTractPrice shape) so rowPrice() reads the server's rates and never
+ *  re-derives them. `mode` is only the fallback when the server sent no
+ *  `price_mode`. A row from a payload with no figures is all dashes. */
 export function parcelRowFields(f: ParcelFigures, mode: 'per_acre' | 'total') {
   const validPrice = f.price !== null && f.price > 0
   const base = {
@@ -247,6 +259,7 @@ export function parcelRowFields(f: ParcelFigures, mode: 'per_acre' | 'total') {
   return {
     ...base,
     serverFigures: true,
+    figuresDisplay: f.display,
     pricePerTillableAcre: f.pricePerTillableAcre,
     pricePerSoilRating: f.pricePerRating,
     landTypes: f.landTypes,
@@ -254,13 +267,84 @@ export function parcelRowFields(f: ParcelFigures, mode: 'per_acre' | 'total') {
     price: {
       basis: validPrice || f.pricePerAcre ? ('sold' as const) : null,
       scope: 'tract' as const,
-      mode,
+      mode: f.priceMode ?? mode,
       pricePerAcre: f.pricePerAcre,
       pricePerTillableAcre: f.pricePerTillableAcre,
       pricePerSoilRating: f.pricePerRating,
       totalPrice: validPrice ? f.price : null,
       listingTractCount: null,
     },
+  }
+}
+
+/** What a report row prints for one figure: the server's string verbatim
+ *  when the row carries `figuresDisplay`; "\u2014" for a parcel row without it
+ *  (never a number built from the row's numeric copy); `null` for any other
+ *  row (tracts) so the caller keeps its own tract formatting. */
+export function rowDisplay(
+  t: { figuresDisplay?: ServerDisplay | null; tractId?: string | null; savedId?: string | null },
+  key: DisplayKey,
+): string | null {
+  if (t.figuresDisplay) return figDisplay({ display: t.figuresDisplay }, key)
+  return t.tractId || t.savedId ? null : DASH
+}
+
+/** "38.69 ac (52%)" — the server's acres string plus its % tillable string
+ *  when it sent one (it has no % for timber); "Updating…" alone while the
+ *  parcel is re-measured; "—" when neither exists. */
+export function compositionText(f: { display?: ServerDisplay | null }, which: 'tillable' | 'timber'): string {
+  const acres = figDisplay(f, which === 'tillable' ? 'tillable_acres' : 'timber_acres')
+  const pct = which === 'tillable' ? figDisplay(f, 'pct_tillable') : DASH
+  if (!figShown(acres)) return figShown(pct) ? pct : DASH
+  if (acres === UPDATING) return acres
+  return figShown(pct) ? `${acres} ac (${pct})` : `${acres} ac`
+}
+
+/** "PI 131.2" — the server's label and rating strings; "Updating…" alone
+ *  while re-measured. `fallbackLabel` only names the rating when the server
+ *  sent no rating_label. */
+export function ratingText(f: { display?: ServerDisplay | null }, fallbackLabel: string): string {
+  const rating = figDisplay(f, 'rating')
+  if (rating === UPDATING) return rating
+  const label = figDisplay(f, 'rating_label')
+  return `${figShown(label) ? label : fallbackLabel} ${rating}`
+}
+
+/** The strings a parcel report-row card prints (owner 11/20): all the
+ *  server's, verbatim. `null` for a row that is not server-figures driven
+ *  (an auction tract) — that row keeps its tract formatting. A parcel row
+ *  whose payload carried no `figures` is all "\u2014". `totalLabel` is the
+ *  caller's "Sale Price" label for price_mode "total". */
+export interface RowCells {
+  acres: string
+  /** "$/Acre", or `totalLabel` when the server's price_mode is "total" */
+  priceLabel: string
+  /** price_per_acre, or the total price when price_mode is "total" */
+  priceValue: string
+  tillable: string
+  rating: string
+  sale: string
+  pricePerTillable: string
+  pricePerRating: string
+  date: string
+}
+export function rowCells(
+  t: { figuresDisplay?: ServerDisplay | null; tractId?: string | null; savedId?: string | null; price?: { mode?: string } | null },
+  totalLabel: string,
+): RowCells | null {
+  if (rowDisplay(t, 'acres') === null) return null
+  const d = { display: t.figuresDisplay ?? null }
+  const total = t.price?.mode === 'total'
+  return {
+    acres: figDisplay(d, 'acres'),
+    priceLabel: total ? totalLabel : '$/Acre',
+    priceValue: total ? figDisplay(d, 'price') : figDisplay(d, 'price_per_acre'),
+    tillable: figDisplay(d, 'pct_tillable'),
+    rating: figDisplay(d, 'rating'),
+    sale: figDisplay(d, 'price'),
+    pricePerTillable: figDisplay(d, 'price_per_tillable_acre'),
+    pricePerRating: figDisplay(d, 'price_per_rating'),
+    date: figDisplay(d, 'sale_date'),
   }
 }
 

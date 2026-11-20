@@ -24,12 +24,23 @@ function pct(v?: number | null): string {
 }
 
 function fmtRating(val?: number | null): string {
-  if (!val) return '—'
+  if (val == null) return '—'
   return val.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
+/** The server's comp-report totals object (comps_summary.summarize + the one
+ *  formatter): `display` carries ready-to-print strings keyed like the
+ *  summary (total_acres, total_tillable, pct_tillable, total_sale, avg_ppa,
+ *  avg_ppta, avg_ppsr, avg_acres, avg_till, soil_rating). */
+export interface ServerCompTotals {
+  display?: Record<string, string> | null
 }
 
 interface Props {
   comps: CompAverageInput[]
+  /** Server totals (owner 11/20): when given, every tile prints the server's
+   *  display string verbatim and nothing is aggregated here. */
+  totals?: ServerCompTotals | null
   /** label for the soil rating tiles, e.g. "Avg PI" / "Avg Soil Rating" */
   soilLabel: string
   /** label for the $/soil tile, e.g. "Avg $/PI" */
@@ -40,7 +51,7 @@ interface Props {
   title?: string
 }
 
-export default function CompSummaryGrid({ comps, soilLabel, perSoilLabel, tone = 'panel', title }: Props) {
+export default function CompSummaryGrid({ comps, totals, soilLabel, perSoilLabel, tone = 'panel', title }: Props) {
   const s = useMemo(() => summarizeComps(comps), [comps])
   const tile = tone === 'panel'
     ? 'bg-white/[0.03] rounded-xl p-3 border border-white/5'
@@ -53,6 +64,9 @@ export default function CompSummaryGrid({ comps, soilLabel, perSoilLabel, tone =
   const label = tone === 'panel' ? 'text-[10px] text-gg-gray-400 mt-0.5' : 'text-xs text-gray-400 uppercase'
   const maxPx = tone === 'panel' ? 18 : 20
   const rowLabel = 'text-[10px] font-semibold text-gg-gray-500 uppercase tracking-wider mb-1.5'
+  // Server display strings win; a key the server did not send is "—".
+  const sd = totals?.display ?? null
+  const T = (key: string, fallback: string) => (sd ? (sd[key] || '—') : fallback)
   const soilRated = s.ratedCount < s.count && s.count > 0 ? ` · ${s.ratedCount} of ${s.count} rated` : ''
 
   return (
@@ -65,42 +79,42 @@ export default function CompSummaryGrid({ comps, soilLabel, perSoilLabel, tone =
       <div className={`${rowLabel} text-gg-pink/80`}>Totals</div>
       <div className="grid grid-cols-3 gap-2 mb-3">
         <div className={totalTile}>
-          <FitText max={maxPx} className={value}>{s.totalAcres ? formatAcres(s.totalAcres) : '—'}</FitText>
+          <FitText max={maxPx} className={value}>{T('total_acres', s.totalAcres ? formatAcres(s.totalAcres) : '—')}</FitText>
           <div className={totalLabel}>Total Acres</div>
         </div>
         <div className={totalTile}>
-          <FitText max={maxPx} className={value}>{s.totalTillable ? formatAcres(s.totalTillable) : '—'}</FitText>
-          <div className={totalLabel}>Total Tillable{pct(s.pctTillable)}</div>
+          <FitText max={maxPx} className={value}>{T('total_tillable', s.totalTillable ? formatAcres(s.totalTillable) : '—')}</FitText>
+          <div className={totalLabel}>Total Tillable{sd ? (sd.pct_tillable && sd.pct_tillable !== '—' ? ` \u00B7 ${sd.pct_tillable}` : '') : pct(s.pctTillable)}</div>
         </div>
         <div className={totalTile}>
-          <FitText max={maxPx} className={`${value} text-gg-pink`}>{fmtDollars(s.totalSale)}</FitText>
+          <FitText max={maxPx} className={`${value} text-gg-pink`}>{T('total_sale', fmtDollars(s.totalSale))}</FitText>
           <div className={totalLabel}>Total Sales</div>
         </div>
       </div>
       <div className={rowLabel}>Averages</div>
       <div className="grid grid-cols-3 gap-2">
         <div className={tile}>
-          <FitText max={maxPx} className={`${value} text-gg-pink`}>{fmtDollars(s.avgPricePerAcre)}</FitText>
+          <FitText max={maxPx} className={`${value} text-gg-pink`}>{T('avg_ppa', fmtDollars(s.avgPricePerAcre))}</FitText>
           <div className={label}>Avg $/Acre</div>
         </div>
         <div className={tile}>
-          <FitText max={maxPx} className={`${value} text-gg-pink`}>{fmtDollars(s.avgPricePerTillable)}</FitText>
+          <FitText max={maxPx} className={`${value} text-gg-pink`}>{T('avg_ppta', fmtDollars(s.avgPricePerTillable))}</FitText>
           <div className={label}>Avg $/Till Ac</div>
         </div>
         <div className={tile}>
-          <FitText max={maxPx} className={`${value} text-gg-pink`}>{fmtDollars(s.avgPricePerSoil)}</FitText>
+          <FitText max={maxPx} className={`${value} text-gg-pink`}>{T('avg_ppsr', fmtDollars(s.avgPricePerSoil))}</FitText>
           <div className={label}>{perSoilLabel}</div>
         </div>
         <div className={tile}>
-          <FitText max={maxPx} className={value}>{s.avgAcres ? formatAcres(s.avgAcres) : '—'}</FitText>
+          <FitText max={maxPx} className={value}>{T('avg_acres', s.avgAcres ? formatAcres(s.avgAcres) : '—')}</FitText>
           <div className={label}>Avg Acres</div>
         </div>
         <div className={tile}>
-          <FitText max={maxPx} className={value}>{s.avgTillable ? formatAcres(s.avgTillable) : '—'}</FitText>
-          <div className={label}>Avg Tillable{pct(s.pctTillable)}</div>
+          <FitText max={maxPx} className={value}>{T('avg_till', s.avgTillable ? formatAcres(s.avgTillable) : '—')}</FitText>
+          <div className={label}>Avg Tillable{sd ? (sd.pct_tillable && sd.pct_tillable !== '—' ? ` \u00B7 ${sd.pct_tillable}` : '') : pct(s.pctTillable)}</div>
         </div>
         <div className={tile}>
-          <FitText max={maxPx} className={value}>{fmtRating(s.soilRating)}</FitText>
+          <FitText max={maxPx} className={value}>{T('soil_rating', fmtRating(s.soilRating))}</FitText>
           <div className={label}>{soilLabel}{soilRated}</div>
         </div>
       </div>

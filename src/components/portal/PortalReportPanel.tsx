@@ -15,10 +15,11 @@ import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import { formatAuctionDateTime } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
-import { rowPctTillable, UPDATING } from '@/lib/parcelFigures'
+import { rowPctTillable, rowCells, figShown, UPDATING } from '@/lib/parcelFigures'
 import SubjectStrip from './SubjectStrip'
 import CompSummaryGrid from '@/components/CompSummaryGrid'
 import type { TractSaleData } from './PortalTractDetail'
+import type { ServerDisplay } from '@/lib/parcelFigures'
 import { fmtRowDate } from '@/lib/calendarDate'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -29,7 +30,7 @@ function fmt(val?: number | null): string {
 }
 
 function fmtNum(val?: number | null): string {
-  if (!val) return '—'
+  if (val == null) return '—'
   return val.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
@@ -62,6 +63,9 @@ interface SubjectInfo {
   subject_soil_rating_type?: string | null
   /** server figures: parcel subject is being re-measured */
   subject_remeasuring?: boolean | null
+  /** server figures.display for a parcel subject — printed verbatim by SubjectStrip */
+  subject_display?: ServerDisplay | null
+  subject_kind?: string | null
   subject_township?: string
   subject_land_type?: string
   // IDs needed by the backend to fetch polygon/image/DEM for the PDF
@@ -105,7 +109,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
     subject_acres: subjectInfo?.subject_acres ? String(subjectInfo.subject_acres) : null,
     subject_tillable_pct: subjectInfo?.subject_pct_tillable
       ? String(Math.round(subjectInfo.subject_pct_tillable)) + '%' : null,
-    subject_soil_rating: subjectInfo?.subject_soil_rating ? String(subjectInfo.subject_soil_rating) : null,
+    subject_soil_rating: subjectInfo?.subject_soil_rating != null ? String(subjectInfo.subject_soil_rating) : null,
     subject_auction_date: subjectInfo?.subject_auction_date || null,
     subject_company: subjectInfo?.subject_company || null,
     comparables: tracts.map(t => ({
@@ -197,8 +201,23 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
   // The row's ONE price (owner 11/17, src/lib/tractPrice.ts): $/tillable
   // only when tillable >= 1 ac and >= 25% of the acres; $/rating only when
   // tillable >= 25% — the parcel panel's rule, on every row.
-  const getPricePerTillable = (t: TractSaleData): number | null => rowPrice(t).pricePerTillableAcre
-  const getPricePerSoil = (t: TractSaleData): number | null => rowPrice(t).pricePerSoilRating
+  // Parcel rows print the server's strings verbatim (owner 11/20, rowCells);
+  // tract rows keep their own formatted numbers. null = nothing to print.
+  const shownOrNull = (v: string | null) => (v && figShown(v) ? v : null)
+  const getSale = (t: TractSaleData): string | null => {
+    const c = rowCells(t, '')
+    return shownOrNull(c ? c.sale : t.salePrice ? fmt(t.salePrice) : null)
+  }
+  const getPricePerTillable = (t: TractSaleData): string | null => {
+    const c = rowCells(t, '')
+    const v = rowPrice(t).pricePerTillableAcre
+    return shownOrNull(c ? c.pricePerTillable : v ? fmt(v) : null)
+  }
+  const getPricePerSoil = (t: TractSaleData): string | null => {
+    const c = rowCells(t, '')
+    const v = rowPrice(t).pricePerSoilRating
+    return shownOrNull(c ? c.pricePerRating : v ? fmt(v) : null)
+  }
 
   return (
     <motion.div
@@ -262,6 +281,8 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                   soilRatingType={subjectInfo.subject_soil_rating_type}
                   state={subjectInfo.state}
                   remeasuring={subjectInfo.subject_remeasuring}
+                  display={subjectInfo.subject_display}
+                  serverOnly={subjectInfo.subject_kind === 'parcel'}
                 />
                 {subjectInfo.subject_auction_date && (
                   <p className="text-xs text-gg-gray-400 mt-2">
@@ -294,7 +315,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                         {t.county}, {t.state}
                       </div>
                         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gg-gray-400">
-                          {t.auctionDate && <span className="text-gg-pink font-medium">{fmtDate(t.auctionDate)}</span>}
+                          {(() => { const c = rowCells(t, ''); const dt = c ? (figShown(c.date) ? c.date : null) : (t.auctionDate ? fmtDate(t.auctionDate) : null); return dt ? <span className="text-gg-pink font-medium">{dt}</span> : null })()}
                           {/* Tract rows show the listing company; parcel rows
                               (no company) show the Regrid owner instead. */}
                           {(t.companyName || t.owner) && <span>· {t.companyName || t.owner}</span>}
@@ -316,50 +337,51 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                     <div className="grid grid-cols-4 gap-2 flex-1 min-w-0">
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Acres</div>
-                        <div className="text-sm font-medium">{t.totalAcres ? formatAcres(t.totalAcres) : '—'}</div>
+                        <div className="text-sm font-medium">{rowCells(t, '')?.acres ?? (t.totalAcres ? formatAcres(t.totalAcres) : '—')}</div>
                       </div>
                       {(() => {
                         // Owner 11/4: <10 ac or no ag type → the total, labelled as such.
                         const rp = rowPrice(t)
                         const total = rp.mode === 'total' && rp.totalPrice
+                        const cells = rowCells(t, totalLabelFor(rp))
                         return (
                           <div>
-                            <div className="text-[10px] text-gg-gray-500">{total ? totalLabelFor(rp) : '$/Acre'}</div>
-                            <div className="text-sm font-medium text-gg-pink">{fmt(total ? rp.totalPrice : rp.pricePerAcre)}</div>
+                            <div className="text-[10px] text-gg-gray-500">{cells ? cells.priceLabel : total ? totalLabelFor(rp) : '$/Acre'}</div>
+                            <div className="text-sm font-medium text-gg-pink">{cells ? cells.priceValue : fmt(total ? rp.totalPrice : rp.pricePerAcre)}</div>
                           </div>
                         )
                       })()}
                       <div>
                         <div className="text-[10px] text-gg-gray-500">Tillable</div>
                         <div className="text-sm font-medium">
-                          {t.remeasuring ? UPDATING : rowPctTillable(t) != null ? Math.round(rowPctTillable(t)!) + '%' : '—'}
+                          {rowCells(t, '')?.tillable ?? (t.remeasuring ? UPDATING : rowPctTillable(t) != null ? Math.round(rowPctTillable(t)!) + '%' : '—')}
                         </div>
                       </div>
                       <div>
                         <div className="text-[10px] text-gg-gray-500">{soilRatingLabel(t)}</div>
-                        <div className="text-sm font-medium">{t.remeasuring ? UPDATING : t.soilRating ? fmtNum(t.soilRating) : '—'}</div>
+                        <div className="text-sm font-medium">{rowCells(t, '')?.rating ?? (t.remeasuring ? UPDATING : t.soilRating != null ? fmtNum(t.soilRating) : '—')}</div>
                       </div>
                     </div>
 
                     {/* Derived pricing */}
-                    {(t.salePrice || getPricePerTillable(t) || getPricePerSoil(t)) && (
+                    {(getSale(t) || getPricePerTillable(t) || getPricePerSoil(t)) && (
                       <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 pt-1 border-t border-white/5 mt-1">
-                        {t.salePrice && (
+                        {getSale(t) && (
                           <div className="text-[10px]">
                             <span className="text-gg-gray-500">Sale: </span>
-                            <span className="text-white font-medium">{fmt(t.salePrice)}</span>
+                            <span className="text-white font-medium">{getSale(t)}</span>
                           </div>
                         )}
                         {getPricePerTillable(t) && (
                           <div className="text-[10px]">
                             <span className="text-gg-gray-500">$/Till Ac: </span>
-                            <span className="text-white font-medium">{fmt(getPricePerTillable(t))}</span>
+                            <span className="text-white font-medium">{getPricePerTillable(t)}</span>
                           </div>
                         )}
                         {getPricePerSoil(t) && (
                           <div className="text-[10px]">
                             <span className="text-gg-gray-500">{perSoilRatingLabel(t)}: </span>
-                            <span className="text-white font-medium">{fmt(getPricePerSoil(t))}</span>
+                            <span className="text-white font-medium">{getPricePerSoil(t)}</span>
                           </div>
                         )}
                       </div>

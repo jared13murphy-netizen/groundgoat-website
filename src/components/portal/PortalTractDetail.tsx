@@ -16,6 +16,7 @@ import AuctionCountdown from '../AuctionCountdown'
 import NotesTimeline from '@/components/notes/NotesTimeline'
 import { noteKeyForRow } from '@/lib/notes'
 import { rowPrice, totalLabelFor } from '@/lib/tractPrice'
+import { figDisplay, figShown, type ServerDisplay } from '@/lib/parcelFigures'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -78,6 +79,9 @@ export interface TractSaleData {
   remeasuring?: boolean | null
   /** true = this row's figures came from the server's `figures` object */
   serverFigures?: boolean | null
+  /** The server's print strings for this parcel row (figures.display) —
+   *  every renderer shows these verbatim (src/lib/parcelFigures.ts rowDisplay). */
+  figuresDisplay?: ServerDisplay | null
   // Recorded county-recorder deed(s) folded into this tract on the comp
   // map because a Regrid parcel-sale-dot's centroid sits inside the
   // tract's own polygon — see ExploreMap.tsx's recomputeCoincidentDeeds /
@@ -93,6 +97,9 @@ export interface RecordedDeed {
   acres: number | null
   owner: string | null
   ownerLoading: boolean
+  /** The dot's server print strings (figures.display) — shown verbatim. */
+  display?: ServerDisplay | null
+  priceMode?: 'total' | 'per_acre' | null
 }
 
 interface SoilData {
@@ -152,17 +159,6 @@ function formatCurrency(value?: number | null): string {
 // Date/time rendering now delegates to lib/auctionTime which converts from
 // UTC to the auction's LOCAL timezone (based on the tract's state) and adds
 // a tz label like "CDT" so viewers in any timezone see the right clock time.
-
-// Recorded-deed sale dates are plain YYYY-MM-DD county-recorder dates (no
-// timezone attached, unlike an auction datetime) — format as MM/DD/YYYY
-// directly instead of going through formatAuctionDate's tz conversion.
-function formatDeedDate(iso: string | null | undefined): string | null {
-  if (!iso) return null
-  const m = iso.slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!m) return null
-  const [, y, mo, d] = m
-  return `${mo}/${d}/${y}`
-}
 
 // Landscape twin of a marketing image (same file name + '-wide.jpg'; the
 // scraper's marketing-image renderer writes both beside each other in S3).
@@ -589,10 +585,13 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
           </h3>
           <div className="bg-amber-500/[0.06] rounded-xl border border-amber-500/20 divide-y divide-amber-500/10">
             {tract.deeds.map((deed) => {
-              const pricePerAcre = deed.saleprice && deed.acres
-                ? Math.round(deed.saleprice / deed.acres)
-                : null
-              const dateStr = formatDeedDate(deed.saledate)
+              // The deed's figures are the server's print strings (owner
+              // 11/20) — no $/acre is computed here. price_mode "total"
+              // shows the sale price instead of $/acre.
+              const dd = { display: deed.display ?? null }
+              const acresStr = figDisplay(dd, 'acres')
+              const ppaStr = deed.priceMode === 'total' ? figDisplay(dd, 'price') : figDisplay(dd, 'price_per_acre')
+              const dateStr = figDisplay(dd, 'sale_date')
               return (
                 <div key={deed.ll_uuid} className="px-4 py-3 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
@@ -608,13 +607,12 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gg-gray-300">
-                    {deed.acres != null && <span>{formatAcres(deed.acres)} ac</span>}
-                    {pricePerAcre != null && (
-                      <span className="text-amber-400 font-medium">
-                        {formatCurrency(pricePerAcre)}/ac <span className="text-gg-gray-400 font-normal">(recorded)</span>
-                      </span>
-                    )}
-                    {dateStr && <span>{dateStr}</span>}
+                    <span>{figShown(acresStr) ? `${acresStr} ac` : acresStr}</span>
+                    <span className="text-amber-400 font-medium">
+                      {figShown(ppaStr) && deed.priceMode !== 'total' ? `${ppaStr}/ac` : ppaStr}{' '}
+                      <span className="text-gg-gray-400 font-normal">(recorded)</span>
+                    </span>
+                    <span>{dateStr}</span>
                   </div>
                 </div>
               )

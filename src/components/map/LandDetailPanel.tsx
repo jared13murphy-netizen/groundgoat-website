@@ -24,11 +24,11 @@ import { openReports } from '@/lib/reportsPanel'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
-  fmtMoney, fmtAcres,
+  fmtMoney,
   PARCEL_DISCLAIMER_TEXT, deriveParcelDetail,
   DetailRow, Section, ParcelDetailSections, ParcelLastSaleSection,
 } from './parcelDetailFields'
-import { parcelRowFields, fmtFigAcres, fmtFigPct, fmtFigRating, UPDATING } from '@/lib/parcelFigures'
+import { parcelRowFields, figDisplay, figShown } from '@/lib/parcelFigures'
 import { tractPriceMode } from '@/lib/priceDisplay'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -550,10 +550,14 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
     gisacre, saleprice, ppa, ratingLabel, soilRating, soilRatingType,
     tillableAcres, dominantLandcover,
     rawSalePrice, deedParcels, deedAcres, isDeedShare, perTillable, perRating } = derived
-  // Land-composition figures for the stat grid — the server's (or the
-  // old-API fallback) via parcelFigures; only rounding happens here.
-  const { pctTillable, timberAcres, pctTimber, remeasuring } = derived
-  const pctOf = (p: number | null) => (p != null ? `${fmtFigPct(p)} of parcel` : undefined)
+  // Land-composition figures for the stat grid — the server's print strings
+  // (figures.display), verbatim ("Updating…" while re-measured).
+  const { timberAcres, remeasuring } = derived
+  const figs = derived.figures
+  const dText = (key: Parameters<typeof figDisplay>[1]) => figDisplay(figs, key)
+  const pctTillableText = dText('pct_tillable')
+  // "38.69" → "38.69 ac"; "—" and "Updating…" print as sent.
+  const statAcres = (v: string) => (figShown(v) && !remeasuring ? `${v} ac` : v)
   const validSalePrice = typeof saleprice === 'number' && saleprice > 0
   const soilBreakdown: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> =
     Array.isArray(enrichData?.soils) ? enrichData.soils : []
@@ -722,8 +726,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
             <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.42)', marginTop: 2, lineHeight: 1.3 }}>{township} Township</div>
           )}
           <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 9, marginTop: 9 }}>
-            {gisacre != null && (
-              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{fmtFigAcres(gisacre) ? `${fmtFigAcres(gisacre)} ac` : fmtAcres(gisacre)}</span>
+            {(gisacre != null || figShown(dText('acres'))) && (
+              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{figShown(dText('acres')) ? `${dText('acres')} ac` : dText('acres')}</span>
             )}
             {countyState && <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>{countyState}</span>}
           </div>
@@ -841,14 +845,13 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
           {(remeasuring || tillableAcres != null || soilRating != null || timberAcres != null) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 18px 4px' }}>
               <StatCard label="Tillable"
-                        value={remeasuring ? UPDATING : tillableAcres != null ? `${fmtFigAcres(tillableAcres)} ac` : '—'}
-                        sub={remeasuring ? undefined : pctOf(pctTillable)} />
+                        value={statAcres(dText('tillable_acres'))}
+                        sub={figShown(pctTillableText) && !remeasuring ? `${pctTillableText} of parcel` : undefined} />
               <StatCard label={ratingLabel}
-                        value={remeasuring ? UPDATING : fmtFigRating(soilRating) ?? '—'}
+                        value={dText('rating')}
                         sub={!remeasuring && soilRating != null ? (state || undefined) : undefined} />
               <StatCard label="Timber"
-                        value={remeasuring ? UPDATING : timberAcres != null ? `${fmtFigAcres(timberAcres)} ac` : '—'}
-                        sub={remeasuring ? undefined : pctOf(pctTimber)} />
+                        value={statAcres(dText('timber_acres'))} />
               {/* Pasture acres are not shown (owner 10/1: the figure is
                   always wrong) — the field stays on the record. */}
             </div>
@@ -877,7 +880,7 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
 
                 {/* Parcel-wide from enrichment */}
                 {soilRating != null && (
-                  <DetailRow label={`Rating (${ratingLabel})`} value={fmtFigRating(soilRating)!} />
+                  <DetailRow label={`Rating (${ratingLabel})`} value={dText('rating')} />
                 )}
               </Section>
 

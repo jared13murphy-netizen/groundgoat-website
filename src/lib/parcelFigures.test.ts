@@ -1,18 +1,24 @@
 /**
- * parcelFigures — the website displays the server's parcel figures and never
- * computes them; without `figures` (old API) it falls back to the pre-11/19
- * parcel-panel derivation. No test harness in this repo: run with
+ * parcelFigures — the website displays the server's parcel figures and print
+ * strings (figures.display) and never computes or formats them; without
+ * `figures` every figure is "—" (no fallback). No test harness: run with
  *   node src/lib/parcelFigures.test.ts
  */
 import assert from 'node:assert/strict'
 import {
-  parcelFigures, fromServerFigures, legacyParcelFigures, findServerFigures, savedTractFigures,
-  parcelRowFields, rowPctTillable,
+  parcelFigures, fromServerFigures, findServerFigures, savedTractFigures,
+  parcelRowFields, rowPctTillable, figDisplay, figShown, rowDisplay, rowCells, compositionText, ratingText, DASH,
   fmtFigMoney, fmtFigAcres, fmtFigPct, fmtFigRating, perRatingLabel, figText, UPDATING,
 } from './parcelFigures.ts'
 
 let passed = 0
 function test(name: string, fn: () => void) { fn(); passed++; console.log(`ok - ${name}`) }
+
+const DISPLAY = {
+  acres: '40.12', tillable_acres: '36.50', timber_acres: '2.10', water_acres: '0.40', pasture_acres: '0.00',
+  pond_acres: '0.40', price: '$257,931', price_per_acre: '$6,429', price_per_tillable_acre: '$7,067',
+  price_per_rating: '$49', pct_tillable: '91%', rating: '131.2', rating_label: 'PI', sale_date: '03/14/2025',
+}
 
 const SERVER = {
   price: 257931, price_source: 'split', regrid_saleprice: 1400820, saledate: '2025-03-14',
@@ -21,6 +27,7 @@ const SERVER = {
   rating: 131.24, rating_label: 'PI',
   price_per_acre: 6428.99, price_per_tillable_acre: 7066.6, price_per_rating: 48.99,
   remeasuring: false, land_types: ['Farm'],
+  display: DISPLAY, price_mode: 'per_acre', updating: false,
 }
 
 test('server figures are read as sent — never re-derived', () => {
@@ -65,32 +72,6 @@ test('unknown rating label → null → "$/Soil Rating"', () => {
   assert.equal(perRatingLabel('CSR2'), '$/CSR2')
 })
 
-test('OLD API: pre-11/19 derivation, unchanged (allocated share, floors)', () => {
-  const rec = { saleprice: 1400820, parcel_sale_price: 257931, deed_parcel_count: 9, ll_gisacre: 40, gisacre: 41 }
-  const f = parcelFigures(rec, { tillable_acres: 36, pct_tillable: 90, soil_rating: 130, soil_rating_type: 'PI' })
-  assert.equal(f.fromServer, false)
-  assert.equal(f.price, 257931)
-  assert.equal(f.priceSource, 'split')
-  assert.equal(f.acres, 40)
-  assert.equal(f.pricePerAcre, 257931 / 40)
-  assert.equal(f.pricePerTillableAcre, 257931 / 36)
-  assert.equal(f.pricePerRating, 257931 / 40 / 130)
-  assert.equal(f.pctTillable, 90) // passes through in the old unit
-})
-
-test('OLD API: $/tillable and $/rating hide below 25% tillable', () => {
-  const f = legacyParcelFigures({ saleprice: 190000, ll_gisacre: 38.9 }, { tillable_acres: 2, soil_rating: 120 })
-  assert.equal(f.pricePerTillableAcre, null)
-  assert.equal(f.pricePerRating, null)
-  assert.ok(f.pricePerAcre! > 0)
-})
-
-test('OLD API: tile props are the fallback record', () => {
-  const f = parcelFigures(null, null, { gisacre: 12.5, saleprice: 50000 })
-  assert.equal(f.acres, 12.5)
-  assert.equal(f.pricePerAcre, 4000)
-})
-
 test('remeasuring → "Updating…" on tillable/timber/water/rating only', () => {
   const f = fromServerFigures({ ...SERVER, remeasuring: true } as any)
   assert.equal(figText(f, 'tillable', fmtFigAcres(f.tillableAcres)), UPDATING)
@@ -119,12 +100,6 @@ test('report row from server figures carries the server rates (rowPrice reads th
   assert.equal(r.price.basis, 'sold')
 })
 
-test('report row from the old API has no `price` (rowPrice works as before)', () => {
-  const r = parcelRowFields(legacyParcelFigures({ saleprice: 1000, ll_gisacre: 10 }), 'per_acre') as any
-  assert.equal(r.price, undefined)
-  assert.equal(r.pricePerAcre, 100)
-})
-
 test('rowPctTillable: server rows never derive; other rows keep the fallback', () => {
   assert.equal(rowPctTillable({ pctTillable: null, tillableAcres: 5, totalAcres: 10, serverFigures: true }), null)
   assert.equal(rowPctTillable({ pctTillable: null, tillableAcres: 5, totalAcres: 10 }), 50)
@@ -138,5 +113,87 @@ test('saved tract: server figures, else the old numbers', () => {
   assert.equal(old.ratingLabel, 'CSR2')
   assert.equal(savedTractFigures(null).acres, null)
 })
+
+test('NO fallback: a payload without figures is all dashes, tile/record numbers ignored', () => {
+  const f = parcelFigures({ saleprice: 1400820, parcel_sale_price: 257931, ll_gisacre: 40, gisacre: 41, tillable_acres: 36 }, { tillable_acres: 36, soil_rating: 130 })
+  assert.equal(f.fromServer, false)
+  assert.equal(f.price, null)
+  assert.equal(f.acres, null)
+  assert.equal(f.pricePerAcre, null)
+  assert.equal(f.display, null)
+  assert.equal(figDisplay(f, 'price_per_acre'), DASH)
+  assert.equal(figDisplay(f, 'acres'), '—')
+})
+
+test('display strings are read verbatim — never reformatted', () => {
+  // Deliberately NOT what a client formatter would print for the numbers.
+  const f = parcelFigures({ figures: { ...SERVER, acres: 40.12, display: { ...DISPLAY, acres: '40.1200 ac!' , price_per_acre: '$1' } } })
+  assert.equal(figDisplay(f, 'acres'), '40.1200 ac!')
+  assert.equal(figDisplay(f, 'price_per_acre'), '$1')
+  assert.equal(figDisplay(f, 'rating'), '131.2')
+})
+
+test('a missing display key is a dash; a rating of "0.0" is shown, not a dash', () => {
+  const f = parcelFigures({ figures: { ...SERVER, rating: 0, display: { rating: '0.0' } } })
+  assert.equal(f.rating, 0)
+  assert.equal(figDisplay(f, 'rating'), '0.0')
+  assert.equal(figShown(figDisplay(f, 'rating')), true)
+  assert.equal(figDisplay(f, 'price'), DASH)
+  assert.equal(figShown(DASH), false)
+  assert.equal(figShown(''), false)
+})
+
+test('price_mode and updating come from the server', () => {
+  const t = fromServerFigures({ ...SERVER, price_mode: 'total' } as any)
+  assert.equal(t.priceMode, 'total')
+  assert.equal(fromServerFigures({ ...SERVER, price_mode: 'weird' } as any).priceMode, null)
+  assert.equal(fromServerFigures({ ...SERVER, updating: true } as any).remeasuring, true)
+  const r = parcelRowFields(t, 'per_acre') as any
+  assert.equal(r.price.mode, 'total') // the server's mode beats the client fallback
+  assert.equal((parcelRowFields(fromServerFigures(SERVER as any), 'total') as any).price.mode, 'per_acre')
+})
+
+test('report row carries the print strings; rowDisplay/rowCells read them verbatim', () => {
+  const row = { ...parcelRowFields(fromServerFigures(SERVER as any), 'per_acre'), tractId: null } as any
+  assert.equal(rowDisplay(row, 'price'), '$257,931')
+  const c = rowCells(row, 'Sale Price')!
+  assert.equal(c.acres, '40.12')
+  assert.equal(c.priceLabel, '$/Acre')
+  assert.equal(c.priceValue, '$6,429')
+  assert.equal(c.tillable, '91%')
+  assert.equal(c.rating, '131.2')
+  assert.equal(c.sale, '$257,931')
+  assert.equal(c.pricePerTillable, '$7,067')
+  assert.equal(c.pricePerRating, '$49')
+  assert.equal(c.date, '03/14/2025')
+})
+
+test('price_mode total: the card shows the total price under the "Sale Price" label', () => {
+  const row = { ...parcelRowFields(fromServerFigures({ ...SERVER, price_mode: 'total' } as any), 'per_acre'), tractId: null } as any
+  const c = rowCells(row, 'Sale Price')!
+  assert.equal(c.priceLabel, 'Sale Price')
+  assert.equal(c.priceValue, '$257,931')
+})
+
+test('a parcel row with no display is dashes; a tract row keeps its own formatting (null)', () => {
+  assert.equal(rowCells({ figuresDisplay: null, tractId: null, savedId: null }, 'x')!.acres, DASH)
+  assert.equal(rowCells({ figuresDisplay: null, tractId: 't1' }, 'x'), null)
+  assert.equal(rowCells({ figuresDisplay: null, tractId: null, savedId: 's1' }, 'x'), null)
+  assert.equal(rowDisplay({ tractId: 't1' }, 'price'), null)
+})
+
+test('composition + rating text join the server strings only', () => {
+  const f = fromServerFigures(SERVER as any)
+  assert.equal(compositionText(f, 'tillable'), '36.50 ac (91%)')
+  assert.equal(compositionText(f, 'timber'), '2.10 ac')
+  assert.equal(ratingText(f, 'Soil Rating'), 'PI 131.2')
+  const u = fromServerFigures({ ...SERVER, updating: true, display: { ...DISPLAY, tillable_acres: UPDATING, pct_tillable: UPDATING, rating: UPDATING } } as any)
+  assert.equal(compositionText(u, 'tillable'), UPDATING)
+  assert.equal(ratingText(u, 'PI'), UPDATING)
+  assert.equal(compositionText(emptyish(), 'tillable'), '—')
+  assert.equal(ratingText(emptyish(), 'Soil Rating'), 'Soil Rating —')
+})
+
+function emptyish() { return parcelFigures({}) }
 
 console.log(`\n${passed} passed`)

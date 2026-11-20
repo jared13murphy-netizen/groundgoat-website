@@ -27,7 +27,8 @@
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { fmtSaleDate } from '@/lib/calendarDate'
 import {
-  parcelFigures, fmtFigMoney, fmtFigAcres, fmtFigPct, fmtFigRating, perRatingLabel, UPDATING,
+  parcelFigures, figDisplay, figShown, perRatingLabel,
+  compositionText as figCompositionText, ratingText as figRatingText,
   type ParcelFigures,
 } from '@/lib/parcelFigures'
 
@@ -251,7 +252,7 @@ export function deriveParcelDetail(
   // the numbers are the server's; on the old API the helper runs the
   // pre-11/19 derivation that used to live here (allocated deed share ??
   // Regrid price, $/acre, $/tillable with the 1 ac / 25% floors, $/rating).
-  const fig = parcelFigures(regridData, enrichData, parcelProps)
+  const fig = parcelFigures(regridData, enrichData)
   const gisacre: number | null = fig.acres
   const rawSalePrice = fig.regridSalePrice
   const deedParcels = record?.deed_parcel_count ?? null
@@ -279,7 +280,7 @@ export function deriveParcelDetail(
   const backfillStatus = enrichData?.backfill_status ?? regridData?.backfill_status ?? null
   const remeasuring = fig.remeasuring
 
-  const saledate = fig.saledate ?? record?.saledate ?? null
+  const saledate = fig.saledate
   const saleType = fmtSaleType(firstNonEmpty(
     record?.salestype, record?.saletype, record?.sale_type,
     record?.recordtype, record?.record_type,
@@ -320,7 +321,7 @@ export function deriveParcelDetail(
     pctTillable != null || pctTimber != null
   const hasLandComposition = remeasuring || (hasLandCompositionData && backfillStatus !== 'partial_pending')
   const hasSoilRatingRow = remeasuring || (soilRating != null && soilRatingType != null)
-  const hasLastSale = !!(fmtDate(saledate) || saleType || lastTransferDate || previousOwner)
+  const hasLastSale = !!(figShown(figDisplay(fig, 'sale_date')) || figShown(figDisplay(fig, 'price')) || saleType || lastTransferDate || previousOwner)
   const hasProperty = !!(deeded || usedesc || zoning)
   const hasAssessed = !!(fmtTaxableAcres(taxableAcres) || fmtMoney(parval) || fmtMoney(landval) || fmtMoney(improvval) || fmtMoney(taxamt))
   const hasBuildings = !!(buildings || bldgSqft || yearbuilt)
@@ -421,32 +422,35 @@ export function LandTypeBadges({ landTypes }: { landTypes: string[] | null }) {
   )
 }
 
-/** "38.69 ac (52%)" — acres 2 decimals, whole percent; "Updating…" while the
- *  server re-measures the parcel. Percent is 0-100 (parcelFigures). */
-export function compositionText(d: Pick<ParcelDetailFields, 'remeasuring'>, acres: number | null, pct: number | null): string {
-  if (d.remeasuring) return UPDATING
-  const a = fmtFigAcres(acres)
-  const p = fmtFigPct(pct)
-  if (a) return `${a} ac${p ? ` (${p})` : ''}`
-  return p ?? '\u2014'
+/** "38.69 ac (52%)" / "PI 131.2" — the server's strings, joined
+ *  (src/lib/parcelFigures.ts). */
+export function compositionText(d: Pick<ParcelDetailFields, 'figures'>, which: 'tillable' | 'timber'): string {
+  return figCompositionText(d.figures, which)
+}
+export function ratingText(d: Pick<ParcelDetailFields, 'figures' | 'ratingLabel'>): string {
+  return figRatingText(d.figures, d.ratingLabel)
 }
 
 /** LAST SALE rows — the one markup both the section list and the slide-out
  *  render. Every number is the server's (or the old-API fallback) from
  *  parcelFigures; only rounding happens here. */
 export function LastSaleRows({ d }: { d: ParcelDetailFields }) {
-  const money = fmtFigMoney(d.saleprice)
+  const fig = d.figures
+  const row = (label: string, key: Parameters<typeof figDisplay>[1]) => {
+    const v = figDisplay(fig, key)
+    return figShown(v) ? <DetailRow label={label} value={v} /> : null
+  }
   return (
     <>
-      {money && <DetailRow label="Price" value={money} />}
-      {fmtDate(d.saledate) && <DetailRow label="Sale Date" value={fmtDate(d.saledate)!} />}
-      {fmtFigMoney(d.ppa) && <DetailRow label="$/Acre" value={fmtFigMoney(d.ppa)!} />}
-      {d.remeasuring && money
-        ? <DetailRow label="$/Tillable Acre" value={UPDATING} />
-        : fmtFigMoney(d.perTillable) && <DetailRow label="$/Tillable Acre" value={fmtFigMoney(d.perTillable)!} />}
-      {d.remeasuring && money
-        ? <DetailRow label={perRatingLabel(d.ratingLabel)} value={UPDATING} />
-        : fmtFigMoney(d.perRating) && <DetailRow label={perRatingLabel(d.ratingLabel)} value={fmtFigMoney(d.perRating)!} />}
+      {row('Price', 'price')}
+      {row('Sale Date', 'sale_date')}
+      {/* price_mode "total" (owner 11/4) — decided once server-side — drops
+          the per-acre rows; the server sends them as "\u2014" anyway. */}
+      {fig.priceMode !== 'total' && row('$/Acre', 'price_per_acre')}
+      {row('$/Tillable Acre', 'price_per_tillable_acre')}
+      {figShown(figDisplay(fig, 'price_per_rating')) && (
+        <DetailRow label={perRatingLabel(fig.display?.rating_label && figShown(fig.display.rating_label) ? fig.display.rating_label : null)} value={figDisplay(fig, 'price_per_rating')} />
+      )}
       {/* Never present an allocated share as the recorded price. $257,931
           is our arithmetic; $1,400,820 is what the deed says, and a
           lender will check. */}
@@ -458,7 +462,7 @@ export function LastSaleRows({ d }: { d: ParcelDetailFields }) {
         </div>
       )}
       {d.saleType && <DetailRow label="Sale Type" value={d.saleType} />}
-      {fmtDate(d.lastTransferDate) && fmtDate(d.lastTransferDate) !== fmtDate(d.saledate) && (
+      {fmtDate(d.lastTransferDate) && fmtDate(d.lastTransferDate) !== figDisplay(d.figures, 'sale_date') && (
         <DetailRow label="Last Transfer" value={fmtDate(d.lastTransferDate)!} />
       )}
       {d.previousOwner && <DetailRow label="Previous Owner" value={d.previousOwner} />}
@@ -496,11 +500,11 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
       {!hideComposition && d.hasLandComposition && (
         <Section title="Land Composition">
           {(d.remeasuring || d.tillableAcres != null || d.pctTillable != null) && (
-            <DetailRow label="Tillable" value={compositionText(d, d.tillableAcres, d.pctTillable)} />
+            <DetailRow label="Tillable" value={compositionText(d, 'tillable')} />
           )}
           {/* Pasture acres are not shown (owner 10/1: always wrong). */}
           {(d.remeasuring || d.timberAcres != null || d.pctTimber != null) && (
-            <DetailRow label="Timber" value={compositionText(d, d.timberAcres, d.pctTimber)} />
+            <DetailRow label="Timber" value={compositionText(d, 'timber')} />
           )}
           {/* water hidden per owner 8/15 (engine pond recall unreliable) — restore when water detection is fixed. */}
           {d.dominantLandcover && (
@@ -518,7 +522,7 @@ export function ParcelDetailSections({ d, afterSoilRating, hideComposition = fal
           are present. */}
       {!hideComposition && d.hasSoilRatingRow && (
         <Section title={d.ratingLabel}>
-          <DetailRow label="Rating" value={d.remeasuring ? UPDATING : `${d.soilRatingType ?? d.ratingLabel} ${fmtFigRating(d.soilRating) ?? ''}`.trim()} />
+          <DetailRow label="Rating" value={ratingText(d)} />
         </Section>
       )}
 

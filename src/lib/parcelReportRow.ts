@@ -50,7 +50,7 @@ export async function buildParcelReportRow(input: ParcelRowInput): Promise<Tract
     || (tileProps?.path as string | undefined)
     || (lat != null && lng != null ? `parcel:${lng.toFixed(6)},${lat.toFixed(6)}` : null)
   if (!id) return null
-  const saledate = (derived.saledate ?? parcel?.saledate ?? tileProps?.saledate) as string | undefined
+  const saledate = derived.saledate ?? undefined
 
   return {
     id,

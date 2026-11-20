@@ -34,13 +34,14 @@ import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
 import useDragToReport from '@/components/map/useDragToReport'
 import { buildParcelReportRow } from '@/lib/parcelReportRow'
-import { parcelFigures, fmtFigAcres, fmtFigMoney, fmtFigPct, fmtFigRating, UPDATING } from '@/lib/parcelFigures'
+import type { ServerDisplay } from '@/lib/parcelFigures'
+import { parcelLabelSegments } from '@/lib/parcelLabel'
 import { formatTillable } from '@/lib/tillable'
 import { SOIL_FILTER_ENABLED, TILLABLE_FILTER_ENABLED } from '@/lib/featureFlags'
 import { countActiveFilters } from '@/lib/filterBadgeCount'
 import { resolveParcelDataScope, parcelDataFilterParams, anyParcelDataFilterSet, parcelDataControls } from '@/lib/mapFilterParams'
 import FilterCountBadge from '@/components/FilterCountBadge'
-import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
+import { perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import { shouldHideParcelDotsForFilters } from '@/lib/parcelDotsFilterGate'
 import { toRings as toTractRings, ringsToGeometry, pointInBoundary } from '@/lib/polygonRings'
 import Tract3DModal from '@/components/Tract3DModal'
@@ -113,7 +114,6 @@ import NotesPanel from '@/components/notes/NotesPanel'
 import { myMapsCounts, type MyMapsCounts } from '@/lib/configurableMapping'
 import { pinMinZoom, tileDotMinZoom, saleDotFade } from '@/lib/pinZooms'
 import { localIsoDate } from '@/lib/localDate'
-import { fmtSaleDate } from '@/lib/calendarDate'
 import { apiTractPrice, rowPrice, totalLabelFor } from '@/lib/tractPrice'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -1043,6 +1043,10 @@ export interface RecordedDeed {
   acres: number | null
   owner: string | null
   ownerLoading: boolean
+  /** The server's print strings for this dot (figures.display) — the Recorded
+   *  Deeds card renders these verbatim; no $/acre is computed client-side. */
+  display?: ServerDisplay | null
+  priceMode?: 'total' | 'per_acre' | null
 }
 
 // Value-equality for two Set<string>s — used by recomputeCoincidentDeeds
@@ -1079,7 +1083,9 @@ function recordedDeedsEqual(a: RecordedDeed[] | undefined, b: RecordedDeed[] | u
       x.saledate !== y.saledate ||
       x.acres !== y.acres ||
       x.owner !== y.owner ||
-      x.ownerLoading !== y.ownerLoading
+      x.ownerLoading !== y.ownerLoading ||
+      x.display !== y.display ||
+      x.priceMode !== y.priceMode
     ) return false
   }
   return true
@@ -6674,76 +6680,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             'font-scale': 1.0,
             'text-font': ['literal', ['Open Sans Bold']],
           },
-          [
-            'case',
-            ['has', 'll_gisacre'],
-            ['concat', '\n', ['concat',
-              ['number-format', ['get', 'll_gisacre'], {
-                'locale': 'en-US',
-                'min-fraction-digits': 0, 'max-fraction-digits': 2,
-              }],
-              ' ac',
-            ]],
-            ['case',
-              ['has', 'gisacre'],
-              ['concat', '\n', ['concat',
-                ['number-format', ['get', 'gisacre'], {
-                  'locale': 'en-US',
-                  'min-fraction-digits': 0, 'max-fraction-digits': 2,
-                }],
-                ' ac',
-              ]],
-              '',
-            ],
-          ],
-          { 'font-scale': 1.0 },
-          // Price per acre — saleprice / acres when both > 0. Guard
-          // against divide-by-zero on the denominator.
-          ['case',
-            ['all',
-              ['has', 'saleprice'],
-              ['>', ['to-number', ['get', 'saleprice']], 0],
-              ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-              ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
-            ],
-            ['concat', '\n$/Acre: $',
-              ['number-format',
-                // Round the divide before formatting so we never
-                // surface decimals like "$370,692.152". max-fraction-
-                // digits=0 was already in place, but in practice some
-                // upstream values produce a sub-cent residue that
-                // number-format rounds inconsistently — round() ahead
-                // of time makes the integer floor explicit.
-                ['round', ['/',
-                  ['to-number', ['get', 'saleprice']],
-                  ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-                ]],
-                {
-                  'locale': 'en-US',
-                  'min-fraction-digits': 0,
-                  'max-fraction-digits': 0,
-                },
-              ],
-            ],
-            '',
-          ],
-          { 'font-scale': 1.0 },
-          // Sale date — custom tile returns ISO datetime; first 10
-          // chars are YYYY-MM-DD either way. length >= 10 guard
-          // prevents "//" output on malformed values.
-          ['case',
-            ['all',
-              ['has', 'saledate'],
-              ['>=', ['length', ['get', 'saledate']], 10],
-            ],
-            ['concat', '\nSold: ',
-              ['slice', ['get', 'saledate'], 5, 7], '/',
-              ['slice', ['get', 'saledate'], 8, 10], '/',
-              ['slice', ['get', 'saledate'], 0, 4],
-            ],
-            '',
-          ],
-          { 'font-scale': 1.0 },
+          // Acres / $ per acre (or total price) / sale date: the server's
+          // gg_label_* strings, printed as sent (src/lib/parcelLabel.ts).
+          ...parcelLabelSegments('Sold: '),
         ],
         'text-font': ['Open Sans Regular'],
         'text-size': [
@@ -8012,6 +7951,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           saleprice: props.saleprice ?? null,
           saledate: props.saledate ?? null,
           acres: props.acres ?? null,
+          display: props.display ?? null,
+          priceMode: props.price_mode === 'total' || props.price_mode === 'per_acre' ? props.price_mode : null,
           owner,
           // Pending ONLY until the tile feature itself is found — once
           // found, even a parcel with no `owner` property shows the
@@ -8308,7 +8249,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         durableDotsByIdRef.current.set(d.id, {
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-          properties: { id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres },
+          properties: {
+            id: d.id, saleprice: d.saleprice, saledate: d.saledate, acres: d.acres,
+            // the server's print strings ride along (read from the ref, never queried back)
+            display: d.display ?? null, price_mode: d.price_mode ?? null,
+          },
         })
       }
       // recomputeCoincidentDeeds owns pushing the (possibly suppressed)
@@ -11564,11 +11509,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const reportId = uuid || (pp.path as string) || `parcel:${lngLat.lng.toFixed(6)},${lngLat.lat.toFixed(6)}`
       const county = (dp.county || pp.county || '') as string
       const st = (dp.state || pp.state2 || pp.state || '') as string
-      const acres = (dp.acres ?? pp.ll_gisacre ?? pp.gisacre) as unknown
+      // Acres in the drag chip: the server's string (dot display from the
+      // accumulator, or the tile's gg_label_acres) — never formatted here.
+      const dotDisplay = dotUuid ? (durableDotsByIdRef.current.get(dotUuid)?.properties as any)?.display : null
+      const acresStr = String(dotDisplay?.acres ?? pp.gg_label_acres ?? '')
       return {
         id: reportId,
         title: ((dp.owner || pp.owner || '') as string).trim() || null,
-        label: `${county || 'Parcel'}${st ? `, ${st}` : ''}${acresText(typeof acres === 'string' ? parseFloat(acres) : acres)}`,
+        label: `${county || 'Parcel'}${st ? `, ${st}` : ''}${acresStr && acresStr !== '\u2014' ? ` · ${acresStr} ac` : ''}`,
         resolve: () => buildParcelReportRow({
           ll_uuid: uuid, lat: lngLat.lat, lng: lngLat.lng, tileProps: pf ? pp : null, reportId,
         }),
@@ -13725,29 +13673,6 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     </div>
   )
 }
-// ── Regrid parcel popup helpers ─────────────────────────────────────
-// The popup renders inside a MapLibre Popup, so we build HTML strings
-// instead of React. Three states:
-//  - LOADING: skeleton showing the values we already have from the
-//    vector tile (owner, address, parcelnumb) while the full record
-//    streams in.
-//  - SUCCESS: the rich Premium Schema record.
-//  - FALLBACK: tile-only data when the API call fails.
-
-function _fmtMoney(n: any): string | null {
-  const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  // Treat $0 the same as missing — a recorded $0 deed (family
-  // transfer, LLC restructure, inheritance, quitclaim) isn't a market
-  // sale price. Returning null lets the popup builder omit the row.
-  if (!isFinite(v) || v === 0) return null
-  return '$' + Math.round(v).toLocaleString('en-US')
-}
-
-function _fmtAcres(n: any): string | null {
-  const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  if (!isFinite(v) || v <= 0) return null
-  return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
-}
 
 // Polygon centroid + (unsigned) area in degree². Used to dedupe
 // Regrid tile-clipped parcels into one label per parcel: we group
@@ -13802,381 +13727,4 @@ function _ringCentroidAndArea(ring: number[][]): { centroid: [number, number]; a
     return { centroid: [ring[0][0], ring[0][1]], area: 0 }
   }
   return { centroid: [cx / (6 * A), cy / (6 * A)], area: Math.abs(A) }
-}
-
-// "schuyler" → "Schuyler". Regrid stores county names lowercase; the
-// header looks unprofessional that way.
-function _titleCase(s: string): string {
-  if (!s) return ''
-  return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
-}
-
-// Calendar day, never shifted a day by the viewer's time zone (owner 11/17).
-function _fmtDate(s: any): string | null {
-  return fmtSaleDate(s)
-}
-
-function _esc(s: any): string {
-  if (s === null || s === undefined) return ''
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]!))
-}
-
-// ── New popup design — matches the comp-report "+" popup ─────────────
-// Inline styles so the popup is fully self-contained (the old class-
-// based CSS is gone — see ComparablesMap.css). Identical builder to
-// the one in regridLayer.ts; the two copies coexist because ExploreMap
-// mounts its OWN Regrid layer rather than using the shared helper. If
-// you change one, change both — or fold into a shared module.
-
-const _INSTRUMENT_LABELS: Record<string, string> = {
-  WD: 'Warranty Deed', SWD: 'Special Warranty Deed', GWD: 'General Warranty Deed',
-  QC: 'Quit Claim', QCD: 'Quit Claim Deed',
-  TR: 'Trust Transfer', TRD: 'Trust Deed', TRUST: 'Trust Transfer',
-  GFT: 'Gift Deed', GD: 'Gift Deed',
-  TXD: 'Tax Deed', TAX: 'Tax Deed',
-  CFD: 'Contract for Deed',
-  PR: 'Personal Representative Deed', PRD: 'Personal Representative Deed',
-  EXE: "Executor's Deed", ADM: "Administrator's Deed", SHF: "Sheriff's Deed",
-  REL: 'Release', CD: 'Correction Deed',
-  FORE: 'Foreclosure', AUC: 'Auction', ML: 'MLS',
-}
-function _fmtSaleType(raw: any): string | null {
-  if (!raw) return null
-  const s = String(raw).trim()
-  if (!s) return null
-  const code = s.toUpperCase().replace(/[^A-Z]/g, '')
-  return _INSTRUMENT_LABELS[code] || s
-}
-function _firstNonEmpty(...vals: any[]): any {
-  for (const v of vals) {
-    if (v !== null && v !== undefined && String(v).trim() !== '') return v
-  }
-  return null
-}
-
-const _POPUP_WIDTH = 320
-
-function _popupShell(inner: string): string {
-  return `<div style="background:#fff;color:#1a1a1a;width:${_POPUP_WIDTH}px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">${inner}</div>`
-}
-
-function _popupHeader(opts: {
-  label: string
-  owner: string
-  // Up to 3 subhead lines. Caller composes them (street, city/state/zip,
-  // township, county) and passes only the non-empty ones.
-  subheadLines: string[]
-}): string {
-  const { label, owner, subheadLines } = opts
-  return `
-    <div style="padding:14px 38px 12px 16px;background:linear-gradient(135deg,#1f1f23 0%,#2a2a30 100%);color:#fff;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#F58CDE;margin-bottom:4px;">${_esc(label)}</div>
-      <div style="font-size:14px;font-weight:700;line-height:1.3;color:#fff;word-wrap:break-word;">${_esc(owner)}</div>
-      ${subheadLines.map((line, i) => {
-        const isLast = i === subheadLines.length - 1
-        const color = isLast ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.65)'
-        const sz = isLast ? 11 : 12
-        return `<div style="font-size:${sz}px;color:${color};margin-top:${i === 0 ? 4 : 2}px;line-height:1.3;">${_esc(line)}</div>`
-      }).join('')}
-    </div>
-  `
-}
-
-function _detailRow(label: string, value: string): string {
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 0;font-size:12.5px;border-bottom:1px solid rgba(0,0,0,0.04);">
-      <span style="color:#888;font-weight:500;">${_esc(label)}</span>
-      <span style="color:#1a1a1a;font-weight:600;text-align:right;">${_esc(value)}</span>
-    </div>
-  `
-}
-
-function _section(title: string, rows: string[]): string {
-  if (!rows.length) return ''
-  return `
-    <div style="padding:12px 16px 4px;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:#F58CDE;margin-bottom:4px;">${_esc(title)}</div>
-      ${rows.join('')}
-    </div>
-  `
-}
-
-// Build the optional "Soil & Tillable" section appended to the popup
-// when /api/parcel-enrichment/by-uuid returns data (pilot only). The
-// section is positioned BELOW the existing detail strips so it adds
-// information without rewriting the main popup body. Returns '' when
-// no enrichment is available — safe to concat unconditionally.
-function _enrichmentPopupSection(enrich: any): string {
-  if (!SOIL_FILTER_ENABLED) return ''
-  if (!enrich || typeof enrich !== 'object') return ''
-  // Never default to a guessed type ('PI' was a fixed, not even state-based,
-  // guess) — use the record's own soil_rating_type or the generic fallback.
-  const fig = parcelFigures(null, enrich)
-  const ratingType = soilRatingLabel({ soil_rating_type: fig.ratingLabel })
-  const rating = fig.rating
-  const tillable = fig.tillableAcres
-  const pct = fig.pctTillable
-  const cover = enrich.dominant_landcover
-  const soils: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> = Array.isArray(enrich.soils) ? enrich.soils : []
-  // Hide entirely when there's nothing to show.
-  if (!fig.remeasuring && rating == null && tillable == null && !cover && soils.length === 0) return ''
-
-  const headlineRows: string[] = []
-  if (fig.remeasuring) headlineRows.push(_detailRow(`Soil Rating (${ratingType})`, UPDATING), _detailRow('Tillable Acres', UPDATING))
-  if (!fig.remeasuring && rating != null) headlineRows.push(_detailRow(`Soil Rating (${ratingType})`, fmtFigRating(rating)!))
-  if (!fig.remeasuring && tillable != null) headlineRows.push(_detailRow(
-    'Tillable Acres',
-    `${fmtFigAcres(tillable)} ac${pct != null ? ` (${fmtFigPct(pct)})` : ''}`,
-  ))
-  if (cover) headlineRows.push(_detailRow('Land Cover', String(cover).replace(/(^|[\s-])\S/g, m => m.toUpperCase())))
-
-  // Per-soil breakdown — show up to 5 patches sorted by acres desc.
-  // Already pre-sorted server-side; cap here defensively.
-  const soilRows = soils.slice(0, 5).map(s => {
-    const name = s.soil ? String(s.soil) : (s.mukey ? `Mukey ${s.mukey}` : 'Soil')
-    const ac = (typeof s.acres === 'number') ? `${formatAcres(s.acres)} ac` : ''
-    const pi = (typeof s.pi === 'number') ? `${ratingType} ${s.pi}` : ''
-    const suffix = [ac, pi].filter(Boolean).join(' · ')
-    return _detailRow(name, suffix)
-  })
-
-  return (
-    _section(`Soil & Tillable (${ratingType})`, headlineRows) +
-    (soilRows.length ? _section('Soils — by acreage', soilRows) : '') +
-    `<div style="height:8px;"></div>`
-  )
-}
-
-function _regridLoadingHTML(tileProps: any): string {
-  const sub = tileProps?.address ? [tileProps.address] : []
-  return _popupShell(
-    _popupHeader({
-      label: 'Parcel',
-      owner: tileProps?.owner || 'Loading…',
-      subheadLines: sub,
-    }) +
-    `<div style="padding:14px 16px;font-style:italic;color:rgba(0,0,0,0.5);font-size:12px;">Loading parcel details…</div>`,
-  )
-}
-
-function _regridFallbackHTML(tileProps: any): string {
-  const sub = tileProps?.address ? [tileProps.address] : []
-  return _popupShell(_popupHeader({
-    label: 'Parcel',
-    owner: tileProps?.owner || 'Unknown',
-    subheadLines: sub,
-  }))
-}
-
-// Compact popup for a + pin on a Regrid parcel that has a saleprice.
-// Mirrors the data the /api/map/parcels-with-sales endpoint returns.
-function _parcelSalePopupHTML(p: any): string {
-  const fmtMoney = (n: any) => {
-    if (n === null || n === undefined) return '—'
-    const v = Number(n)
-    if (!isFinite(v)) return '—'
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v)
-  }
-  const fmtDate = (s: any) => {
-    if (!s) return '—'
-    return _esc(fmtSaleDate(s) ?? s)
-  }
-  const fmtAc = (n: any) => {
-    if (n === null || n === undefined) return '—'
-    const v = Number(n)
-    if (!isFinite(v)) return '—'
-    return v.toFixed(1) + ' ac'
-  }
-  const sub: string[] = []
-  if (p?.address) sub.push(p.address)
-  const locParts: string[] = []
-  if (p?.county) locParts.push(p.county)
-  if (p?.state) locParts.push(p.state)
-  if (locParts.length) sub.push(locParts.join(', '))
-  const rows: string[] = []
-  rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Sale price</span><span style="font-weight:600;">${_esc(fmtMoney(p?.sale_price))}</span></div>`)
-  rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Sale date</span><span>${_esc(fmtDate(p?.sale_date))}</span></div>`)
-  if (p?.price_per_acre) {
-    rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Price/acre</span><span>${_esc(fmtMoney(p.price_per_acre))}</span></div>`)
-  }
-  if (p?.total_acres) {
-    rows.push(`<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:13px;"><span style="color:rgba(0,0,0,0.6);">Acres</span><span>${_esc(fmtAc(p.total_acres))}</span></div>`)
-  }
-  return _popupShell(
-    _popupHeader({ label: 'Parcel sale', owner: p?.owner || 'Unknown', subheadLines: sub }) +
-    `<div style="padding:8px 16px 14px;">${rows.join('')}</div>`,
-  )
-}
-
-// Regrid puts the civil township as the 4th segment of the `path`
-// property: "/us/<state>/<county>/<TOWNSHIP_SLUG>/<id>". Pull it
-// out + title-case so "barnett" → "Barnett".
-function _extractTownship(record: any): string {
-  const path: unknown = record?.path
-  if (typeof path !== 'string') return ''
-  const parts = path.split('/').filter(Boolean)  // ['us','il','de-witt','barnett','5630']
-  if (parts.length < 5) return ''
-  const slug = parts[3] || ''
-  if (!slug || slug === parts[2]) return ''  // avoid duplicating county
-  return _titleCase(slug.replace(/-/g, ' '))
-}
-
-function _regridPopupHTML(record: any): string {
-  // Acres / price / $ per acre from the ONE helper (owner 11/19) — the
-  // server's figures, or the old-API fallback. Never computed here.
-  const fig = parcelFigures(record)
-  const gisacre: number | null = fig.acres
-  const deeded = record?.deeded_acres
-  const saledate = fig.saledate ?? record?.saledate
-  const parval = record?.parval
-  const landval = record?.landval
-  const improvval = record?.improvval
-  const yearbuilt = record?.yearbuilt
-  // Use code → readable description. Regrid's `usedesc` is the human
-  // label; `usecode` is the assessor code (numeric, useless to users).
-  // If we only have a code, skip the row entirely rather than show a
-  // mystery number. We DO accept usedesc values that happen to be
-  // numeric strings only if they aren't a bare integer (some Regrid
-  // datasets put a code there).
-  const usedescRaw = record?.usedesc
-  const usedesc = (typeof usedescRaw === 'string' && usedescRaw.trim() && !/^\d+$/.test(usedescRaw.trim()))
-    ? usedescRaw.trim() : ''
-  const zoningRaw = record?.zoning_description || record?.zoning || ''
-  // Hide non-informative zoning values like "No Zoning", "NONE", "".
-  const zoning = (typeof zoningRaw === 'string' && zoningRaw.trim() && !/^(no zoning|none|n\/a|na)$/i.test(zoningRaw.trim()))
-    ? zoningRaw.trim() : ''
-  const buildings = record?.ll_bldg_count
-  const bldgSqft = record?.ll_bldg_footprint_sqft
-
-  // Ownership history — Standard schema fields per Regrid Data
-  // Dictionary v16. `previous_owner` is the prior grantor;
-  // `last_ownership_transfer_date` covers any ownership change
-  // (including non-arms-length transfers that lack a recorded
-  // saleprice).
-  const previousOwner = (typeof record?.previous_owner === 'string' && record.previous_owner.trim())
-    ? record.previous_owner.trim() : ''
-  const lastTransferDate = record?.last_ownership_transfer_date
-
-  // Sale type / deed instrument — Regrid field naming varies wildly
-  // across datasets. Cast a wide net; map common codes to labels via
-  // _fmtSaleType, and otherwise show whatever string the field has.
-  const saleType = _fmtSaleType(_firstNonEmpty(
-    record?.salestype, record?.saletype, record?.sale_type,
-    record?.recordtype, record?.record_type,
-    record?.instrument, record?.instrumtyp, record?.instrumenttype,
-    record?.legaldoc, record?.transrec, record?.deed_type,
-    record?.deedtype, record?.s1deedtype, record?.deed,
-  ))
-
-  const county = _titleCase(record?.county || '')
-  const state = record?.state2 || record?.state || ''
-  // Append "County" to the county name when both are present
-  // ("Schuyler, IL" → "Schuyler County, IL").
-  const countyState = county
-    ? `${county} County${state ? ', ' + state : ''}`
-    : (state || '')
-
-  // Township — extracted from the Regrid `path` field (more reliable
-  // than the `city` slug, which Regrid sometimes reuses for the
-  // township in rural areas but not consistently).
-  const township = _extractTownship(record)
-
-  // Build address subhead lines:
-  //   - line 1: street address (when present)
-  //   - line 2: "City, ST ZIP" using situs city (scity) → falls back
-  //             to city slug → falls back to township
-  //   - line 3: "<Township> Township" (when we have a township and
-  //             it's NOT already the city we just printed)
-  //   - line 4: "<County> County, ST"
-  const street = (typeof record?.address === 'string' && record.address.trim())
-    ? record.address.trim() : ''
-  const cityRaw = record?.scity || record?.city || ''
-  const cityLabel = typeof cityRaw === 'string' && cityRaw.trim()
-    ? _titleCase(cityRaw.trim().replace(/-/g, ' '))
-    : ''
-  const zip = record?.szip5 || record?.szip || ''
-  const cityLine = [cityLabel, state, zip].filter(Boolean).join(cityLabel && state ? ', ' : ' ')
-    .replace(`${state}, ${zip}`, `${state} ${zip}`)  // "City, ST ZIP" not "City, ST, ZIP"
-  const townshipLine = (township && township !== cityLabel) ? `${township} Township` : ''
-  const subheadLines = [street, cityLine, townshipLine, countyState]
-    .filter(s => s && s.trim())
-
-  // Hero stat strip — only cells with values render
-  const acresLabel = gisacre != null && gisacre > 0 ? `${fmtFigAcres(gisacre)} ac` : null
-  const priceLabel = fmtFigMoney(fig.price)
-  const ppaLabel = fmtFigMoney(fig.pricePerAcre)
-
-  const heroCells: { label: string; value: string; emphasize?: boolean }[] = []
-  if (acresLabel) heroCells.push({ label: 'Acres', value: acresLabel })
-  if (ppaLabel) heroCells.push({ label: '$ / Acre', value: ppaLabel, emphasize: true })
-  if (priceLabel) heroCells.push({ label: 'Sale Price', value: priceLabel })
-
-  const heroHTML = heroCells.length === 0 ? '' : (() => {
-    const cellHTML = heroCells.map((c, i) => {
-      const isFirst = i === 0
-      const isLast = i === heroCells.length - 1
-      const align = isFirst && !c.emphasize ? 'left'
-        : isLast && !c.emphasize ? 'right'
-        : 'center'
-      return `
-        <div style="flex:${c.emphasize ? 1.4 : 1};text-align:${align};border-left:${isFirst ? 'none' : '1px solid rgba(0,0,0,0.06)'};padding-left:${isFirst ? 0 : 8}px;padding-right:${isLast ? 0 : 8}px;">
-          <div style="font-size:9.5px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${c.emphasize ? '#F58CDE' : '#888'};">${_esc(c.label)}</div>
-          <div style="font-size:${c.emphasize ? 19 : 15}px;font-weight:${c.emphasize ? 800 : 700};color:#1a1a1a;margin-top:2px;letter-spacing:${c.emphasize ? -0.3 : 0}px;">${_esc(c.value)}</div>
-        </div>
-      `
-    }).join('')
-    return `<div style="display:flex;padding:14px 16px 12px;border-bottom:1px solid rgba(0,0,0,0.06);background:#fafbfc;">${cellHTML}</div>`
-  })()
-
-  // Detail sections — each filtered to populated rows only
-  const lastSaleRows: string[] = []
-  const dateStr = _fmtDate(saledate)
-  if (dateStr) lastSaleRows.push(_detailRow('Sale Date', dateStr))
-  if (saleType) lastSaleRows.push(_detailRow('Sale Type', saleType))
-  // Last Transfer — only show when it's MEANINGFULLY different from
-  // the sale date (avoids "Sale Date: Feb 2016 / Last Transfer: Feb
-  // 2016" duplication). When there's no saleprice/saledate but a
-  // transfer date exists, this is the only ownership-change signal.
-  const lastTransferStr = _fmtDate(lastTransferDate)
-  if (lastTransferStr && lastTransferStr !== dateStr) {
-    lastSaleRows.push(_detailRow('Last Transfer', lastTransferStr))
-  }
-  if (previousOwner) lastSaleRows.push(_detailRow('Previous Owner', previousOwner))
-
-  const propertyRows: string[] = []
-  if (deeded && deeded !== gisacre && _fmtAcres(deeded)) {
-    propertyRows.push(_detailRow('Deeded Acres', _fmtAcres(deeded)!))
-  }
-  if (usedesc) propertyRows.push(_detailRow('Use', String(usedesc)))
-  if (zoning) propertyRows.push(_detailRow('Zoning', String(zoning)))
-
-  const assessedRows: string[] = []
-  if (_fmtMoney(parval)) assessedRows.push(_detailRow('Total', _fmtMoney(parval)!))
-  if (_fmtMoney(landval)) assessedRows.push(_detailRow('Land', _fmtMoney(landval)!))
-  if (_fmtMoney(improvval)) assessedRows.push(_detailRow('Improvements', _fmtMoney(improvval)!))
-
-  const buildingRows: string[] = []
-  if (buildings) buildingRows.push(_detailRow('Count', String(buildings)))
-  if (bldgSqft) buildingRows.push(_detailRow('Footprint', `${Math.round(bldgSqft).toLocaleString()} sq ft`))
-  if (yearbuilt) buildingRows.push(_detailRow('Year Built', String(yearbuilt)))
-
-  // Add bottom padding to whatever the final visible section is so the
-  // popup doesn't end flush against the last row.
-  const bottomPad = `<div style="height:10px;"></div>`
-
-  return _popupShell(
-    _popupHeader({
-      label: 'Parcel',
-      owner: record?.owner || 'Unknown',
-      subheadLines,
-    }) +
-    heroHTML +
-    _section('Last Sale', lastSaleRows) +
-    _section('Property', propertyRows) +
-    _section('Assessed Value', assessedRows) +
-    _section('Buildings', buildingRows) +
-    bottomPad,
-  )
 }

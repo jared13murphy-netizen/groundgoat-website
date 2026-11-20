@@ -12,8 +12,8 @@
  */
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import { fmtSaleDate } from '@/lib/calendarDate'
-import { parcelFigures, fmtFigAcres, fmtFigMoney } from '@/lib/parcelFigures'
+import { parcelFigures, figDisplay, figShown } from '@/lib/parcelFigures'
+import { parcelLabelSegments } from '@/lib/parcelLabel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -85,10 +85,6 @@ function fmtAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
   if (!isFinite(v) || v <= 0) return null
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
-}
-// Calendar day, never shifted a day by the viewer's time zone (owner 11/17).
-function fmtDate(s: any): string | null {
-  return fmtSaleDate(s)
 }
 function esc(s: any): string {
   if (s === null || s === undefined) return ''
@@ -237,11 +233,10 @@ function regridFallbackHTML(tileProps: any): string {
 }
 
 function regridPopupHTML(record: any): string {
-  // Acres / price / $ per acre from the ONE helper (owner 11/19) — the
-  // server's figures, or the old-API fallback. Never computed here.
+  // Acres / price / $ per acre: the server's print strings, verbatim (owner
+  // 11/20). Never computed or re-formatted here.
   const fig = parcelFigures(record)
   const deeded = record?.deeded_acres
-  const saledate = fig.saledate ?? record?.saledate
   const parval = record?.parval
   const landval = record?.landval
   const improvval = record?.improvval
@@ -267,14 +262,16 @@ function regridPopupHTML(record: any): string {
   // Hero stat strip — Acres, $/Acre, Sale Price. Each cell rendered
   // only if its value is present; row hidden entirely if all three
   // are missing.
-  const acresLabel = fmtFigAcres(fig.acres) && fig.acres! > 0 ? `${fmtFigAcres(fig.acres)} ac` : null
-  const priceLabel = fmtFigMoney(fig.price)
-  const ppaLabel = fmtFigMoney(fig.pricePerAcre)
+  // price_mode "total" (owner 11/4, decided server-side): the Sale Price
+  // cell leads and $ / Acre is dropped.
+  const acresLabel = figShown(figDisplay(fig, 'acres')) ? `${figDisplay(fig, 'acres')} ac` : null
+  const priceLabel = figShown(figDisplay(fig, 'price')) ? figDisplay(fig, 'price') : null
+  const ppaLabel = fig.priceMode !== 'total' && figShown(figDisplay(fig, 'price_per_acre')) ? figDisplay(fig, 'price_per_acre') : null
 
   const heroCells: { label: string; value: string; emphasize?: boolean }[] = []
   if (acresLabel) heroCells.push({ label: 'Acres', value: acresLabel })
   if (ppaLabel) heroCells.push({ label: '$ / Acre', value: ppaLabel, emphasize: true })
-  if (priceLabel) heroCells.push({ label: 'Sale Price', value: priceLabel })
+  if (priceLabel) heroCells.push({ label: 'Sale Price', value: priceLabel, emphasize: fig.priceMode === 'total' })
 
   const heroHTML = heroCells.length === 0 ? '' : (() => {
     const cellHTML = heroCells.map((c, i) => {
@@ -302,7 +299,7 @@ function regridPopupHTML(record: any): string {
   // Sections — each filtered to only include populated rows. The
   // section header itself is hidden if no rows survive.
   const lastSaleRows: string[] = []
-  if (saledate && fmtDate(saledate)) lastSaleRows.push(detailRow('Date', fmtDate(saledate)!))
+  if (figShown(figDisplay(fig, 'sale_date'))) lastSaleRows.push(detailRow('Date', figDisplay(fig, 'sale_date')))
   if (saleType) lastSaleRows.push(detailRow('Sale Type', saleType))
 
   const propertyRows: string[] = []
@@ -456,72 +453,9 @@ export function addRegridLayer(
           'font-scale': 1.0,
           'text-font': ['literal', ['Open Sans Bold']],
         },
-        [
-          'case',
-          ['has', 'll_gisacre'],
-          ['concat', '\n', ['concat',
-            ['number-format', ['get', 'll_gisacre'], {
-              'locale': 'en-US',
-              'min-fraction-digits': 0, 'max-fraction-digits': 2,
-            }],
-            ' ac',
-          ]],
-          ['case', ['has', 'gisacre'],
-            ['concat', '\n', ['concat',
-              ['number-format', ['get', 'gisacre'], {
-                'locale': 'en-US',
-                'min-fraction-digits': 0, 'max-fraction-digits': 2,
-              }],
-              ' ac',
-            ]],
-            '',
-          ],
-        ],
-        { 'font-scale': 1.0 },
-        // Price per acre — saleprice / acres when both > 0. Total
-        // sale price segment was removed 2026-05-26 — $/acre is the
-        // headline number land buyers compare on.
-        ['case',
-          ['all',
-            ['has', 'saleprice'],
-            ['>', ['to-number', ['get', 'saleprice']], 0],
-            ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-            ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
-          ],
-          ['concat', '\n$/Acre: $',
-            ['number-format',
-              // Round before format. Without this, sub-cent residue
-              // from the upstream price could surface as ".152" etc.
-              ['round', ['/',
-                ['to-number', ['get', 'saleprice']],
-                ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-              ]],
-              {
-                'locale': 'en-US',
-                'min-fraction-digits': 0,
-                'max-fraction-digits': 0,
-              },
-            ],
-          ],
-          '',
-        ],
-        { 'font-scale': 1.0 },
-        // Sale date — first 10 chars of saledate are YYYY-MM-DD
-        // regardless of whether value is bare date or full ISO
-        // datetime. length >= 10 guard prevents "//" on malformed.
-        ['case',
-          ['all',
-            ['has', 'saledate'],
-            ['>=', ['length', ['get', 'saledate']], 10],
-          ],
-          ['concat', '\nSale Date: ',
-            ['slice', ['get', 'saledate'], 5, 7], '/',
-            ['slice', ['get', 'saledate'], 8, 10], '/',
-            ['slice', ['get', 'saledate'], 0, 4],
-          ],
-          '',
-        ],
-        { 'font-scale': 1.0 },
+        // Acres / $ per acre (or total price) / sale date: the server's
+        // gg_label_* strings, printed as sent (src/lib/parcelLabel.ts).
+        ...parcelLabelSegments('Sale Date: '),
       ],
       'text-font': ['Open Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],

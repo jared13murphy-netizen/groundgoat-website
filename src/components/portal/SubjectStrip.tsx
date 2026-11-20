@@ -17,7 +17,7 @@
 import { toNum } from '@/lib/format'
 import { subjectTillableAcres } from '@/lib/subjectStats'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
-import { UPDATING } from '@/lib/parcelFigures'
+import { UPDATING, figDisplay, figShown, DASH, type ServerDisplay } from '@/lib/parcelFigures'
 
 interface SubjectStripProps {
   totalAcres?: number | string | null
@@ -32,6 +32,13 @@ interface SubjectStripProps {
   /** A parcel subject whose server `figures` say it is being re-measured
    *  (src/lib/parcelFigures.ts): tillable / % / rating read "Updating…". */
   remeasuring?: boolean | null
+  /** A PARCEL subject (owner 11/20): the server's print strings
+   *  (figures.display), rendered verbatim — the numeric props above are
+   *  ignored. Tract subjects leave this unset and keep the numeric path. */
+  display?: ServerDisplay | null
+  /** true for a parcel subject: with no `display` every tile is "—" (never a
+   *  number built from the numeric props). */
+  serverOnly?: boolean
   /** 'grid' (default): compact 4-col portal tile — label above value.
    *  'flex': wider listings-report layout — value above label, larger text. */
   variant?: 'grid' | 'flex'
@@ -50,6 +57,8 @@ export default function SubjectStrip({
   soilRatingType,
   state,
   remeasuring,
+  display,
+  serverOnly,
   variant = 'grid',
 }: SubjectStripProps) {
   const totalNum = toNum(totalAcres)
@@ -66,12 +75,22 @@ export default function SubjectStrip({
   const soil = toNum(soilRating)
   const soilLabel = soilRatingLabel({ soil_rating_type: soilRatingType })
 
-  const tiles: [string, string][] = [
-    ['Total Acres', fmtDecimal(toNum(totalAcres))],  // one decimal, same as the PDF and the app
-    ['Tillable Acres', remeasuring ? UPDATING : fmtDecimal(tillable)],
-    ['% Tillable', remeasuring ? UPDATING : pct != null ? pct + '%' : '—'],
-    [soilLabel, remeasuring ? UPDATING : fmtDecimal(soil)],
-  ]
+  const fromServer = !!display || !!serverOnly
+  const d = { display: display ?? null }
+  const serverLabel = figDisplay(d, 'rating_label')
+  const tiles: [string, string][] = fromServer
+    ? [
+        ['Total Acres', figDisplay(d, 'acres')],
+        ['Tillable Acres', figDisplay(d, 'tillable_acres')],
+        ['% Tillable', figDisplay(d, 'pct_tillable')],
+        [figShown(serverLabel) ? serverLabel : soilLabel, figDisplay(d, 'rating')],
+      ]
+    : [
+        ['Total Acres', fmtDecimal(toNum(totalAcres))],  // one decimal, same as the PDF and the app
+        ['Tillable Acres', remeasuring ? UPDATING : fmtDecimal(tillable)],
+        ['% Tillable', remeasuring ? UPDATING : pct != null ? pct + '%' : DASH],
+        [soilLabel, remeasuring ? UPDATING : fmtDecimal(soil)],
+      ]
 
   if (variant === 'flex') {
     return (
