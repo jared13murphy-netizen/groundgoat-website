@@ -13,6 +13,9 @@
  * script finishes downloading is queued, not lost.
  */
 
+// Ground Goat staff never count (owner 2026-11-20) — see internalVisitor.ts.
+import { isInternalVisitor } from '@/lib/internalVisitor'
+
 export const META_PIXEL_ID = '3595310273970927'
 
 const IS_SANDBOX = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true'
@@ -35,7 +38,7 @@ declare global {
 let initialized = false
 
 function ensureFbq(): Fbq | null {
-  if (IS_SANDBOX || typeof window === 'undefined') return null
+  if (IS_SANDBOX || typeof window === 'undefined' || isInternalVisitor()) return null
   if (!window.fbq) {
     const n = function (...args: unknown[]) {
       if (n.callMethod) n.callMethod(...args)

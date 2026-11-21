@@ -8,6 +8,7 @@ import Image from 'next/image'
 import { User, CreditCard, LogOut, MapPin, ChevronRight, CheckCircle, AlertCircle, Loader2, Users, Mail, Trash2, Bell, Gift, Tags } from 'lucide-react'
 
 import { isRestrictedIndividual, getAllowedStates, formatStateList } from '@/lib/stateAccess'
+import { trackCheckoutResult } from '@/lib/googleTags'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -15,6 +16,8 @@ function AccountContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const subscriptionSuccess = searchParams.get('subscription') === 'success'
+  // Stripe fills {CHECKOUT_SESSION_ID} into the success URL (backend 11/20).
+  const checkoutSessionId = subscriptionSuccess ? searchParams.get('session_id') : null
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null)
@@ -84,6 +87,17 @@ function AccountContent() {
         setHasSubscription(true)
         setLoading(false)
         return
+      }
+
+      // Google Ads purchase conversion (TEDDYco 11/19): ask our backend what
+      // this Checkout actually charged, read from Stripe. Pushes `purchase`
+      // only when money was collected now; a $0 free trial pushes
+      // `start_trial` instead; a plain visit to this page pushes nothing. Not awaited: it must not hold up the page.
+      if (checkoutSessionId && checkoutSessionId.startsWith('cs_')) {
+        fetchWithAuth(`${API_URL}/api/subscriptions/checkout-result?session_id=${encodeURIComponent(checkoutSessionId)}`)
+          .then(r => (r.ok ? r.json() : null))
+          .then(result => { if (result) trackCheckoutResult(result) })
+          .catch(() => {})
       }
 
       // Check subscription status for individual users
