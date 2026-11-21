@@ -55,17 +55,14 @@ export function fmtAcres(n: any): string | null {
 }
 
 /** Taxable Acres (owner 10/15): the county's own acreage (Regrid `gisacre`)
- *  shown exactly as the county gives it — NOT rounded, just comma-grouped
- *  ("1,234.5678"). Built from the number's own shortest string so no
- *  fraction digit is added or dropped. Null when absent or not positive, so
+ *  rounded to 2 decimals and comma-grouped ("1,234.57"). Null when absent or not positive, so
  *  the row hides. */
 export function fmtTaxableAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n != null && String(n).trim() !== '' ? Number(n) : NaN)
   if (!isFinite(v) || v <= 0) return null
-  const str = String(v)
-  if (/e/i.test(str)) return v.toLocaleString('en-US', { maximumFractionDigits: 20 })
-  const [int, frac] = str.split('.')
-  return int.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (frac ? '.' + frac : '')
+  // Owner 11/21: two decimals like every other figure (was the county's raw
+  // value, e.g. 79.62421).
+  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // Sale / transfer dates are calendar days — never shifted by the viewer's
