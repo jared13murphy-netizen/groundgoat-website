@@ -51,7 +51,9 @@ export function fmtMoneyCents(n: any): string | null {
 export function fmtAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
   if (!isFinite(v) || v <= 0) return null
-  return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
+  // Owner 11/21: always two decimals (was 1-2, so 80 showed "80.0" here and
+  // "80.00" on the app).
+  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ac'
 }
 
 /** Taxable Acres (owner 10/15): the county's own acreage (Regrid `gisacre`)
