@@ -447,6 +447,11 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
     const qs = new URLSearchParams()
     if (ll_uuid) qs.set('ll_uuid', ll_uuid)
     else if (lat != null && lng != null) { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
+    // The clicked tile feature's own path (11/20): stacked parcels (condo units
+    // share one outline — 1,133 at one Niles IL lot) made the point lookup open
+    // a DIFFERENT unit than the one whose label the map shows. The backend
+    // resolves path before point, so the panel is always the clicked parcel.
+    if (!ll_uuid && typeof parcelProps?.path === 'string' && parcelProps.path) qs.set('path', parcelProps.path)
 
     // Crops planted by year — non-blocking; the section simply appears when
     // it resolves. 'by-point' is a deliberate never-matching path id: the

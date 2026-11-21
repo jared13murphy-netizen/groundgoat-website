@@ -84,6 +84,11 @@ function toNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function nonneg(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
 function pos(v: number | string | null | undefined): number | null {
   const n = toNum(v)
   return n !== null && n !== undefined && Number.isFinite(n) && n > 0 ? n : null
@@ -116,7 +121,9 @@ export function summarizeComps(comps: CompAverageInput[]): CompSummary {
     const soil = c.remeasuring ? null : pos(c.soil_rating ?? c.soilRating)
     const sale = saleOf(c)
     if (acres) { totAcres += acres; acresCount++; anyAcres = true }
-    if (till) { totTill += till; tillCount++; anyTill = true }
+    // a MEASURED 0 counts in Avg Tillable (ties out to total ÷ comps; server comps_summary 11/20)
+    const till0 = c.remeasuring ? null : nonneg(c.tillable_acres ?? c.tillableAcres)
+    if (till0 != null) { totTill += till0; tillCount++; if (till0 > 0) anyTill = true }
     if (sale) {
       anySale = true
       saleSum += sale
