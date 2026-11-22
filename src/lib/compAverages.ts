@@ -132,9 +132,11 @@ export function summarizeComps(comps: CompAverageInput[]): CompSummary {
       // comps_summary): $/till only when tillable >= 1 ac AND >= 25% of the
       // acres; $/rating only when tillable >= 25%. Copied, not imported (this
       // module stays import-free for its node-runnable test).
+      // The 25% is judged on the whole % shown, half up (owner 11/21, 4a).
       const share = (till && acres) ? till / acres : 0
-      if (till && till >= 1 && share >= 0.25) { pptaNum += sale; pptaDen += till }
-      if (soil && acres && share >= 0.25) { ppsrNum += sale; ppsrDen += soil * acres }
+      const shareOk = Math.round(Number((share * 100).toPrecision(15)) + 1e-9) >= 25
+      if (till && till >= 1 && shareOk) { pptaNum += sale; pptaDen += till }
+      if (soil && acres && shareOk) { ppsrNum += sale; ppsrDen += soil * acres }
     }
     if (soil && till) { soilNum += soil * till; soilDen += till; rated++ }
   }
