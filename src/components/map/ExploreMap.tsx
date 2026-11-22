@@ -5572,7 +5572,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               // pink outline and black bold text).
               'text-field': ['get', 'name'],
               'text-font': ['Open Sans Regular'],
-              'text-size': ['interpolate', ['linear'], ['zoom'], 6, 10, 14, 13],
+              'text-size': ['interpolate', ['linear'], ['zoom'], 6, 11, 10, 13, 14, 14],
               'text-anchor': 'center',
               'text-max-width': 8,
               // MapLibre's built-in symbol collision (shared across every
