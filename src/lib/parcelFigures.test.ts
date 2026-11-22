@@ -222,12 +222,37 @@ test('gg_fig: fetched figures replace the tile ones when they land', () => {
   assert.equal(figDisplay(parcelFigures(fetched, { figures: { ...SERVER, display: { ...DISPLAY, price: '$2' } } }, TILE), 'price'), '$2')
 })
 
+test('gg_fig with null keys dropped == the fetched object with nulls', () => {
+  const fetched = { ...SERVER, price: null, price_source: null, regrid_saleprice: null, saledate: null,
+    price_per_acre: null, price_per_tillable_acre: null, price_per_rating: null, rating: null, rating_label: null,
+    land_types: null, price_mode: null, display: { acres: '40.12' } }
+  const dropped = Object.fromEntries(Object.entries(fetched).filter(([, v]) => v !== null))
+  const tile = tileServerFigures({ gg_fig: JSON.stringify(dropped) })!
+  for (const k of Object.keys(fetched)) assert.strictEqual((tile as any)[k], (fetched as any)[k] === null ? null : (tile as any)[k], k)
+  assert.strictEqual(tile.price, null)
+  assert.strictEqual(tile.rating_label, null)
+  assert.deepEqual(parcelFigures(null, null, { gg_fig: JSON.stringify(dropped) }), parcelFigures({ figures: fetched }))
+  // even keys the fetched object omitted come back null, never undefined
+  const bare = tileServerFigures({ gg_fig: '{"acres":40.12}' })!
+  assert.strictEqual(bare.updating, null)
+  assert.strictEqual(bare.display, null)
+  assert.equal(parcelFigures(null, null, { gg_fig: '{"acres":40.12}' }).acres, 40.12)
+})
+
+test('z11-z13 tiles carry no gg_fig → no tile figures, panel waits for the fetch', () => {
+  const z12 = { path: '/us/me/aroostook/presque-isle/1', owner: 'SMITH FARMS', ll_gisacre: 40.12 }
+  assert.equal(tileServerFigures(z12), null)
+  assert.equal(parcelFigures(null, null, z12).fromServer, false)
+  assert.equal(parcelFigures({ figures: SERVER }, null, z12).price, 257931)
+})
+
 test('gg_fig: absent / bad / object forms', () => {
   assert.equal(tileServerFigures({}), null)
   assert.equal(tileServerFigures({ gg_fig: '' }), null)
   assert.equal(tileServerFigures({ gg_fig: '{not json' }), null)
   assert.equal(tileServerFigures({ gg_fig: '[1,2]' }), null)
   assert.equal(tileServerFigures({ gg_fig: SERVER })?.price, 257931)
+  assert.equal(tileServerFigures({ gg_fig: 7 }), null)
   assert.equal(parcelFigures(null, null, { owner: 'X' }).fromServer, false)
   assert.equal(parcelFigures(null, null, undefined).fromServer, false)
 })

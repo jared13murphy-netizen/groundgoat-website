@@ -214,21 +214,35 @@ export function parcelFigures(record: any, enrich?: any, tileProps?: any): Parce
   return f ? fromServerFigures(f) : emptyParcelFigures()
 }
 
+// Every `figures` key the server can send. gg_fig drops null keys (tile
+// size, STATE_TILES_CONTRACT.md §1) — a missing key IS null, so it is filled
+// back in and nothing downstream ever sees `undefined` where the fetched
+// object has `null`.
+const SERVER_FIGURE_KEYS: (keyof ServerParcelFigures)[] = [
+  'price', 'price_source', 'regrid_saleprice', 'saledate', 'acres',
+  'tillable_acres', 'pct_tillable', 'timber_acres', 'pct_timber', 'water_acres', 'pct_water',
+  'pasture_acres', 'pct_pasture', 'pond_acres', 'pct_pond', 'rating', 'rating_label',
+  'price_per_acre', 'price_per_tillable_acre', 'price_per_rating', 'remeasuring', 'land_types',
+  'display', 'price_mode', 'updating',
+]
+
 /**
  * The `figures` object a parcel tile carries as `gg_fig` (a JSON string —
- * MVT has no nested values). null when absent or unparseable.
+ * MVT has no nested values), null keys restored. Only z14/z15 tiles carry
+ * it; at z11-z13 this is null and the panel waits for the fetch as before.
+ * null when absent or unparseable.
  */
 export function tileServerFigures(tileProps: any): ServerParcelFigures | null {
   const raw = tileProps?.gg_fig
   if (raw == null || raw === '') return null
-  if (typeof raw === 'object') return Array.isArray(raw) ? null : (raw as ServerParcelFigures)
-  if (typeof raw !== 'string') return null
-  try {
-    const v = JSON.parse(raw)
-    return v && typeof v === 'object' && !Array.isArray(v) ? (v as ServerParcelFigures) : null
-  } catch {
-    return null
+  let v: any = raw
+  if (typeof raw === 'string') {
+    try { v = JSON.parse(raw) } catch { return null }
   }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const out: Record<string, any> = { ...v }
+  for (const k of SERVER_FIGURE_KEYS) if (out[k] === undefined) out[k] = null
+  return out as ServerParcelFigures
 }
 
 /**
