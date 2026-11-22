@@ -7,6 +7,7 @@
 import type maplibregl from 'maplibre-gl'
 import type { LandClass, ParcelDetail } from '@/lib/configurableMapping'
 import { polygonAcres } from '@/lib/polygonGeometry'
+import { parcelLayers } from '@/lib/parcelSources'
 import { closeRing, openRing, simplifyRing, type Pt, type SnapTarget } from '@/lib/polygonEditing'
 
 /** One drawn shape: a list of polygons, each [outerRing, ...holes].
@@ -359,11 +360,13 @@ export function snapTargetsNear(
   for (const t of tracts) {
     for (const rings of t.boundary) for (const ring of rings) targets.push({ ring })
   }
-  if (map.getLayer('regrid-parcels-line')) {
+  // Every parcel source's line layer (legacy or per-state, 11/22).
+  const lineIds = parcelLayers(map, 'line')
+  if (lineIds.length) {
     const pad = 40
     const feats = map.queryRenderedFeatures(
       [[screenPt.x - pad, screenPt.y - pad], [screenPt.x + pad, screenPt.y + pad]] as any,
-      { layers: ['regrid-parcels-line'] })
+      { layers: lineIds })
     for (const f of feats) {
       const g: any = f.geometry
       if (g.type === 'LineString') targets.push({ ring: g.coordinates as Pt[] })

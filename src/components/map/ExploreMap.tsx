@@ -74,6 +74,11 @@ import { formatStateList } from '@/lib/stateAccess'
 // the Regrid parcel layers are unfiltered by design as of 2026-07-30 (see
 // the setFilter effect below). Only the layer-id list is still needed.
 import { REGRID_PARCEL_LAYER_IDS } from '@/lib/regridParcelFilter'
+import {
+  parcelSourceSpecs, parcelLayerId, parcelLayers, expandParcelLayerIds, isParcelSourceId,
+  setParcelFeatureState, removeParcelFeatureState, parcelSourceLayer, parcelConfigRefreshDelayMs, refreshParcelSourceTiles,
+  type StateTilesConfig,
+} from '@/lib/parcelSources'
 // Restored from the old "Hi, Jared" dropdown (owner 9/9): Configurable
 // Mapping and Map Portfolio used to be nav-dropdown links (nav commit
 // 2a09575, 8/27); they now live as Utilities-panel tiles instead, plus a
@@ -180,7 +185,7 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'owner-parcels-dots',
 ]
 function liftMarkerLayers(map: maplibregl.Map) {
-  for (const id of MARKER_LAYERS_BOTTOM_TO_TOP) {
+  for (const id of expandParcelLayerIds(map, MARKER_LAYERS_BOTTOM_TO_TOP)) {
     if (map.getLayer(id)) {
       try { map.moveLayer(id) } catch {/* mid-teardown */}
     }
@@ -277,7 +282,9 @@ function clickClaimedByLayers(
   point: maplibregl.PointLike,
   layerIds: string[],
 ): boolean {
-  const existing = layerIds.filter(id => map.getLayer(id))
+  // Legacy parcel ids ('parcel-sale-pin-plus', 'regrid-parcels-fill') stand
+  // for that layer on EVERY parcel source (per-state archives, 11/22).
+  const existing = expandParcelLayerIds(map, layerIds).filter(id => map.getLayer(id))
   if (!existing.length) return false
   try {
     return map.queryRenderedFeatures(point, { layers: existing }).length > 0
@@ -3125,7 +3132,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     if (map.getSource(DRAW_AREA_SOURCE_ID)) return // already set up
 
-    const beforeId = map.getLayer('regrid-parcels-line') ? 'regrid-parcels-line' : firstSymbolLayerId(map)
+    const beforeId = parcelLayers(map, 'line')[0] || firstSymbolLayerId(map)
 
     map.addSource(DRAW_AREA_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
     map.addLayer({
@@ -3620,8 +3627,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!chooseArmed || !map) return
     const hint = 'Zoom in until parcel lines show, then click a parcel'
     const onPick = (e: maplibregl.MapMouseEvent) => {
-      const feats = map.getLayer('regrid-parcels-fill')
-        ? map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] }) : []
+      const fillIds = parcelLayers(map, 'fill')
+      const feats = fillIds.length
+        ? map.queryRenderedFeatures(e.point, { layers: fillIds }) : []
       const props: any = feats[0]?.properties
       const id = props?.ll_uuid || props?.path
       if (!id) { showZoomToast(hint); return }
@@ -5944,7 +5952,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Always push the tract polygon to the TOP of the layer stack
       // after creation, even if Regrid was added after us (its
       // beforeId guard misses when Regrid mounts first).
-      if (map.getLayer('regrid-parcels-fill')) {
+      if (parcelLayers(map, 'fill').length) {
         map.moveLayer('tract-polygon-fill')
         map.moveLayer('tract-polygon-line')
       }
@@ -6475,8 +6483,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // or empty on older backend responses → no state is ever in scope,
     // same fail-closed default as unlimited/subscribed_state_abbrevs above.
     parcel_data_states?: string[]
+    // Pre-built per-state parcel archives (STATE_TILES_CONTRACT.md §3).
+    // Present → one source per state (src/lib/parcelSources.ts); absent →
+    // the legacy single source, exactly as before.
+    state_tiles?: StateTilesConfig | null
   } | null>(null)
   regridConfigRef.current = regridConfig
+  // Newest config fetched (fresh state-tile tokens). A token refresh only
+  // swaps tile URLs in place (setTiles) — it does NOT go through
+  // setRegridConfig, so the parcel layers never tear down mid-session.
+  const latestRegridConfigRef = useRef<typeof regridConfig>(null)
 
   // Memoized MapLibre filter expression for the state-plan gate.
   // null = unlimited (no filter applied). The tile carries
@@ -6525,6 +6541,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   useEffect(() => {
     let cancelled = false
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    let refreshAtMs: number | null = null
+    const schedule = (data: any) => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = null
+      // State-tile tokens last 24 h — re-fetch before expires_at.
+      const delay = parcelConfigRefreshDelayMs(data)
+      if (delay == null) { refreshAtMs = null; return }
+      refreshAtMs = Date.now() + delay
+      refreshTimer = setTimeout(() => { void fetchConfig() }, delay)
+    }
     const fetchConfig = async () => {
       try {
         // header_auth=1 → backend returns a clean tile_url_template with
@@ -6532,9 +6559,15 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // transformRequest instead. Accept as long as tile_url_template is
         // present — has_token will be false in this mode.
         const res = await fetchWithAuth(`${API_URL}/api/regrid/config?header_auth=1`)
-        if (!res.ok) return
+        if (!res.ok) { if (!cancelled && refreshAtMs != null) refreshTimer = setTimeout(() => { void fetchConfig() }, 60_000); return }
         const data = await res.json()
         if (!cancelled && data?.tile_url_template) {
+          const prev = latestRegridConfigRef.current
+          latestRegridConfigRef.current = data
+          schedule(data)
+          // Same states, new tokens → swap the tile URLs in place.
+          const map = mapRef.current
+          if (prev && map && refreshParcelSourceTiles(map, prev, data)) return
           setRegridConfig(data)
           // Mirror into the early-declared state too — see
           // parcelDataStates' declaration up near `filters` for why.
@@ -6544,8 +6577,18 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // Silent — Regrid is enrichment. The map still works without it.
       }
     }
+    // A laptop asleep past the refresh time: the timer fires late, so
+    // re-fetch as soon as the tab is visible again.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && refreshAtMs != null && Date.now() >= refreshAtMs) void fetchConfig()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     fetchConfig()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (refreshTimer) clearTimeout(refreshTimer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   // Overlay tile config (soils/csb/nccpi/fsa/precip bootstrap) — mirrors
@@ -6575,43 +6618,39 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded || !regridConfig?.tile_url_template) return
 
-    const SOURCE_ID = 'regrid-parcels'
-    const FILL_LAYER = 'regrid-parcels-fill'
-    const LINE_LAYER = 'regrid-parcels-line'
-    const LABEL_LAYER = 'regrid-parcels-label'
-    const OWNER_LABEL_LAYER = 'regrid-parcels-owner-label'
-
-    if (map.getSource(SOURCE_ID)) return
+    // One source per subscribed state when the config carries state_tiles
+    // (pre-built archives, owner 11/22); else the legacy single
+    // 'regrid-parcels' source exactly as before. Same layers per source —
+    // see src/lib/parcelSources.ts.
+    const specs = parcelSourceSpecs(latestRegridConfigRef.current ?? regridConfig, {
+      legacyMinzoom: REGRID_MIN_ZOOM,
+      // Source maxzoom 14 (legacy): MapLibre over-zooms (reuses) z=14 tiles
+      // for zooms 15-21. State archives go to 15 (config maxzoom).
+      legacyMaxzoom: 14,
+      legacyLabelLayer: PARCEL_LABEL_POINT_LAYER,
+    })
+    if (!specs.length) return
+    // Already mounted (HMR / duplicate run) — nothing to add.
+    if (specs.every((sp) => map.getLayer(parcelLayerId(sp, 'fill')))) return
 
     // Custom Regrid sources name their internal MVT layer after the
     // source UUID (not 'parcels' like the default endpoint). Backend
     // ships the actual name in regridConfig.source_layer; fall back
     // to 'parcels' for the legacy default tile path.
-    const sourceLayer = regridConfig.source_layer || 'parcels'
+    const sourceLayer = specs[0].sourceLayer
+    const FILL_LAYERS = specs.map((sp) => parcelLayerId(sp, 'fill'))
 
-    map.addSource(SOURCE_ID, {
-      type: 'vector',
-      tiles: [regridConfig.tile_url_template],
-      minzoom: REGRID_MIN_ZOOM,
-      // Source maxzoom 14: MapLibre over-zooms (reuses) z=14 tiles
-      // for zooms 15-21. Vector parcel boundaries scale without
-      // quality loss. Cuts tile fetches ~75% vs the old maxzoom:21
-      // (each additional zoom level beyond 14 was a fresh tile fetch).
-      maxzoom: 14,
-      // `path` is the feature identity used for hover (task #24):
-      // custom Regrid tile layers never carry ll_uuid on the tile
-      // features themselves (only on the click-fetch record), so
-      // promoting ll_uuid left setFeatureState permanently unmatched
-      // at z>=12 in production. `path` is present on every feature
-      // in both tile sources and is stable per-parcel.
-      // gg_label_points (owner 11/21): ONE point per parcel, only in the tile holding the
-      // parcel's own point — labels and sale dots draw from it so a parcel crossing a tile
-      // edge is labelled once, not once per piece. Same `path` id for feature-state.
-      promoteId: { [sourceLayer]: 'path', [PARCEL_LABEL_POINT_LAYER]: 'path' },
-      // Required attribution per Schedule A §7. Surfaces in the
-      // built-in attribution control at the bottom of the map.
-      attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
-    } as any)
+    // `path` is the feature identity used for hover (task #24) — promoted on
+    // both the polygon layer and gg_label_points (owner 11/21: ONE point per
+    // parcel, labels and sale dots draw from it). Required attribution per
+    // Schedule A §7.
+    for (const sp of specs) {
+      const existing: any = map.getSource(sp.id)
+      // A source can outlive its layers when another effect's layer (sale
+      // dots) still read it at cleanup time — reuse it, with fresh tiles.
+      if (existing) { try { existing.setTiles?.(sp.source.tiles) } catch {/* torn down */} }
+      else map.addSource(sp.id, sp.source as any)
+    }
 
     // Insert Regrid BELOW the existing tract polygons (the auction /
     // sold listings) so those remain visually on top — per product
@@ -6631,11 +6670,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // nationwide, so "outside" data already exists client-side, it was
     // only ever hidden. Unlimited users (regridStateFilter null, no
     // restriction) keep the exact old expressions, unchanged.
-    map.addLayer({
-      id: FILL_LAYER,
+    for (const sp of specs) if (!map.getLayer(parcelLayerId(sp, 'fill'))) map.addLayer({
+      id: parcelLayerId(sp, 'fill'),
       type: 'fill',
-      source: SOURCE_ID,
-      'source-layer': sourceLayer,
+      source: sp.id,
+      'source-layer': sp.sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       paint: {
         'fill-color': '#EC4899',
@@ -6647,11 +6686,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
     // Boundary lines — match the state_parcel look exactly: solid
     // black, slightly thicker than 1px so they read at all zooms.
-    map.addLayer({
-      id: LINE_LAYER,
+    for (const sp of specs) if (!map.getLayer(parcelLayerId(sp, 'line'))) map.addLayer({
+      id: parcelLayerId(sp, 'line'),
       type: 'line',
-      source: SOURCE_ID,
-      'source-layer': sourceLayer,
+      source: sp.id,
+      'source-layer': sp.sourceLayer,
       minzoom: REGRID_MIN_ZOOM,
       paint: {
         'line-color': '#000000',
@@ -6667,11 +6706,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // earlier dedup-via-GeoJSON-source approach kept silently
     // dropping labels in prod and we've spent too long on it; one
     // working label per piece beats zero labels everywhere.
-    map.addLayer({
-      id: LABEL_LAYER,
+    for (const sp of specs) if (!map.getLayer(parcelLayerId(sp, 'label'))) map.addLayer({
+      id: parcelLayerId(sp, 'label'),
       type: 'symbol',
-      source: SOURCE_ID,
-      'source-layer': PARCEL_LABEL_POINT_LAYER,
+      source: sp.id,
+      'source-layer': sp.labelLayer,
       minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
@@ -6809,9 +6848,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const correctVeilPosition = () => {
       try {
         if (!map.getStyle()) return
-        if (map.getLayer('regrid-parcels-line')) {
+        // Lowest parcel line layer (state sources add all fills, then all
+        // lines, then all labels — so this sits above every parcel fill).
+        const firstLine = parcelLayers(map, 'line')[0]
+        if (firstLine) {
           for (const id of [VEIL_FILL_LAYER, SELECT_FILL_LAYER, SELECT_GLOW_LAYER, SELECT_LINE_LAYER]) {
-            if (map.getLayer(id)) map.moveLayer(id, 'regrid-parcels-line')
+            if (map.getLayer(id)) map.moveLayer(id, firstLine)
           }
         }
       } catch {/* map torn down between schedule and fire */}
@@ -6839,25 +6881,16 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const newPath = (e.features[0].properties as any)?.path as string | undefined
       if (!newPath || newPath === hoveredParcelPathRef.current) return
       if (hoveredParcelPathRef.current) {
-        map.setFeatureState(
-          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredParcelPathRef.current },
-          { hover: false },
-        )
+        setParcelFeatureState(map, hoveredParcelPathRef.current, [sourceLayer], { hover: false })
       }
       hoveredParcelPathRef.current = newPath
-      map.setFeatureState(
-        { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredParcelPathRef.current },
-        { hover: true },
-      )
+      setParcelFeatureState(map, newPath, [sourceLayer], { hover: true })
     }
     const onLeave = () => {
       if (mapInteractionSuspendedRef.current) return
       map.getCanvas().style.cursor = ''
       if (hoveredParcelPathRef.current) {
-        map.setFeatureState(
-          { source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredParcelPathRef.current },
-          { hover: false },
-        )
+        setParcelFeatureState(map, hoveredParcelPathRef.current, [sourceLayer], { hover: false })
         hoveredParcelPathRef.current = null
       }
     }
@@ -6947,10 +6980,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     }
 
-    map.on('mousemove', FILL_LAYER, onMove)
-    map.on('mouseleave', FILL_LAYER, onLeave)
+    // One listener over every state's fill layer (MapLibre accepts a list).
+    map.on('mousemove', FILL_LAYERS, onMove)
+    map.on('mouseleave', FILL_LAYERS, onLeave)
     parcelClickRef.current = onClick
-    map.on('click', FILL_LAYER, onClick)
+    map.on('click', FILL_LAYERS, onClick)
 
     // NOTE: previously had a dedup pump that wrote one Point per
     // ll_uuid into a separate GeoJSON source so the label layer
@@ -6965,13 +6999,22 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     return () => {
       try {
         if (!map.getStyle()) return
-        map.off('mousemove', FILL_LAYER, onMove)
-        map.off('mouseleave', FILL_LAYER, onLeave)
-        map.off('click', FILL_LAYER, onClick)
-        for (const id of [OWNER_LABEL_LAYER, LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
-          if (map.getLayer(id)) map.removeLayer(id)
+        map.off('mousemove', FILL_LAYERS, onMove)
+        map.off('mouseleave', FILL_LAYERS, onLeave)
+        map.off('click', FILL_LAYERS, onClick)
+        for (const sp of specs) {
+          for (const kind of ['owner-label', 'label', 'line', 'fill'] as const) {
+            const id = parcelLayerId(sp, kind)
+            if (map.getLayer(id)) map.removeLayer(id)
+          }
         }
-        if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
+        // Layers on other effects (sale dots) read these sources; remove
+        // the source only once nothing references it.
+        const style = map.getStyle()
+        for (const sp of specs) {
+          const inUse = (style?.layers || []).some((l: any) => l.source === sp.id)
+          if (!inUse && map.getSource(sp.id)) map.removeSource(sp.id)
+        }
       } catch {
         // map already torn down
       }
@@ -7065,14 +7108,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // above. We piggyback on it — but the source might not exist yet
     // (its effect runs on the same render). Wait one tick if missing.
     let timer: any = null
-    const REGRID_SOURCE = 'regrid-parcels'
-    // Same source_layer plumbing as the boundary-layer mount above —
-    // custom Regrid tiles name the layer with the source UUID
-    // instead of 'parcels'.
-    const sourceLayer = regridConfig.source_layer || 'parcels'
+    // One sale-dot layer per parcel source (per-state archives, 11/22) —
+    // same specs as the boundary-layer mount above.
+    const specs = parcelSourceSpecs(latestRegridConfigRef.current ?? regridConfig, { legacyLabelLayer: PARCEL_LABEL_POINT_LAYER })
+    const SALE_LAYERS = specs.map((sp) => parcelLayerId(sp, 'sale'))
 
     const mount = () => {
-      if (!map.getSource(REGRID_SOURCE)) {
+      if (!specs.length) return
+      if (!specs.every((sp) => map.getSource(sp.id))) {
         timer = setTimeout(mount, 50)
         return
       }
@@ -7104,7 +7147,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       ensureParcelSaleDotImage(map)
       ensureParcelSaleDotSelectedImage(map)
       const inCompModeNow = !!subjectTractIdRef.current
-      if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+      for (const sp of specs) if (!map.getLayer(parcelLayerId(sp, 'sale'))) {
         // State-gate DIMMING, not filtering (spec §1, owner 2026-09-15
         // item 18): filterExpr (the real sale/date/price/acreage filters)
         // stays a hard `filter` — regridStateFilter no longer joins it
@@ -7112,7 +7155,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // invisible below (icon-opacity/text-opacity), same treatment as
         // the parcel fill/line/label layers above.
         map.addLayer({
-          id: PARCEL_SALE_PLUS_LAYER,
+          id: parcelLayerId(sp, 'sale'),
           // RESTORED 2026-07-26 (owner: "pink dots come from what's on the
           // map" — every displayed sold parcel, owner+$/acre+saledate label
           // included, must have a dot). Was hidden 2026-07-04 ('visibility':
@@ -7141,8 +7184,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // expressed in symbol-layer terms since a symbol layer has no
           // circle paint.
           type: 'symbol',
-          source: REGRID_SOURCE,
-          'source-layer': PARCEL_LABEL_POINT_LAYER,
+          source: sp.id,
+          'source-layer': sp.labelLayer,
           // owner 11/12: sale dots wait for the parcel labels; comp mode
           // keeps the Regrid tile floor (11) — owner 11/16.
           minzoom: tileDotMinZoom({ comp: inCompModeNow }, REGRID_OWNER_LABEL_MIN_ZOOM),
@@ -7279,8 +7322,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // phase for every sale-dot click).
       let tileGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null = null
       try {
-        if (map.getLayer('regrid-parcels-fill')) {
-          const underFeat = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })[0]
+        if (parcelLayers(map, 'fill').length) {
+          const underFeat = map.queryRenderedFeatures(e.point, { layers: parcelLayers(map, 'fill') })[0]
           const g = underFeat?.geometry as GeoJSON.Geometry | undefined
           if (g && (g.type === 'Polygon' || g.type === 'MultiPolygon')) tileGeometry = g
         }
@@ -7304,9 +7347,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     }
     const setPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' }
     const clearPointer = () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' }
-    map.on('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
-    map.on('mouseleave', PARCEL_SALE_PLUS_LAYER, clearPointer)
-    map.on('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
+    map.on('mouseenter', SALE_LAYERS, setPointer)
+    map.on('mouseleave', SALE_LAYERS, clearPointer)
+    map.on('click', SALE_LAYERS, onPinClick)
 
     return () => {
       if (timer) clearTimeout(timer)
@@ -7314,10 +7357,17 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       try {
         map.off('styleimagemissing', onStyleImageMissing)
         if (!map.getStyle()) return
-        map.off('mouseenter', PARCEL_SALE_PLUS_LAYER, setPointer)
-        map.off('mouseleave', PARCEL_SALE_PLUS_LAYER, clearPointer)
-        map.off('click', PARCEL_SALE_PLUS_LAYER, onPinClick)
-        if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) map.removeLayer(PARCEL_SALE_PLUS_LAYER)
+        map.off('mouseenter', SALE_LAYERS, setPointer)
+        map.off('mouseleave', SALE_LAYERS, clearPointer)
+        map.off('click', SALE_LAYERS, onPinClick)
+        for (const id of SALE_LAYERS) if (map.getLayer(id)) map.removeLayer(id)
+        // The boundary effect leaves a source behind while these layers
+        // still read it; drop it now if nothing else does.
+        const style = map.getStyle()
+        for (const sp of specs) {
+          const inUse = (style?.layers || []).some((l: any) => l.source === sp.id)
+          if (!inUse && map.getSource(sp.id)) map.removeSource(sp.id)
+        }
       } catch {/* map already torn down */}
     }
   }, [mapLoaded, regridConfig])
@@ -7338,8 +7388,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // State gate is a paint-opacity dim now (spec §1), not a hard filter —
     // see the addLayer mount effect above. Only the real sale/date/price/
     // acreage filter goes through setFilter here.
-    if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
-      try { map.setFilter(PARCEL_SALE_PLUS_LAYER, saleExpr) } catch {/* layer torn down */}
+    for (const SALE_ID of parcelLayers(map, 'sale')) {
+      try { map.setFilter(SALE_ID, saleExpr) } catch {/* layer torn down */}
     }
   }, [mapLoaded, appliedFilters.dateRange, appliedFilters.dateFrom, appliedFilters.dateTo, appliedFilters.salePriceMin, appliedFilters.salePriceMax, appliedFilters.acreageMin, appliedFilters.acreageMax])
 
@@ -7356,12 +7406,13 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!REGRID_SALE_PINS_ENABLED) return
     const map = mapRef.current
     if (!map || !mapLoaded) return
-    if (!map.getLayer(PARCEL_SALE_PLUS_LAYER)) return
     const inComp = !!subjectTractId
-    try {
-      map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'text-field', inComp ? '+' : '')
-      map.setLayoutProperty(PARCEL_SALE_PLUS_LAYER, 'icon-size', inComp ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE)
-    } catch {/* layer torn down */}
+    for (const SALE_ID of parcelLayers(map, 'sale')) {
+      try {
+        map.setLayoutProperty(SALE_ID, 'text-field', inComp ? '+' : '')
+        map.setLayoutProperty(SALE_ID, 'icon-size', inComp ? PARCEL_COMP_ICON_SIZE : PARCEL_DOT_ICON_SIZE)
+      } catch {/* layer torn down */}
+    }
   }, [mapLoaded, subjectTractId])
 
   // ─────────────────────────────────────────────────────────────────
@@ -7496,10 +7547,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     // Tile sale-dot layer (z>=REGRID_MIN_ZOOM) picks the green sprite for
     // parcels in the report — same trigger, different mechanism, because a
     // symbol layer's icon can't be recoloured by paint.
-    if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+    for (const SALE_ID of parcelLayers(map, 'sale')) {
       try {
         map.setLayoutProperty(
-          PARCEL_SALE_PLUS_LAYER, 'icon-image', buildParcelSaleDotIconExpr(reportIds),
+          SALE_ID, 'icon-image', buildParcelSaleDotIconExpr(reportIds),
         )
       } catch {/* layer torn down mid-update */}
     }
@@ -7636,8 +7687,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // phase waiting on the authoritative fetch.
         let tileGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null = null
         try {
-          if (map.getLayer('regrid-parcels-fill')) {
-            const underFeat = map.queryRenderedFeatures(e.point, { layers: ['regrid-parcels-fill'] })[0]
+          if (parcelLayers(map, 'fill').length) {
+            const underFeat = map.queryRenderedFeatures(e.point, { layers: parcelLayers(map, 'fill') })[0]
             const g = underFeat?.geometry as GeoJSON.Geometry | undefined
             if (g && (g.type === 'Polygon' || g.type === 'MultiPolygon')) tileGeometry = g
           }
@@ -7753,7 +7804,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // status filter that excludes sold parcels, or while an owner search
       // is active (matches mobile's ExploreMapView.js, which already gates
       // its live-tile layer on hideDurableDotsForFilters || ownerSearchActive).
-      if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
+      for (const SALE_ID of parcelLayers(map, 'sale')) {
         // Hidden when the gate says hide, AND when parcel-data filters
         // (PI / %-tillable / tillable acres / land types) are active —
         // the tile features can't express those, so the server-filtered
@@ -7774,7 +7825,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         // deploy, and its console output proves the code path ran.
         console.info('[dotfix-20260818] tile-dot layer', _dataDotStandDown ? 'stand-down' : 'active')
         map.setLayoutProperty(
-          PARCEL_SALE_PLUS_LAYER, 'visibility',
+          SALE_ID, 'visibility',
           (hideParcelDotsForFilters || _dataDotStandDown) ? 'none' : 'visible',
         )
       }
@@ -7826,10 +7877,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   const clearAllDeedSuppression = useCallback(() => {
     const map = mapRef.current
     if (map) {
-      const sourceLayer = regridConfigRef.current?.source_layer || 'parcels'
+      const sourceLayer = parcelSourceLayer(regridConfigRef.current)
       for (const path of Array.from(suppressedPathsRef.current)) {
         try {
-          for (const sl of [sourceLayer, PARCEL_LABEL_POINT_LAYER]) map.removeFeatureState({ source: 'regrid-parcels', sourceLayer: sl, id: path }, 'dotSuppressed')
+          removeParcelFeatureState(map, path, [sourceLayer, PARCEL_LABEL_POINT_LAYER], 'dotSuppressed')
         } catch {/* source torn down */}
       }
     }
@@ -7865,7 +7916,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map) return
     const src = map.getSource(DURABLE_DOT_SOURCE) as maplibregl.GeoJSONSource | undefined
-    const sourceLayer = regridConfigRef.current?.source_layer || 'parcels'
+    const sourceLayer = parcelSourceLayer(regridConfigRef.current)
 
     if (!subjectTractIdRef.current) {
       // Explore mode (or comp mode just exited via subjectTractId->null)
@@ -7938,7 +7989,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         } else {
           try {
             const point = map.project([lng, lat])
-            const feats = map.queryRenderedFeatures(point, { layers: ['regrid-parcels-fill'] })
+            const fillIds = parcelLayers(map, 'fill')
+            const feats = fillIds.length ? map.queryRenderedFeatures(point, { layers: fillIds }) : []
             if (feats.length) {
               tileFound = true
               const tileProps: any = feats[0].properties || {}
@@ -8032,14 +8084,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       for (const path of Array.from(newSuppressedPaths)) {
         if (!suppressedPathsRef.current.has(path)) {
           try {
-            for (const sl of [sourceLayer, PARCEL_LABEL_POINT_LAYER]) map.setFeatureState({ source: 'regrid-parcels', sourceLayer: sl, id: path }, { dotSuppressed: true })
+            setParcelFeatureState(map, path, [sourceLayer, PARCEL_LABEL_POINT_LAYER], { dotSuppressed: true })
           } catch {/* source torn down */}
         }
       }
       for (const path of Array.from(suppressedPathsRef.current)) {
         if (!newSuppressedPaths.has(path)) {
           try {
-            for (const sl of [sourceLayer, PARCEL_LABEL_POINT_LAYER]) map.removeFeatureState({ source: 'regrid-parcels', sourceLayer: sl, id: path }, 'dotSuppressed')
+            removeParcelFeatureState(map, path, [sourceLayer, PARCEL_LABEL_POINT_LAYER], 'dotSuppressed')
           } catch {/* source torn down */}
         }
       }
@@ -8338,8 +8390,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       }
     } catch {/* torn down */}
     try {
-      if (map.getLayer(PARCEL_SALE_PLUS_LAYER)) {
-        map.setLayerZoomRange(PARCEL_SALE_PLUS_LAYER, tileDotMinZoom(mode, REGRID_OWNER_LABEL_MIN_ZOOM), 24)
+      for (const SALE_ID of parcelLayers(map, 'sale')) {
+        map.setLayerZoomRange(SALE_ID, tileDotMinZoom(mode, REGRID_OWNER_LABEL_MIN_ZOOM), 24)
       }
     } catch {/* torn down */}
     if (mode.search || mode.comp) {
@@ -8529,7 +8581,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return false
     }
     const onSourceData = (e: maplibregl.MapSourceDataEvent) => {
-      if (e.sourceId !== 'regrid-parcels' || !e.isSourceLoaded) return
+      if (!isParcelSourceId(e.sourceId) || !e.isSourceLoaded) return
       if (!hasPendingOwner()) return
       recomputeCoincidentDeeds()
     }
@@ -8560,7 +8612,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const expr: any = regridStateFilter ?? null
-    for (const id of REGRID_PARCEL_LAYER_IDS) {
+    for (const id of expandParcelLayerIds(map, REGRID_PARCEL_LAYER_IDS)) {
       if (map.getLayer(id)) {
         try { map.setFilter(id, expr as any) } catch {/* layer torn down */}
       }
@@ -9302,11 +9354,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // click point. All of those outrank CSB in the priority chain (tract
       // > sale dot > parcel fill > overlays) — if any is under the click,
       // its own handler owns the panel.
-      const regridLayer = 'regrid-parcels-fill'
+      const regridLayers = parcelLayers(map, 'fill')
       let hasParcel = false
       try {
-        if (map.getLayer(regridLayer)) {
-          hasParcel = map.queryRenderedFeatures(e.point, { layers: [regridLayer] }).length > 0
+        if (regridLayers.length) {
+          hasParcel = map.queryRenderedFeatures(e.point, { layers: regridLayers }).length > 0
         }
       } catch {/* layer torn down */}
       if (hasParcel) return
@@ -9434,11 +9486,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Query whether the Regrid fill also underlies this point. If so,
       // the parcel fill onClick already fired (higher z-order) — don't
       // double-open a panel.
-      const regridLayer = 'regrid-parcels-fill'
+      const regridLayers = parcelLayers(map, 'fill')
       let hasParcel = false
       try {
-        if (map.getLayer(regridLayer)) {
-          hasParcel = map.queryRenderedFeatures(e.point, { layers: [regridLayer] }).length > 0
+        if (regridLayers.length) {
+          hasParcel = map.queryRenderedFeatures(e.point, { layers: regridLayers }).length > 0
         }
       } catch {/* layer torn down */}
       if (hasParcel) return  // parcel click already handled it
@@ -9754,8 +9806,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       maplibregl.addProtocol('pmtiles', new PMTilesProtocol().tile as any)
       w.__ggPmtilesRegistered = true
     }
-    const before = map.getLayer('regrid-parcels-fill') ? 'regrid-parcels-fill'
-      : map.getLayer('tract-polygon-fill') ? 'tract-polygon-fill' : undefined
+    const before = parcelLayers(map, 'fill')[0]
+      || (map.getLayer('tract-polygon-fill') ? 'tract-polygon-fill' : undefined)
     for (const key of Object.keys(NATIONAL_LAYERS) as NationalLayerKey[]) {
       const states = nationalAvailability[key] || []
       const on = (key === 'slope' || key === 'hel')
@@ -10049,9 +10101,9 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         'parcel-enrichment-ssurgo-soils-label',
         'parcel-enrichment-labels-text',
         'parcel-enrichment-labels-worldcover-text',
-        'regrid-parcels-fill',
-        'regrid-parcels-line',
-        'regrid-parcels-label',
+        ...parcelLayers(map, 'fill'),
+        ...parcelLayers(map, 'line'),
+        ...parcelLayers(map, 'label'),
         // Point layers (airports, POIs) above the parcel labels, below pins.
         ...nl(['poi', 'airports']),
       ]
@@ -11207,7 +11259,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     if (map.getSource(VEIL_SOURCE_ID)) return // already set up
 
-    const beforeId = map.getLayer('regrid-parcels-line') ? 'regrid-parcels-line' : firstSymbolLayerId(map)
+    const beforeId = parcelLayers(map, 'line')[0] || firstSymbolLayerId(map)
 
     map.addSource(VEIL_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
     map.addSource(SELECT_SOURCE_ID, { type: 'geojson', data: EMPTY_FC })
@@ -11389,10 +11441,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const map = mapRef.current
       if (map && hoveredParcelPathRef.current) {
         try {
-          map.setFeatureState(
-            { source: 'regrid-parcels', sourceLayer: regridConfig?.source_layer || 'parcels', id: hoveredParcelPathRef.current },
-            { hover: false },
-          )
+          setParcelFeatureState(map, hoveredParcelPathRef.current, [parcelSourceLayer(regridConfig)], { hover: false })
         } catch {/* source/layer not ready */}
         hoveredParcelPathRef.current = null
       }
@@ -11505,11 +11554,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         }
       }
       // 2. parcel sale dots / pins (carry the Regrid ll_uuid)
-      const df = q(['parcel-sale-dots-durable-circle', 'parcel-sale-pin-plus'])[0]
+      const df = q(['parcel-sale-dots-durable-circle', ...parcelLayers(map, 'sale')])[0]
       const dp: any = df?.properties || {}
       const dotUuid: string | null = (dp.id as string) || (dp.ll_uuid as string) || null
       // 3. any Regrid parcel fill
-      const pf = dotUuid ? null : q(['regrid-parcels-fill'])[0]
+      const pf = dotUuid ? null : q(parcelLayers(map, 'fill'))[0]
       const pp: any = pf?.properties || {}
       if (!dotUuid && (!pf || !isRegridPropsInAllowedState(pp))) return null
       const uuid = dotUuid || (pp.ll_uuid as string) || null

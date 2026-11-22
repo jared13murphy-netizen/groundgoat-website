@@ -864,8 +864,11 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
           )}
 
 
-          {/* Loading state */}
-          {loading && (
+          {/* Loading state — only while NOTHING is shown yet. A tapped tile
+              with gg_fig already rendered every figure (owner 11/22: the
+              panel shows the parcel data immediately), so no "Loading"
+              line over data on screen; the fetch fills the rest silently. */}
+          {loading && !figs.fromServer && (
             <div style={{ padding: '16px', color: 'rgba(0,0,0,0.45)', fontSize: 12, fontStyle: 'italic', textAlign: 'center' }}>
               Loading parcel details…
             </div>

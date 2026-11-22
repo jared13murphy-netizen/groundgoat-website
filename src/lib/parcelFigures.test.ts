@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import {
   parcelFigures, fromServerFigures, findServerFigures, savedTractFigures,
   parcelRowFields, rowPctTillable, figDisplay, figShown, rowDisplay, rowCells, compositionText, ratingText, DASH,
-  fmtFigMoney, fmtFigAcres, fmtFigPct, fmtFigRating, perRatingLabel, figText, UPDATING,
+  fmtFigMoney, fmtFigAcres, fmtFigPct, fmtFigRating, perRatingLabel, figText, UPDATING, tileServerFigures,
 } from './parcelFigures.ts'
 
 let passed = 0
@@ -197,5 +197,39 @@ test('composition + rating text join the server strings only', () => {
 })
 
 function emptyish() { return parcelFigures({}) }
+
+// ── Tap → panel instantly from the tile's gg_fig (owner 11/22) ─────────
+// LandDetailPanel → deriveParcelDetail(regridData, parcelProps, enrichData)
+// → parcelFigures(regridData, enrichData, parcelProps). Before the
+// /api/regrid/parcel fetch resolves, regridData and enrichData are null.
+const TILE = { path: '/us/me/aroostook/presque-isle/1', owner: 'SMITH FARMS', ll_gisacre: 40.12, gg_fig: JSON.stringify(SERVER) }
+
+test('gg_fig: tapped tile figures render before the fetch resolves', () => {
+  const f = parcelFigures(null, null, TILE)
+  assert.equal(f.fromServer, true)
+  assert.equal(f.price, 257931)
+  assert.equal(f.acres, 40.12)
+  assert.equal(figDisplay(f, 'price_per_acre'), '$6,429')
+  assert.equal(figDisplay(f, 'sale_date'), '03/14/2025')
+  assert.equal(ratingText(f, 'Soil Rating'), 'PI 131.2')
+  assert.deepEqual(f, fromServerFigures(SERVER as any))
+})
+
+test('gg_fig: fetched figures replace the tile ones when they land', () => {
+  const fetched = { owner: 'SMITH FARMS', figures: { ...SERVER, display: { ...DISPLAY, price: '$1' } } }
+  assert.equal(figDisplay(parcelFigures(fetched, null, TILE), 'price'), '$1')
+  // enrichment figures still lead, same as before
+  assert.equal(figDisplay(parcelFigures(fetched, { figures: { ...SERVER, display: { ...DISPLAY, price: '$2' } } }, TILE), 'price'), '$2')
+})
+
+test('gg_fig: absent / bad / object forms', () => {
+  assert.equal(tileServerFigures({}), null)
+  assert.equal(tileServerFigures({ gg_fig: '' }), null)
+  assert.equal(tileServerFigures({ gg_fig: '{not json' }), null)
+  assert.equal(tileServerFigures({ gg_fig: '[1,2]' }), null)
+  assert.equal(tileServerFigures({ gg_fig: SERVER })?.price, 257931)
+  assert.equal(parcelFigures(null, null, { owner: 'X' }).fromServer, false)
+  assert.equal(parcelFigures(null, null, undefined).fromServer, false)
+})
 
 console.log(`\n${passed} passed`)

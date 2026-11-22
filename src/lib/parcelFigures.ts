@@ -207,9 +207,28 @@ export function figShown(v: string | null | undefined): boolean {
  * whichever payload carries them (enrichment first — it is re-read on
  * demand). No `figures` anywhere → empty figures (every surface prints "\u2014").
  */
-export function parcelFigures(record: any, enrich?: any): ParcelFigures {
-  const f = findServerFigures(enrich, record)
+export function parcelFigures(record: any, enrich?: any, tileProps?: any): ParcelFigures {
+  // Fetched figures win; until they land, the tapped tile's own `gg_fig`
+  // (byte-for-byte the same object, STATE_TILES_CONTRACT.md §1) shows at once.
+  const f = findServerFigures(enrich, record) ?? tileServerFigures(tileProps)
   return f ? fromServerFigures(f) : emptyParcelFigures()
+}
+
+/**
+ * The `figures` object a parcel tile carries as `gg_fig` (a JSON string —
+ * MVT has no nested values). null when absent or unparseable.
+ */
+export function tileServerFigures(tileProps: any): ServerParcelFigures | null {
+  const raw = tileProps?.gg_fig
+  if (raw == null || raw === '') return null
+  if (typeof raw === 'object') return Array.isArray(raw) ? null : (raw as ServerParcelFigures)
+  if (typeof raw !== 'string') return null
+  try {
+    const v = JSON.parse(raw)
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as ServerParcelFigures) : null
+  } catch {
+    return null
+  }
 }
 
 /**

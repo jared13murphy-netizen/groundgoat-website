@@ -251,7 +251,8 @@ export function deriveParcelDetail(
   // the numbers are the server's; on the old API the helper runs the
   // pre-11/19 derivation that used to live here (allocated deed share ??
   // Regrid price, $/acre, $/tillable with the 1 ac / 25% floors, $/rating).
-  const fig = parcelFigures(regridData, enrichData)
+  // Tile `gg_fig` fills the figures the instant the parcel is tapped (11/22).
+  const fig = parcelFigures(regridData, enrichData, parcelProps)
   const gisacre: number | null = fig.acres
   const rawSalePrice = fig.regridSalePrice
   const deedParcels = record?.deed_parcel_count ?? null
