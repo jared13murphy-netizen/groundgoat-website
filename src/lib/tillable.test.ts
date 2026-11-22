@@ -5,7 +5,7 @@
  *   node src/lib/tillable.test.ts
  */
 import assert from 'node:assert/strict'
-import { formatTillable } from './tillable.ts'
+import { formatTillable, tillablePctShown } from './tillable.ts'
 
 let passed = 0
 function test(name: string, fn: () => void) {
@@ -65,3 +65,11 @@ test('tolerates API-string DECIMAL fields (pydantic serializes Decimal as string
 })
 
 console.log(`\n${passed} passed`)
+
+test('tillablePctShown: owner 11/21 (4b) — no % shown, no rating', () => {
+  assert.equal(tillablePctShown(80, 60, null), true)
+  assert.equal(tillablePctShown(80, null, null), false)
+  assert.equal(tillablePctShown(80, 0, null), false)
+  assert.equal(tillablePctShown(null, 60, null), false)   // no acres -> no %
+  assert.equal(tillablePctShown(80, '60', '75'), true)
+})

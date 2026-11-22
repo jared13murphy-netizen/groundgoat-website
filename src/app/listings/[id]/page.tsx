@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
-import { formatTillable } from '@/lib/tillable'
+import { formatTillable, tillablePctShown } from '@/lib/tillable'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { isAllowedForExplore } from '@/lib/stateAccess'
 import {
@@ -509,7 +509,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                         </div>
                       )
                     })()}
-                    {tract.soil_rating && (
+                    {tract.soil_rating && tillablePctShown(tract.total_acres, tract.tillable_acres, null) && (
                       <div>
                         <div className="text-white font-medium">{tract.soil_rating}</div>
                         <div className="text-gg-gray-500 text-xs">{soilRatingLabel(tract)}</div>

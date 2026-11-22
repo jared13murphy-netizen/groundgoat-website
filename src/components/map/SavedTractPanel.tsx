@@ -110,7 +110,8 @@ export default function SavedTractPanel({
   const tillable = fig.tillableAcres
   const pctTillable = fig.pctTillable
   const ratingLabel = soilRatingLabel({ soil_rating_type: fig.ratingLabel })
-  const rating = fig.rating
+  // Owner 11/21 (4b): no tillable % shown -> no soil rating either.
+  const rating = pctTillable != null ? fig.rating : null
   const remeasuring = fig.remeasuring
   const place = [detail?.county ? `${detail.county} County` : '', detail?.state || ''].filter(Boolean).join(', ')
   // v2 (owner 11/10): a farm can be in many projects — shown as chips; a tap

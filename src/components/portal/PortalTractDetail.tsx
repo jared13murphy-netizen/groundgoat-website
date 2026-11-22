@@ -7,7 +7,7 @@ import { ACTION_BTN } from '@/components/map/LandDetailPanel'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { openReports } from '@/lib/reportsPanel'
 import { formatAcres } from '@/lib/format'
-import { formatTillable } from '@/lib/tillable'
+import { formatTillable, tillablePctShown } from '@/lib/tillable'
 import { formatAuctionDate } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import GroundTruthPanel from './GroundTruthPanel'
@@ -481,7 +481,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             </div>
           )
         })() : null}
-        {tract.soilRating ? (
+        {tract.soilRating && tillablePctShown(tract.totalAcres, tract.tillableAcres, tract.pctTillable) ? (
           <div className="bg-white/[0.03] rounded-xl p-4 border border-white/5">
             <div className="text-[10px] text-gg-gray-300 uppercase tracking-wider">{soilRatingLabel(tract)}</div>
             <div className="text-lg font-bold mt-1">{tract.soilRating}</div>

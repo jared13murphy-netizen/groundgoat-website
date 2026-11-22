@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatAcres, toNum } from '@/lib/format'
-import { formatTillable } from '@/lib/tillable'
+import { formatTillable, tillablePctShown } from '@/lib/tillable'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { getListingTillableAcres, getListingSoilRating } from './PortalListPanel'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
@@ -606,7 +606,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
                           </div>
                         )
                       })() : null}
-                      {tract.soil_rating ? (
+                      {tract.soil_rating && tillablePctShown(tract.total_acres, tract.tillable_acres, tract.pct_tillable) ? (
                         <div>
                           <div className="text-sm font-semibold text-white">{tract.soil_rating}</div>
                           <div className="text-[10px] text-gg-gray-300">{soilRatingLabel(tract)}</div>
