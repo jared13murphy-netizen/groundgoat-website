@@ -569,6 +569,9 @@ function firstSymbolLayerId(map: maplibregl.Map): string | undefined {
   return layers.find((l: any) => l.type === 'symbol')?.id
 }
 
+/** The tile proxy's one-point-per-parcel layer (owner 11/21: one label per parcel). */
+const PARCEL_LABEL_POINT_LAYER = 'gg_label_points'
+
 /** World-covering polygon with one hole per outer ring of the selected
  *  parcel's geometry (Polygon → one hole; MultiPolygon → one per piece) —
  *  i.e. "dim everything except the parcel." */
@@ -5564,9 +5567,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             // rest by the population/zoom ladder above.
             filter: ['all', ['>', ['get', 'pop'], 0], TOWN_LABEL_ZOOM_STEP_FILTER],
             layout: {
+              // Owner 11/21: subtle, like Google Maps satellite — plain white
+              // text with a thin dark halo, no pill (was a white pill with a
+              // pink outline and black bold text).
               'text-field': ['get', 'name'],
-              'text-font': ['Open Sans Bold'],
-              'text-size': ['interpolate', ['linear'], ['zoom'], 6, 9, 14, 13],
+              'text-font': ['Open Sans Regular'],
+              'text-size': ['interpolate', ['linear'], ['zoom'], 6, 10, 14, 13],
               'text-anchor': 'center',
               'text-max-width': 8,
               // MapLibre's built-in symbol collision (shared across every
@@ -5574,14 +5580,12 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               // overlapping each other, county badges, and tract labels —
               // no manual declutter logic needed.
               'text-allow-overlap': false,
-              'icon-image': 'aem-pill-town',
-              'icon-text-fit': 'both',
-              'icon-text-fit-padding': [3, 7, 3, 7],
-              'icon-allow-overlap': false,
-              'icon-optional': false,
             },
             paint: {
-              'text-color': '#000000',
+              'text-color': '#ffffff',
+              'text-halo-color': 'rgba(0,0,0,0.75)',
+              'text-halo-width': 1.2,
+              'text-halo-blur': 0.5,
             },
           }, 'county-labels')
           liftMarkerLayers(map)
@@ -6600,7 +6604,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // promoting ll_uuid left setFeatureState permanently unmatched
       // at z>=12 in production. `path` is present on every feature
       // in both tile sources and is stable per-parcel.
-      promoteId: { [sourceLayer]: 'path' },
+      // gg_label_points (owner 11/21): ONE point per parcel, only in the tile holding the
+      // parcel's own point — labels and sale dots draw from it so a parcel crossing a tile
+      // edge is labelled once, not once per piece. Same `path` id for feature-state.
+      promoteId: { [sourceLayer]: 'path', [PARCEL_LABEL_POINT_LAYER]: 'path' },
       // Required attribution per Schedule A §7. Surfaces in the
       // built-in attribution control at the bottom of the map.
       attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
@@ -6664,7 +6671,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       id: LABEL_LAYER,
       type: 'symbol',
       source: SOURCE_ID,
-      'source-layer': sourceLayer,
+      'source-layer': PARCEL_LABEL_POINT_LAYER,
       minzoom: REGRID_OWNER_LABEL_MIN_ZOOM,
       layout: {
         // Four segments: owner (bold) → acres → $/acre → sale date.
@@ -7135,7 +7142,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
           // circle paint.
           type: 'symbol',
           source: REGRID_SOURCE,
-          'source-layer': sourceLayer,
+          'source-layer': PARCEL_LABEL_POINT_LAYER,
           // owner 11/12: sale dots wait for the parcel labels; comp mode
           // keeps the Regrid tile floor (11) — owner 11/16.
           minzoom: tileDotMinZoom({ comp: inCompModeNow }, REGRID_OWNER_LABEL_MIN_ZOOM),
@@ -7822,7 +7829,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const sourceLayer = regridConfigRef.current?.source_layer || 'parcels'
       for (const path of Array.from(suppressedPathsRef.current)) {
         try {
-          map.removeFeatureState({ source: 'regrid-parcels', sourceLayer, id: path }, 'dotSuppressed')
+          for (const sl of [sourceLayer, PARCEL_LABEL_POINT_LAYER]) map.removeFeatureState({ source: 'regrid-parcels', sourceLayer: sl, id: path }, 'dotSuppressed')
         } catch {/* source torn down */}
       }
     }
@@ -8025,14 +8032,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       for (const path of Array.from(newSuppressedPaths)) {
         if (!suppressedPathsRef.current.has(path)) {
           try {
-            map.setFeatureState({ source: 'regrid-parcels', sourceLayer, id: path }, { dotSuppressed: true })
+            for (const sl of [sourceLayer, PARCEL_LABEL_POINT_LAYER]) map.setFeatureState({ source: 'regrid-parcels', sourceLayer: sl, id: path }, { dotSuppressed: true })
           } catch {/* source torn down */}
         }
       }
       for (const path of Array.from(suppressedPathsRef.current)) {
         if (!newSuppressedPaths.has(path)) {
           try {
-            map.removeFeatureState({ source: 'regrid-parcels', sourceLayer, id: path }, 'dotSuppressed')
+            for (const sl of [sourceLayer, PARCEL_LABEL_POINT_LAYER]) map.removeFeatureState({ source: 'regrid-parcels', sourceLayer: sl, id: path }, 'dotSuppressed')
           } catch {/* source torn down */}
         }
       }
