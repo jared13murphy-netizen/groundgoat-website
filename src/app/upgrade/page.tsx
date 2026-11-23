@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { MapPin, ArrowLeft, Loader2, ChevronDown, Lock } from 'lucide-react'
 import { parseApiError } from '@/lib/parseApiError'
+import { CustomerMessage, paymentErrorText, reportPaymentError } from '@/lib/paymentError'
 import { PRICING, MAX_STATES, formatPrice, cycleUnit, type BillingCycle } from '@/config/pricing'
 import { STATE_ABBREVIATIONS, getStateAbbreviation, getStateFullName } from '@/data/counties'
 
@@ -215,8 +216,9 @@ function UpgradePageContent() {
         })
       })
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(parseApiError(data, 'Failed to add area'))
+        const data = await response.json().catch(() => ({}))
+        if (response.status < 500) throw new CustomerMessage(parseApiError(data, ''))
+        throw new Error(`checkout HTTP ${response.status}`)
       }
       const data = await response.json()
       if (data.checkout_url) {
@@ -225,7 +227,8 @@ function UpgradePageContent() {
         router.push('/account/areas')
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to add area')
+      reportPaymentError(API_URL, token, err)
+      setError(paymentErrorText(err))
     } finally {
       setAddingArea(false)
     }
