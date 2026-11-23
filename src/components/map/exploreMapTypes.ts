@@ -57,6 +57,12 @@ export interface OwnerParcelsResponse {
   owner: string
   count: number
   total_acres: number
-  dots: { id: string; lat: number; lng: number; acres: number }[]
+  /** kind (11/23): absent = 'owner'. 'address' = the typed street address
+      (id may be 'geocode'), 'mailing' = owner mailing address matches,
+      'section' = inside a searched PLSS section. path = Regrid parcel path. */
+  dots: { id: string; lat: number; lng: number; acres: number; kind?: 'owner' | 'mailing' | 'address' | 'section'; path?: string | null; owner?: string | null }[]
   bbox: [[number, number], [number, number]] | null
+  /** Searched PLSS section's dissolved outline. */
+  outline?: GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+  mailing?: { count: number; acres: number; addresses: string[]; owners: { owner: string; count: number; acres: number }[] }
 }
