@@ -43,6 +43,7 @@ import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
+import MissedAuctionsPanel, { useMissedAuctions } from '@/components/admin/MissedAuctionsPanel'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { toRings } from '@/lib/polygonRings'
@@ -482,7 +483,11 @@ export default function AdminStagingPage() {
   const [companyCounts, setCompanyCounts] = useState<Record<string, number>>({})
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'staging' | 'results'>('staging')
+  const [activeTab, setActiveTab] = useState<'staging' | 'results' | 'missed'>('staging')
+
+  // Missed tab: what the scraper missed + what the nightly AI check did.
+  // Loaded with the page so the count on the tab shows before it is opened.
+  const missed = useMissedAuctions()
 
   // Run log
   const [runLog, setRunLog] = useState<RunLogEntry[]>([])
@@ -740,6 +745,7 @@ export default function AdminStagingPage() {
       }
       fetchStagingListings()
       fetchRunLog()
+      missed.reload()
     } catch (err) {
       router.push('/signin')
     }
@@ -1920,6 +1926,19 @@ export default function AdminStagingPage() {
             <BarChart3 size={14} />
             Scraper Results
           </button>
+          <button
+            onClick={() => { setActiveTab('missed'); missed.reload() }}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'missed' ? 'bg-gg-gray-700 text-white' : 'text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            Missed
+            {missed.needsPerson > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-xs font-bold leading-none bg-[#F58CDE] text-black">
+                {missed.needsPerson}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Company Filter - only on staging tab */}
@@ -2973,6 +2992,9 @@ export default function AdminStagingPage() {
             )}
           </div>
         )}
+
+        {/* Missed Tab */}
+        {activeTab === 'missed' && <MissedAuctionsPanel state={missed} />}
       </div>
 
       {/* Screenshot/Map Modal */}
