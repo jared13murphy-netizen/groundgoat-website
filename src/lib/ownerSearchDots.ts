@@ -75,11 +75,13 @@ const KIND = ['get', 'kind']
 
 /** Data-driven circle paint for 'owner-parcels-dots'. */
 export function ownerDotPaint(): Record<string, unknown> {
-  const base = ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7]
+  // A zoom expression must be the TOP-level interpolate — nesting it in a
+  // 'case' makes addLayer throw, and the dots never draw (sandbox 11/23).
+  const isAddress = ['==', KIND, 'address']
   return {
-    'circle-radius': ['case',
-      ['==', KIND, 'address'], ['interpolate', ['linear'], ['zoom'], 9, 8, 14, 11],
-      base],
+    'circle-radius': ['interpolate', ['linear'], ['zoom'],
+      9, ['case', isAddress, 8, 4],
+      14, ['case', isAddress, 11, 7]],
     'circle-color': ['match', KIND,
       'address', OWNER_DOT_ADDRESS_COLOR,
       'mailing', OWNER_DOT_MAILING_COLOR,

@@ -3,6 +3,7 @@
  *   node src/lib/ownerSearchDots.test.ts
  */
 import assert from 'node:assert/strict'
+import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec'
 import {
   buildOwnerParcelFeatures, ownerDotKind, ownerDotLlUuid, ownerDotKindsPresent,
   ownerSearchLegendRows, outlineBounds, ownerDotPaint,
@@ -42,3 +43,15 @@ const paint = ownerDotPaint() as any
 assert.equal(paint['circle-color'][3], '#5B21B6')
 
 console.log('ownerSearchDots: ok')
+
+// Sandbox 11/23: a zoom interpolate nested inside 'case' made addLayer throw
+// and NO dots drew. The paint must pass MapLibre's own style validator.
+{
+  const errs = validateStyleMin({
+    version: 8,
+    sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
+    layers: [{ id: 'owner-parcels-dots', type: 'circle', source: 's',
+      layout: { 'circle-sort-key': ['get', 'sort'] }, paint: ownerDotPaint() as any }],
+  } as any)
+  assert.deepEqual(errs.map((e: any) => e.message), [])
+}
