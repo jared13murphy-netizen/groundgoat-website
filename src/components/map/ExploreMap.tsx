@@ -12,6 +12,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
 import './TractMap.css'
 import type { ApiMapTract, MapTractsResponse, OwnerParcelsResponse } from './exploreMapTypes'
+import { buildOwnerParcelFeatures, ownerDotKindsPresent, ownerDotLlUuid, ownerDotPaint, ownerSearchLegendRows, outlineBounds } from '@/lib/ownerSearchDots'
 import { normalizeTownship } from '../../utils/normalizeTownship'
 import {
   buildExplorePolygonGeoJSON,
@@ -181,7 +182,10 @@ const MARKER_LAYERS_BOTTOM_TO_TOP = [
   'today-pin-core',
   // Owner "show on map" chat-search dots — distinct blue, sits above
   // everything else so a searched owner's parcels are never hidden
-  // under a freshly-lifted tract polygon.
+  // under a freshly-lifted tract polygon. A searched PLSS section's
+  // outline (11/23) sits just under the dots.
+  'owner-search-outline-fill',
+  'owner-search-outline-line',
   'owner-parcels-dots',
 ]
 function liftMarkerLayers(map: maplibregl.Map) {
@@ -275,6 +279,8 @@ const SALE_DOT_LAYERS = [
   'parcel-sale-pin-plus',
   'parcel-sale-dots-durable-circle',
   'parcel-sale-dots-durable-symbol',
+  // Goat Search result dots open their parcel's panel too (11/23).
+  'owner-parcels-dots',
 ]
 
 function clickClaimedByLayers(
@@ -2050,12 +2056,14 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // owner's parcel dots are on the map. Cleared by the X button (which
   // also empties the owner-parcels source) or by a subsequent regular
   // filter search.
-  const [ownerParcelsChip, setOwnerParcelsChip] = useState<{ owner: string; count: number; totalAcres: number; reply: string } | null>(null)
+  const [ownerParcelsChip, setOwnerParcelsChip] = useState<{ owner: string; count: number; totalAcres: number; reply: string; hasAddress?: boolean; hasMailing?: boolean } | null>(null)
   const clearOwnerParcels = () => {
     setOwnerParcelsChip(null)
     const map = mapRef.current
     const src = map?.getSource('owner-parcels') as maplibregl.GeoJSONSource | undefined
     if (src) src.setData(EMPTY_FC)
+    const outlineSrc = map?.getSource('owner-search-outline') as maplibregl.GeoJSONSource | undefined
+    if (outlineSrc) outlineSrc.setData(EMPTY_FC)
   }
   // The setData/fitBounds effect for ownerParcelsResult lives further
   // down, right after `mapLoaded` is declared (it reads that state).
@@ -2070,6 +2078,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // Green today-pin layers are deliberately excluded everywhere this is
   // read: owner canon says today's auctions always show.
   const ownerSearchActive = !!ownerParcelsChip
+  // Legend rows for the search dots (address / same-mailing kinds, 11/23).
+  const ownerSearchLegend = ownerParcelsChip
+    ? ownerSearchLegendRows({ address: !!ownerParcelsChip.hasAddress, mailing: !!ownerParcelsChip.hasMailing })
+    : []
   // Mirror for use inside fetchDurableDotsForBounds's moveend re-assert,
   // which is a stable useCallback ([] deps) and can't close over state.
   const ownerSearchActiveRef = useRef(false)
@@ -2387,16 +2399,24 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (!map || !mapLoaded) return
     const { data, reply } = ownerParcelsResult
     if (!data.dots || data.dots.length === 0) return
-    const features = data.dots.map(d => ({
-      type: 'Feature' as const,
-      properties: { id: d.id, acres: d.acres },
-      geometry: { type: 'Point' as const, coordinates: [d.lng, d.lat] },
-    }))
+    // kind/path/owner ride on each feature (11/23): paint is data-driven
+    // by kind and the click handler opens the exact parcel by path.
+    const features = buildOwnerParcelFeatures(data.dots)
     const src = map.getSource('owner-parcels') as maplibregl.GeoJSONSource | undefined
     if (src) src.setData({ type: 'FeatureCollection', features })
-    setOwnerParcelsChip({ owner: data.owner, count: data.count, totalAcres: data.total_acres, reply })
-    if (data.bbox) {
-      map.fitBounds(data.bbox, { padding: 100, duration: 900, maxZoom: 14 })
+    // Searched PLSS section outline; a result without one clears the old.
+    const outline = data.outline && (data.outline.type === 'Polygon' || data.outline.type === 'MultiPolygon') ? data.outline : null
+    const outlineSrc = map.getSource('owner-search-outline') as maplibregl.GeoJSONSource | undefined
+    if (outlineSrc) {
+      outlineSrc.setData(outline
+        ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: outline }] }
+        : EMPTY_FC)
+    }
+    const kinds = ownerDotKindsPresent(data.dots)
+    setOwnerParcelsChip({ owner: data.owner, count: data.count, totalAcres: data.total_acres, reply, hasAddress: kinds.address, hasMailing: kinds.mailing })
+    const fit = data.bbox || outlineBounds(outline)
+    if (fit) {
+      map.fitBounds(fit, { padding: 100, duration: 900, maxZoom: 14 })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerParcelsResult?.nonce, mapLoaded])
@@ -5975,18 +5995,69 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // bbox doesn't vanish when the fitBounds lands on a zoomed-out
       // view. Driven by setData only; never recreated (see the
       // ownerParcelsResult effect above, right after mapLoaded).
+      // Searched PLSS section outline (11/23), just under the dots.
+      map.addSource('owner-search-outline', { type: 'geojson', data: EMPTY_FC })
+      map.addLayer({
+        id: 'owner-search-outline-fill',
+        type: 'fill',
+        source: 'owner-search-outline',
+        paint: { 'fill-color': SEARCH_RESULT_COLOR, 'fill-opacity': 0.08 },
+      })
+      map.addLayer({
+        id: 'owner-search-outline-line',
+        type: 'line',
+        source: 'owner-search-outline',
+        paint: { 'line-color': SEARCH_RESULT_COLOR, 'line-width': 2.5 },
+      })
       map.addSource('owner-parcels', { type: 'geojson', data: EMPTY_FC })
+      // Styled by dot kind (11/23): searched address = big dark purple on
+      // top, same-mailing-address = light purple, the rest unchanged.
       map.addLayer({
         id: 'owner-parcels-dots',
         type: 'circle',
         source: 'owner-parcels',
-        paint: {
-          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 14, 7],
-          'circle-color': SEARCH_RESULT_COLOR,
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 1.5,
-        },
+        layout: { 'circle-sort-key': ['get', 'sort'] },
+        paint: ownerDotPaint() as any,
       })
+      // Tap a search dot (any zoom) -> that parcel's panel, same as a
+      // durable sale dot. SALE_DOT_LAYERS lists this layer so the parcel
+      // fill / overlay handlers defer to it (one click, one panel).
+      map.on('click', 'owner-parcels-dots', (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+        if (mapInteractionSuspendedRef.current) return
+        const f = e.features?.[0]
+        if (!f || f.geometry.type !== 'Point') return
+        if (clickClaimedByLayers(map, e.point, [ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill'])) return
+        const [lng, lat] = f.geometry.coordinates as [number, number]
+        const props: any = f.properties || {}
+        const path = typeof props.path === 'string' && props.path ? props.path : null
+        const ll_uuid = ownerDotLlUuid(props.id, path)
+        setSelectedSale(null)
+        onLandDetailOpen?.()
+        let tileGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon | null = null
+        try {
+          if (parcelLayers(map, 'fill').length) {
+            const underFeat = map.queryRenderedFeatures(e.point, { layers: parcelLayers(map, 'fill') })[0]
+            const g = underFeat?.geometry as GeoJSON.Geometry | undefined
+            if (g && (g.type === 'Polygon' || g.type === 'MultiPolygon')) tileGeometry = g
+          }
+        } catch {/* layer torn down mid-click */}
+        setLandDetail({
+          // path (when sent) makes the backend open this exact parcel.
+          parcelProps: { ll_uuid, centroid_lat: lat, centroid_lng: lng, ...(path ? { path } : {}) },
+          soilProps: null,
+          csbProps: null,
+          ll_uuid,
+          clickLng: lng,
+          clickLat: lat,
+          activeOverlay: baseOverlayRef.current,
+          source: 'parcel',
+          tileGeometry,
+          startNote: noteArmedRef.current || undefined,
+        })
+        map.easeTo({ center: [lng, lat], zoom: 14.5, duration: 900 })
+      })
+      map.on('mouseenter', 'owner-parcels-dots', () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', 'owner-parcels-dots', () => { if (mapInteractionSuspendedRef.current) return; map.getCanvas().style.cursor = '' })
 
       // Initial load
       const bounds = map.getBounds()
@@ -9473,7 +9544,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (hasParcel) return
       if (clickClaimedByLayers(map, e.point, [
         ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill',
-        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, 'owner-parcels-dots',
       ])) return
 
       // One click, one panel: clear any open tract modal / comp popup,
@@ -9607,7 +9678,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // and the sale-dot layers (both outrank overlays in priority).
       if (clickClaimedByLayers(map, e.point, [
         ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill',
-        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, 'owner-parcels-dots',
       ])) return
 
       // One click, one panel: clear any open tract modal / comp popup,
@@ -9956,7 +10027,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       const clickT = Date.now()
       if (clickClaimedByLayers(map, e.point, [
         ELEVATOR_LAYER, 'tract-pin-circles', 'tract-polygon-fill', 'today-pin-core',
-        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER,
+        'parcel-sale-pin-plus', DURABLE_DOT_LAYER, DURABLE_DOT_PLUS_LAYER, 'owner-parcels-dots',
       ])) { setNationalHere(null); return }
       let feats: maplibregl.MapGeoJSONFeature[] = []
       try {
@@ -12625,7 +12696,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               {/* Tract Status dot key (owner 11/16: moved here from Layers). */}
               <MyMapsSectionLabel>Tract Status</MyMapsSectionLabel>
               <div data-testid="mymaps-tract-status" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px', padding: '0 2px' }}>
-                {[...TRACT_STATUS_ROWS, ...(ownerSearchActive ? [{ label: 'Search results', color: SEARCH_RESULT_COLOR }] : [])].map(({ label, color }) => (
+                {[...TRACT_STATUS_ROWS, ...ownerSearchLegend].map(({ label, color }) => (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', height: 28, gap: 8 }}>
                     <span style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: color, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.5)' }} />
                     <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>{label}</span>
@@ -13517,7 +13588,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
             { label: 'Listed',          color: '#eab308' },
             { label: "Today's Auctions", color: '#22c55e' },
             { label: 'No Sale',         color: '#9ca3af' },
-            ...(ownerSearchActive ? [{ label: 'Search results', color: SEARCH_RESULT_COLOR }] : []),
+            ...ownerSearchLegend,
           ].map(({ label, color }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{
