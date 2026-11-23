@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
+import { keepScreenOrder, sortAuctionRows } from '@/lib/controlCenterOrder'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, Bell, ChevronDown, ChevronUp, RefreshCw, Save, ExternalLink, Lock, MapPin, AlertTriangle, X } from 'lucide-react'
@@ -299,7 +300,9 @@ export default function ControlCenterPage() {
     }
     setListings(prev => {
       const byId = new Map(prev.map(l => [l.id, l]))
-      return fresh.map(f => {
+      // Owner 11/23: rows never move — keep the on-screen order, update
+      // each row in place, slot any new auction into its sorted spot.
+      return keepScreenOrder(prev.map(l => l.id), fresh).map(f => {
         const old = byId.get(f.id)
         if (!old) return { ...f, server_status: f.status }
         if (f.id !== forceListingId && savingListingRef.current === f.id) return old
@@ -352,7 +355,8 @@ export default function ControlCenterPage() {
       })
 
       if (response.ok) {
-        const listingsWithTracts = (await response.json()).map((l: Listing) => ({ ...l, server_status: l.status }))
+        // Fixed order (owner 11/23): auction time, then listing id.
+        const listingsWithTracts = sortAuctionRows<Listing>(await response.json()).map((l: Listing) => ({ ...l, server_status: l.status }))
         setListings(listingsWithTracts)
 
         const initialStates: Record<string, TractState> = {}
