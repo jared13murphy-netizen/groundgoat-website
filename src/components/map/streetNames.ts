@@ -44,10 +44,13 @@ export function addStreetNames(map: maplibregl.Map, beforeId?: string): void {
     filter: ['all', ['has', 'name'], ['match', ['get', 'class'], ROAD_CLASSES, true, false]],
     layout: {
       'symbol-placement': 'line',
-      'symbol-spacing': 400,
+      'symbol-spacing': 300,
       'text-field': ['get', 'name'],
       'text-font': ['Open Sans Semibold'],
-      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 11, 16, 13, 18, 15],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 14, 13, 16, 15, 18, 17],
+      // Sit just beside the road, not on it: the black parcel line that runs
+      // down most road centres sliced the name in half (sandbox check 11/23).
+      'text-offset': [0, -0.85],
       'text-letter-spacing': 0.03,
       'text-max-angle': 30,
       'text-rotation-alignment': 'map',
@@ -60,8 +63,8 @@ export function addStreetNames(map: maplibregl.Map, beforeId?: string): void {
     },
     paint: {
       'text-color': '#ffffff',
-      'text-halo-color': 'rgba(0,0,0,0.85)',
-      'text-halo-width': 1.5,
+      'text-halo-color': 'rgba(0,0,0,0.95)',
+      'text-halo-width': 2,
       'text-halo-blur': 0.3,
     },
   }, before)
