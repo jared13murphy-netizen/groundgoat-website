@@ -1659,6 +1659,9 @@ interface ExploreMapProps {
   /** Report rows in panel order (owner 2026-10-29): each gets a yellow numbered
       box on the map at its coordinate, matching the number on its card. */
   reportRows?: Array<{ id: string; latitude?: number | null; longitude?: number | null; polygonCoordinates?: any }>
+  /** Owner 11/22: a tapped report card. Flies to the row, highlights it and
+   *  opens its details panel (parcel, tract or saved tract). New nonce = new tap. */
+  focusReportRow?: { row: { id: string; tractId?: string | null; savedId?: string | null; llUuid?: string | null; latitude?: number | null; longitude?: number | null; polygonCoordinates?: any }; nonce: number } | null
   onFiltersApplied?: (filters: { stateFilter: string; countyFilters: string[] }) => void
   zoomToLocation?: { lat: number; lng: number; zoom: number } | null
   /** Fit the map to a polygon's bounds. Bumped via `nonce` so the same
@@ -1924,7 +1927,7 @@ function tractProjectIds(t: PortfolioTract): string[] {
   return t.projects?.length ? t.projects.map(p => p.id) : (t.project_id ? [t.project_id] : [])
 }
 
-export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, searchActive = false, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, onOpenReportPanel, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
+export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, homeCounty, allowedStates, portalMode = false, externalFilterOpen, onFindParcelComparables, onActiveFilterCountChange, onFilterOpenChange, onViewListing, onTractSelected, onLandDetailOpen, externalTractSelection, onToggleReport, onDragToReport, onDragToReportStart, onView3DTerrain, isInReport, reportIds, reportRows, focusReportRow, onFiltersApplied, zoomToLocation, zoomToBoundsSignal, pinnedTractPolygon, subjectTractId, subjectTractLocation, resetFiltersSignal, applyExternalFilters, chatSearchStartSignal, chatSearchEndSignal, onChatSearchError, ownerParcelsResult, searchActive = false, onShowOwnedGround, comparableVisibleIds, neighborParcels, neighborsLoading, sharedPin, sharedArea, onOpenGoatSearch, utilitiesToggleSignal, onUtilitiesActiveChange, onMappingModeChange, onOpenSavedReport, onOpenReportPanel, mapItTractRequest, onMapItAccessChange }: ExploreMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const stateMarkersRef = useRef<maplibregl.Marker[]>([])
@@ -3562,6 +3565,72 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       })
     })()
   }
+
+  // Report card tap (owner 11/22): fly to the row, highlight it, open its panel.
+  // Same open paths as a Notes result (openNoteResult above) so a card opens
+  // exactly what a tap on the map would.
+  const focusNonceRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!focusReportRow || !mapLoaded || focusNonceRef.current === focusReportRow.nonce) return
+    focusNonceRef.current = focusReportRow.nonce
+    const row = focusReportRow.row
+    const map = mapRef.current
+    if (!map) return
+    const pts: [number, number][] = []
+    const walk = (c: any) => {
+      if (!Array.isArray(c)) return
+      if (c.length >= 2 && typeof c[0] === 'number' && typeof c[1] === 'number') { pts.push([c[0], c[1]]); return }
+      c.forEach(walk)
+    }
+    walk(row.polygonCoordinates)
+    const lat = typeof row.latitude === 'number' ? row.latitude : null
+    const lng = typeof row.longitude === 'number' ? row.longitude : null
+    // Room for the report panel on the left and the details panel on the right.
+    const padding = { top: 90, bottom: 60, left: 560, right: LAND_DETAIL_PANEL_WIDTH + 40 }
+    try {
+      if (pts.length >= 3) {
+        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1])
+        map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding, maxZoom: 16, duration: 900 })
+      } else if (lat != null && lng != null) {
+        map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 15), padding, duration: 900 })
+      }
+    } catch { /* padding larger than the map on a small window */
+      if (lat != null && lng != null) map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 15), duration: 900 })
+    }
+    setSavedPanelOpen(false)
+    setUtilitiesOpen(false)
+    if (row.savedId) {
+      void showSavedTract(row.savedId)
+      setLandDetail(null)
+      setTimeout(() => setSavedTractOpen({ id: row.savedId! }), 0)
+      return
+    }
+    if (row.tractId) {
+      const tractId = row.tractId
+      void (async () => {
+        for (let i = 0; i < 10; i++) {
+          const t = tractMapRef.current.get(tractId)
+          if (t) {
+            const sd = buildTractSaleDetail(t)
+            setLandDetail(null)
+            if (portalMode && onTractSelected) { lastPortalSaleRef.current = sd; onTractSelected(sd) } else setSelectedSale(sd)
+            return
+          }
+          await new Promise(res => setTimeout(res, 500))
+        }
+      })()
+      return
+    }
+    const isUuid = (v: string | null | undefined) => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+    const uuid = isUuid(row.llUuid) ? row.llUuid! : (isUuid(row.id) ? row.id : null)
+    setSelectedSale(null)
+    onLandDetailOpen?.()
+    setLandDetail({
+      parcelProps: null, soilProps: null, csbProps: null, ll_uuid: uuid,
+      clickLng: lng, clickLat: lat,
+      activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null,
+    })
+  }, [focusReportRow, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Saved Projects panel: clicking a project zooms to all of its maps
   // (owner 10/30) and turns the saved-maps layer on.

@@ -88,9 +88,12 @@ interface PortalComparablesReportPanelProps {
   onClose: () => void
   onView3DTerrain?: (tractId: string, tractName: string) => void
   onViewListing?: (listingId: string) => void
+  /** Owner 11/22: tapping a card flies the map to that item, highlights it and
+   *  opens its details panel (parcel, tract or saved tract). */
+  onFocusTract?: (t: TractSaleData) => void
 }
 
-export default function PortalComparablesReportPanel({ subjectInfo, reportTracts, onRemoveTract, onUpdateTract, onClose, onView3DTerrain, onViewListing }: PortalComparablesReportPanelProps) {
+export default function PortalComparablesReportPanel({ subjectInfo, reportTracts, onRemoveTract, onUpdateTract, onClose, onView3DTerrain, onViewListing, onFocusTract }: PortalComparablesReportPanelProps) {
   // Owner 11/3: parcel rows re-read their figures from the one parcel record
   // every time this panel opens — never the copy taken when the row was added.
   useFreshParcelFigures(reportTracts, onUpdateTract)
@@ -317,7 +320,23 @@ export default function PortalComparablesReportPanel({ subjectInfo, reportTracts
             <h3 className="text-xs font-semibold text-gg-gray-400 uppercase tracking-wider mb-3">Selected Sales</h3>
             <div className="space-y-4">
               {reportTracts.map((t, i) => (
-                <div key={t.id} className="bg-[#161616] rounded-xl border border-white/15 shadow-[0_2px_10px_rgba(0,0,0,0.5)] overflow-hidden">
+                <div
+                  key={t.id}
+                  data-gg-report-card={t.id}
+                  role={onFocusTract ? 'button' : undefined}
+                  tabIndex={onFocusTract ? 0 : undefined}
+                  // A tap anywhere on the card except its own controls (delete,
+                  // notes, 3D, listing) shows the item on the map.
+                  onClick={onFocusTract ? (e) => {
+                    if ((e.target as HTMLElement).closest('button, a, input, textarea, select, label, [contenteditable="true"]')) return
+                    onFocusTract(t)
+                  } : undefined}
+                  onKeyDown={onFocusTract ? (e) => {
+                    if (e.target !== e.currentTarget) return
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFocusTract(t) }
+                  } : undefined}
+                  className={`bg-[#161616] rounded-xl border border-white/15 shadow-[0_2px_10px_rgba(0,0,0,0.5)] overflow-hidden${onFocusTract ? ' cursor-pointer hover:border-gg-pink/70 transition-colors' : ''}`}
+                >
                   <div className="flex items-start justify-between px-4 pt-3 pb-2">
                     <div>
                       <div className="text-sm font-semibold flex items-center gap-2">

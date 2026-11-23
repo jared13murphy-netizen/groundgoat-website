@@ -129,6 +129,8 @@ function AccessPortalPageInner() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
   const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
+  // Owner 11/22: a tapped report card -> the map flies there and opens it.
+  const [focusReportRow, setFocusReportRow] = useState<{ row: TractSaleData; nonce: number } | null>(null)
   const [neighborParcels, setNeighborParcels] = useState<any[] | null>(null)
   const [neighborsLoading, setNeighborsLoading] = useState(false)
   // Report state
@@ -1217,6 +1219,7 @@ function AccessPortalPageInner() {
           isInReport={(id) => reportIds.has(id)}
           reportIds={reportIds}
           reportRows={reportTracts}
+          focusReportRow={focusReportRow}
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
           zoomToBoundsSignal={zoomToBoundsSignal}
@@ -1559,6 +1562,7 @@ function AccessPortalPageInner() {
             onClose={handleCloseComparables}
             onView3DTerrain={handleView3DTerrain}
             onViewListing={(listingId) => setMapListingId(listingId)}
+            onFocusTract={(t) => setFocusReportRow({ row: t, nonce: Date.now() })}
           />
         )}
       </AnimatePresence>
@@ -1611,6 +1615,7 @@ function AccessPortalPageInner() {
             }}
             onView3DTerrain={handleView3DTerrain}
             onViewListing={(listingId) => setMapListingId(listingId)}
+            onFocusTract={(t) => setFocusReportRow({ row: t, nonce: Date.now() })}
           />
         )}
       </AnimatePresence>
