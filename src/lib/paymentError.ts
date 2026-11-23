@@ -8,7 +8,7 @@
 export const PAYMENT_ERROR_MESSAGE =
   "We're sorry — something went wrong on our end while setting up your payment. " +
   "Our team has been notified and is fixing it right away. Please try again in a " +
-  "few minutes, or email info@groundgoat.com and we'll get you set up personally."
+  "few minutes."
 
 export class CustomerMessage extends Error {}
 
