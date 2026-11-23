@@ -7,6 +7,7 @@ import maplibregl from 'maplibre-gl'
 import { Protocol as PMTilesProtocol } from 'pmtiles'
 import { addTownships } from '@/components/map/townships'
 import { addHighways } from './highways'
+import { addStreetNames, placeStreetNames } from './streetNames'
 import { CDL_PALETTE, CDL_LEGEND_ROWS, buildCropColorExpr } from './mapOverlays'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './ComparablesMap.css'
@@ -5571,6 +5572,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       // Major highways as landmarks (owner 10/8) — under everything added
       // after this point (town labels, pins, parcels, drawn areas).
       addHighways(map)
+      // Street names from z14 (owner 11/23). Starts here, low in the stack;
+      // placeStreetNames() lifts it to just under the parcel labels once
+      // the parcel layers mount.
+      addStreetNames(map)
       // Township outlines + names (owner 10/26): right above highways, below labels/pins.
       addTownships(map)
 
@@ -6925,6 +6930,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     if (map.getLayer('tract-polygon-line')) map.moveLayer('tract-polygon-line')
     // Keep native marker layers above the polygons we just lifted.
     liftMarkerLayers(map)
+    // Street names: above the parcel lines, below the parcel labels.
+    placeStreetNames(map, parcelLayers(map, 'label'))
 
     // Parcel Spotlight veil bug fix (2026-08-15 regression), 2nd half — see
     // the matching comment on the veil's own layer-setup effect near the
