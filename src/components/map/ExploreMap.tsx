@@ -3622,14 +3622,54 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       return
     }
     const isUuid = (v: string | null | undefined) => !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
-    const uuid = isUuid(row.llUuid) ? row.llUuid! : (isUuid(row.id) ? row.id : null)
-    setSelectedSale(null)
-    onLandDetailOpen?.()
-    setLandDetail({
-      parcelProps: null, soilProps: null, csbProps: null, ll_uuid: uuid,
-      clickLng: lng, clickLat: lat,
-      activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null,
-    })
+    const nonce = focusReportRow.nonce
+    // Once the map has arrived, open the parcel exactly as a tap on it would
+    // (same handler, same tile feature) so the panel shows "Added" and the
+    // highlight matches. Falls back to opening by id/point if the parcel's
+    // tile feature is not on screen.
+    let done = false
+    const openParcel = () => {
+      if (done || focusNonceRef.current !== nonce) return
+      done = true
+      try {
+        const layers = parcelLayers(map, 'fill')
+        if (layers.length && parcelClickRef.current) {
+          let feats: maplibregl.MapGeoJSONFeature[] = []
+          let point = lat != null && lng != null ? map.project([lng, lat]) : null
+          if (point) feats = map.queryRenderedFeatures(point, { layers })
+          let f = feats.find(x => (x.properties as any)?.path === row.id) || (row.id.startsWith('/') ? undefined : feats[0])
+          if (!f && row.id.startsWith('/')) {
+            // Point not inside the parcel (old click point) -> find it by path on screen.
+            f = map.queryRenderedFeatures({ layers }).find(x => (x.properties as any)?.path === row.id)
+            if (f) {
+              const g: any = f.geometry
+              const ring = g?.type === 'Polygon' ? g.coordinates[0] : g?.type === 'MultiPolygon' ? g.coordinates[0][0] : null
+              if (ring?.length) {
+                const cx = ring.reduce((a: number, c: number[]) => a + c[0], 0) / ring.length
+                const cy = ring.reduce((a: number, c: number[]) => a + c[1], 0) / ring.length
+                point = map.project([cx, cy])
+              }
+            }
+          }
+          if (f && point) {
+            const lngLat = map.unproject(point)
+            parcelClickRef.current({ point, lngLat, features: [f] } as any)
+            return
+          }
+        }
+      } catch { /* map torn down; fall through */ }
+      setSelectedSale(null)
+      onLandDetailOpen?.()
+      setLandDetail({
+        parcelProps: null, soilProps: null, csbProps: null,
+        ll_uuid: isUuid(row.llUuid) ? row.llUuid! : (isUuid(row.id) ? row.id : null),
+        clickLng: lng, clickLat: lat,
+        activeOverlay: baseOverlayRef.current, source: 'parcel', tileGeometry: null,
+      })
+    }
+    map.once('idle', openParcel)
+    map.triggerRepaint() // already there -> still fires idle
+    setTimeout(openParcel, 4000)
   }, [focusReportRow, mapLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Saved Projects panel: clicking a project zooms to all of its maps
