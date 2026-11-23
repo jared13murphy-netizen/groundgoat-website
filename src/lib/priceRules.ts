@@ -25,9 +25,20 @@ function num(v: Num): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/** The tillable share (0..1) as the panel PRINTS it — a whole percent,
+ *  rounded half up — is at least 25% (owner 11/21, 4a: a parcel printed
+ *  "25%", really 24.7%, shows its $/tillable acre). Mirror of backend
+ *  comps_summary.shown_pct_ok. */
+export function shownPctOk(share: Num): boolean {
+  const s = num(share)
+  if (s === null) return false
+  const shown = Math.round(Number((s * 100).toPrecision(15)) + 1e-9)
+  return shown >= Math.round(MIN_TILL_SHARE * 100)
+}
+
 function shareOk(till: Num, acres: Num): boolean {
   const t = num(till), a = num(acres)
-  return t !== null && a !== null && a > 0 && t / a >= MIN_TILL_SHARE
+  return t !== null && a !== null && a > 0 && shownPctOk(t / a)
 }
 
 /** $/tillable acre is shown for this row. */

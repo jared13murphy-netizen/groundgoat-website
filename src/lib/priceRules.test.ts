@@ -1,6 +1,6 @@
 /** priceRules — run: node --experimental-strip-types src/lib/priceRules.test.ts */
 import assert from 'node:assert/strict'
-import { pptaOk, ppratingOk, tractRates, gatedPpta, resolveTractPrice, totalLabelFor } from './priceRules.ts'
+import { pptaOk, ppratingOk, shownPctOk, tractRates, gatedPpta, resolveTractPrice, totalLabelFor } from './priceRules.ts'
 
 let passed = 0
 function test(name: string, fn: () => void) { fn(); passed++; console.log(`ok - ${name}`) }
@@ -12,6 +12,15 @@ test('ppta gate: >= 1 ac and >= 25%', () => {
   assert.equal(pptaOk(10, 40), true)          // exactly 25%
   assert.equal(pptaOk('30', '40'), true)
   assert.equal(pptaOk(10, null), false)
+})
+
+test('gate reads the shown (rounded) % (owner 11/21, 4a)', () => {
+  assert.equal(shownPctOk(0.247), true)        // prints 25%
+  assert.equal(shownPctOk(0.245), true)        // half up
+  assert.equal(shownPctOk(0.2449), false)      // prints 24%
+  assert.equal(pptaOk(24.7, 100), true)
+  assert.equal(ppratingOk(24.7, 100), true)
+  assert.equal(pptaOk(24.4, 100), false)
 })
 
 test('rating gate: >= 25% only', () => {

@@ -135,7 +135,7 @@ export function parcelDataControls(
   }
   if (showPps) {
     tillable.push({
-      label: crossState ? '$ / Soil Point (NCCPI)' : '$ / Soil Point',
+      label: crossState ? '$ / Soil Rating (NCCPI)' : '$ / Soil Rating',
       minKey: 'pricePerSoilRatingMin', maxKey: 'pricePerSoilRatingMax',
     })
   }

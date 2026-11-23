@@ -52,6 +52,7 @@ import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polyg
 import { formatAcres } from '@/lib/format'
 import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { fetchRegridConfig } from '@/components/map/regridLayer'
+import { parcelSourceSpecs, parcelLayerId, parcelLayers, usesStateTiles } from '@/lib/parcelSources'
 
 const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -692,6 +693,8 @@ export default function TractMapEditor({
         // whenever the durable layer is (in the non-cached states).
         if (map.getLayer('parcels-regrid-line')) map.setLayoutProperty('parcels-regrid-line', 'visibility', vis)
         if (map.getLayer('parcels-regrid-fill')) map.setLayoutProperty('parcels-regrid-fill', 'visibility', vis)
+        // Per-state parcel sources (11/22) follow the same toggle.
+        for (const id of [...parcelLayers(map, 'line'), ...parcelLayers(map, 'fill')]) map.setLayoutProperty(id, 'visibility', vis)
       } catch {/* style not ready */}
     }
     if (map.isStyleLoaded()) apply(); else map.once('idle', apply)
@@ -732,12 +735,12 @@ export default function TractMapEditor({
       // backfilled states) AND the Regrid fallback ('parcels-regrid-fill',
       // everywhere else). Snap reads geometry straight from whichever is
       // rendered under the pointer, so it works in every state.
-      const parcelLayers = ['parcels-fill', 'parcels-regrid-fill']
+      const snapLayers = ['parcels-fill', 'parcels-regrid-fill', ...parcelLayers(map, 'fill')]
         .filter((id) => map.getLayer(id))
-      if (parcelLayers.length) {
+      if (snapLayers.length) {
         const box: [[number, number], [number, number]] = [
           [screenPt.x - 40, screenPt.y - 40], [screenPt.x + 40, screenPt.y + 40]]
-        for (const f of map.queryRenderedFeatures(box, { layers: parcelLayers })) {
+        for (const f of map.queryRenderedFeatures(box, { layers: snapLayers })) {
           const g: any = f.geometry
           if (g?.type === 'Polygon') for (const r of g.coordinates) rings.push(r as Pt[])
           else if (g?.type === 'MultiPolygon') for (const p of g.coordinates) for (const r of p) rings.push(r as Pt[])
@@ -1170,6 +1173,31 @@ export default function TractMapEditor({
         fetchRegridConfig().then((cfg) => {
           if (!cfg || !map.getStyle()) return
           const sourceLayer = cfg.source_layer || 'parcels'
+          // Pre-built per-state archives (11/22): one source per allowed
+          // state, same transparent fill (snap target) + yellow line as the
+          // legacy fallback below. Source maxzoom 15 — MapLibre overzooms.
+          if (usesStateTiles(cfg)) {
+            try {
+              const specs = parcelSourceSpecs(cfg)
+              const before = map.getLayer('neighbors-fill') ? 'neighbors-fill' : undefined
+              for (const sp of specs) if (!map.getSource(sp.id)) map.addSource(sp.id, sp.source as any)
+              for (const sp of specs) if (!map.getLayer(parcelLayerId(sp, 'fill'))) map.addLayer({
+                id: parcelLayerId(sp, 'fill'), type: 'fill', source: sp.id,
+                'source-layer': sp.sourceLayer, minzoom: 12,
+                layout: { visibility: 'visible' },
+                filter: REGRID_NOT_CACHED as any,
+                paint: { 'fill-color': '#22d3ee', 'fill-opacity': 0.0 },
+              }, before)
+              for (const sp of specs) if (!map.getLayer(parcelLayerId(sp, 'line'))) map.addLayer({
+                id: parcelLayerId(sp, 'line'), type: 'line', source: sp.id,
+                'source-layer': sp.sourceLayer, minzoom: 12,
+                layout: { visibility: 'visible' },
+                filter: REGRID_NOT_CACHED as any,
+                paint: { 'line-color': '#facc15', 'line-width': 1.5, 'line-opacity': 0.95 },
+              }, before)
+            } catch { /* regrid fallback is best-effort */ }
+            return
+          }
           try {
             if (!map.getSource('parcels_regrid')) {
               map.addSource('parcels_regrid', {
@@ -1633,7 +1661,7 @@ export default function TractMapEditor({
         // what the map draws in every state outside the six bulk-imported
         // ones. A click there used to do nothing at all (owner 9/22). The
         // server fetches a parcel it has never seen before it unions.
-        const layers = ['parcels-fill', 'parcels-regrid-fill'].filter((id) => map.getLayer(id))
+        const layers = ['parcels-fill', 'parcels-regrid-fill', ...parcelLayers(map, 'fill')].filter((id) => map.getLayer(id))
         const pf = layers.length ? map.queryRenderedFeatures(ev.point, { layers }) : []
         const uuid = pf.length ? (pf[0].properties?.ll_uuid as string | undefined) : undefined
         if (uuid) snapClickRef.current(uuid)

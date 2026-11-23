@@ -24,10 +24,12 @@ import { openReports } from '@/lib/reportsPanel'
 import { formatAcres } from '@/lib/format'
 import { SOIL_FILTER_ENABLED } from '@/lib/featureFlags'
 import {
-  fmtMoney, fmtAcres,
+  fmtMoney,
   PARCEL_DISCLAIMER_TEXT, deriveParcelDetail,
   DetailRow, Section, ParcelDetailSections, ParcelLastSaleSection,
 } from './parcelDetailFields'
+import { parcelRowFields, figDisplay, figShown } from '@/lib/parcelFigures'
+import { tractPriceMode } from '@/lib/priceDisplay'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -396,10 +398,10 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
       listingId: null,
       tractId: null,
       auctionDate: typeof derived.saledate === 'string' ? derived.saledate.slice(0, 10) : null,
-      totalAcres: gisacre,
-      tillableAcres: derived.tillableAcres,
-      soilRating: derived.soilRating,
-      pctTillable: derived.pctTillable,
+      // Figure fields from the ONE helper (src/lib/parcelFigures.ts): the
+      // server's figures, or the old-API fallback — never computed here.
+      ...parcelRowFields(derived.figures, tractPriceMode({ total_acres: gisacre, land_types: derived.landTypes })),
+      soilRatingType: derived.soilRatingType,
       // Bug parity with buildParcelSale: a parcel has no listing company,
       // only a Regrid owner — never stuff owner into companyName (that
       // renders under a "Company" label in emailed/report views).
@@ -407,8 +409,6 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
       owner: owner !== 'Unknown' ? owner : null,
       latitude: reportPoint?.lat ?? null,
       longitude: reportPoint?.lng ?? null,
-      salePrice: validSalePrice ? saleprice : null,
-      pricePerAcre: ppa,
       county,
       state,
       township: township || null,
@@ -447,6 +447,11 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
     const qs = new URLSearchParams()
     if (ll_uuid) qs.set('ll_uuid', ll_uuid)
     else if (lat != null && lng != null) { qs.set('lat', String(lat)); qs.set('lng', String(lng)) }
+    // The clicked tile feature's own path (11/20): stacked parcels (condo units
+    // share one outline — 1,133 at one Niles IL lot) made the point lookup open
+    // a DIFFERENT unit than the one whose label the map shows. The backend
+    // resolves path before point, so the panel is always the clicked parcel.
+    if (!ll_uuid && typeof parcelProps?.path === 'string' && parcelProps.path) qs.set('path', parcelProps.path)
 
     // Crops planted by year — non-blocking; the section simply appears when
     // it resolves. 'by-point' is a deliberate never-matching path id: the
@@ -492,7 +497,9 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
       ])
       if (regridRes?.ok) {
         const body = await regridRes.json()
-        const parcel = body?.parcel || null
+        const rec = body?.parcel || null
+        // `figures` may ride on the envelope instead of the record.
+        const parcel = rec && !rec.figures && body?.figures ? { ...rec, figures: body.figures } : rec
         setRegridData(parcel)
         // Fallback report id — see fetchedLlUuid's declaration comment.
         // Only matters when the tile gave us no ll_uuid at all (the
@@ -548,12 +555,14 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
     gisacre, saleprice, ppa, ratingLabel, soilRating, soilRatingType,
     tillableAcres, dominantLandcover,
     rawSalePrice, deedParcels, deedAcres, isDeedShare, perTillable, perRating } = derived
-  // Land-composition acreages for the stat grid — same record the app reads.
-  const pctTillable = enrichData?.pct_tillable ?? regridData?.pct_tillable ?? null
-  const timberAcres = regridData?.timber_acres ?? null
-  const pctOf = (v: unknown) =>
-    (typeof v === 'number' && typeof gisacre === 'number' && gisacre > 0)
-      ? `${Math.round((v / gisacre) * 100)}% of parcel` : undefined
+  // Land-composition figures for the stat grid — the server's print strings
+  // (figures.display), verbatim ("Updating…" while re-measured).
+  const { timberAcres, remeasuring } = derived
+  const figs = derived.figures
+  const dText = (key: Parameters<typeof figDisplay>[1]) => figDisplay(figs, key)
+  const pctTillableText = dText('pct_tillable')
+  // "38.69" → "38.69 ac"; "—" and "Updating…" print as sent.
+  const statAcres = (v: string) => (figShown(v) && !remeasuring ? `${v} ac` : v)
   const validSalePrice = typeof saleprice === 'number' && saleprice > 0
   const soilBreakdown: Array<{ mukey?: string; soil?: string; acres?: number; pi?: number }> =
     Array.isArray(enrichData?.soils) ? enrichData.soils : []
@@ -722,8 +731,8 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
             <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.42)', marginTop: 2, lineHeight: 1.3 }}>{township} Township</div>
           )}
           <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 9, marginTop: 9 }}>
-            {gisacre != null && (
-              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{fmtAcres(gisacre)}</span>
+            {(gisacre != null || figShown(dText('acres'))) && (
+              <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', color: '#111214' }}>{figShown(dText('acres')) ? `${dText('acres')} ac` : dText('acres')}</span>
             )}
             {countyState && <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>{countyState}</span>}
           </div>
@@ -838,25 +847,30 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
               Replaces the Acres / $/Acre / Sale Price strip. This is the data
               only Ground Goat has, so it carries the visual weight; acres and
               $/acre already read in the header and LAST SALE. */}
-          {(tillableAcres != null || soilRating != null || timberAcres != null) && (
+          {(remeasuring || tillableAcres != null || soilRating != null || timberAcres != null) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '14px 18px 4px' }}>
               <StatCard label="Tillable"
-                        value={tillableAcres != null ? fmtAcres(Number(tillableAcres))! : '—'}
-                        sub={pctTillable != null ? `${Math.round(Number(pctTillable))}% of parcel` : undefined} />
+                        value={statAcres(dText('tillable_acres'))}
+                        sub={figShown(pctTillableText) && !remeasuring ? `${pctTillableText} of parcel` : undefined} />
               <StatCard label={ratingLabel}
-                        value={soilRating != null ? String(soilRating) : '—'}
-                        sub={soilRating != null ? (state || undefined) : undefined} />
+                        value={dText('rating')}
+                        sub={!remeasuring && soilRating != null ? (state || undefined) : undefined} />
               <StatCard label="Timber"
-                        value={timberAcres != null ? fmtAcres(Number(timberAcres))! : '—'}
-                        sub={pctOf(timberAcres)} />
+                        value={statAcres(dText('timber_acres'))}
+                        sub={figShown(dText('pct_timber')) && !remeasuring ? `${dText('pct_timber')} of parcel` : undefined} />
               {/* Pasture acres are not shown (owner 10/1: the figure is
                   always wrong) — the field stays on the record. */}
             </div>
           )}
 
 
-          {/* Loading state */}
-          {loading && (
+          {/* Loading state — only while NOTHING is shown yet. A tapped tile
+              with gg_fig already rendered every figure (owner 11/22: the
+              panel shows the parcel data immediately), so no "Loading"
+              line over data on screen; the fetch fills the rest silently.
+              gg_fig rides only on z14/z15 tiles — a tap at z11-z13 has no
+              tile figures, so this line shows until the fetch, as before. */}
+          {loading && !figs.fromServer && (
             <div style={{ padding: '16px', color: 'rgba(0,0,0,0.45)', fontSize: 12, fontStyle: 'italic', textAlign: 'center' }}>
               Loading parcel details…
             </div>
@@ -877,7 +891,7 @@ export default function LandDetailPanel({ clickData, onClose, mapLayersHere, onG
 
                 {/* Parcel-wide from enrichment */}
                 {soilRating != null && (
-                  <DetailRow label={`Rating (${ratingLabel})`} value={String(soilRating)} />
+                  <DetailRow label={`Rating (${ratingLabel})`} value={dText('rating')} />
                 )}
               </Section>
 

@@ -10,9 +10,8 @@
 import { useEffect, useRef } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import type { TractSaleData } from '@/components/portal/PortalTractDetail'
-import { figuresPatch } from '@/lib/parcelFiguresPatch'
-
-export { figuresPatch }
+import { findServerFigures, fromServerFigures, parcelRowFields } from '@/lib/parcelFigures'
+import { tractPriceMode } from '@/lib/priceDisplay'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -40,7 +39,14 @@ export default function useFreshParcelFigures(
       fetchWithAuth(`${API_URL}/api/parcel-enrichment/by-uuid?ll_uuid=${encodeURIComponent(uuid)}`)
         .then(r => (r.ok ? r.json() : null))
         .then(f => {
-          const patch = figuresPatch(f)
+          // Server `figures` (owner 11/20): the row takes every figure AND its
+          // print strings from it. A response without `figures` changes nothing
+          // (no numeric patch — the row never shows a number the server did
+          // not format).
+          const sf = findServerFigures(f)
+          const patch: Partial<TractSaleData> = sf
+            ? parcelRowFields(fromServerFigures(sf), tractPriceMode({ total_acres: sf.acres as any, land_types: sf.land_types ?? null }))
+            : {}
           if (Object.keys(patch).length) onUpdateRef.current?.(rowId, patch)
         })
         .catch(() => { done.current.delete(rowId) })

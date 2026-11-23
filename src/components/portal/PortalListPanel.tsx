@@ -10,7 +10,7 @@ import Link from 'next/link'
 import PortalListingDetail from './PortalListingDetail'
 import { getStatusBadge } from '@/lib/listingStatusBadge'
 import { formatAcres, toNum } from '@/lib/format'
-import { formatTillable } from '@/lib/tillable'
+import { formatTillable, tillablePctShown } from '@/lib/tillable'
 import { listingMatchesSearch } from '@/lib/listingSearch'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { formatStateList } from '@/lib/stateAccess'
@@ -152,6 +152,8 @@ export function getListingSoilRating(tracts?: { tillable_acres?: number; total_a
   let weightedSum = 0
   let totalWeight = 0
   for (const t of tracts) {
+    // Owner 11/21 (4b): a tract whose tillable % is not shown has no rating.
+    if (!tillablePctShown(t.total_acres, t.tillable_acres, null)) continue
     const r = Number(t.soil_rating) > 0 ? Number(t.soil_rating) : (Number(t.csr2) > 0 ? Number(t.csr2) : null)
     if (r === null) continue
     const w = Number(t.tillable_acres) > 0 ? Number(t.tillable_acres) : Number(t.total_acres)

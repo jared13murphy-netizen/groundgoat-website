@@ -24,6 +24,7 @@ import { decodeArea } from '@/lib/shareLink'
 import PortalComparablesReportPanel from '@/components/portal/PortalComparablesReportPanel'
 import PortalReportPanel from '@/components/portal/PortalReportPanel'
 import { buildParcelReportRow } from '@/lib/parcelReportRow'
+import { findServerFigures, fromServerFigures } from '@/lib/parcelFigures'
 import { getSavedReport } from '@/lib/configurableMapping'
 import { rebuildSavedReportRows } from '@/lib/savedReportRows'
 import MapChatPanel from '@/components/portal/MapChatPanel'
@@ -128,6 +129,8 @@ function AccessPortalPageInner() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [mapListingId, setMapListingId] = useState<string | null>(null)
   const [selectedTract, setSelectedTract] = useState<TractSaleData | null>(null)
+  // Owner 11/22: a tapped report card -> the map flies there and opens it.
+  const [focusReportRow, setFocusReportRow] = useState<{ row: TractSaleData; nonce: number } | null>(null)
   const [neighborParcels, setNeighborParcels] = useState<any[] | null>(null)
   const [neighborsLoading, setNeighborsLoading] = useState(false)
   // Report state
@@ -968,8 +971,21 @@ function AccessPortalPageInner() {
         // them in the email/download payload — backend uses tract_id to fetch
         // the subject's polygon, satellite image, and DEM grid for the PDF.
         const sc = compData.search_criteria || {}
+        // The subject's figures (owner 11/19): the server's `figures` when the
+        // payload carries them — never recomputed here. Old API: sc as before.
+        const sf = findServerFigures(sc, compData?.subject, compData)
+        const fig = sf ? fromServerFigures(sf) : null
         setComparablesSubjectInfo({
           ...sc,
+          ...(fig ? {
+            subject_acres: fig.acres ?? undefined,
+            subject_tillable_acres: fig.tillableAcres ?? undefined,
+            subject_pct_tillable: fig.pctTillable ?? undefined,
+            subject_soil_rating: fig.rating ?? undefined,
+            subject_soil_rating_type: fig.ratingLabel,
+            subject_remeasuring: fig.remeasuring,
+            subject_display: fig.display,
+          } : {}),
           county: sc.county || county,
           state: sc.state || state,
           tract_id: tractId,
@@ -1032,8 +1048,21 @@ function AccessPortalPageInner() {
       if (compResponse.ok) {
         const compData = await compResponse.json()
         const sc = compData.search_criteria || {}
+        // The parcel subject's figures: the server's `figures` (+ its print
+        // strings) — never recomputed here (owner 11/20).
+        const sf = findServerFigures(sc, compData?.subject, compData)
+        const fig = sf ? fromServerFigures(sf) : null
         setComparablesSubjectInfo({
           ...sc,
+          ...(fig ? {
+            subject_acres: fig.acres ?? undefined,
+            subject_tillable_acres: fig.tillableAcres ?? undefined,
+            subject_pct_tillable: fig.pctTillable ?? undefined,
+            subject_soil_rating: fig.rating ?? undefined,
+            subject_soil_rating_type: fig.ratingLabel,
+            subject_remeasuring: fig.remeasuring,
+            subject_display: fig.display,
+          } : {}),
           county: sc.county || p.county,
           state: sc.state || p.state,
           tract_id: null,
@@ -1190,6 +1219,7 @@ function AccessPortalPageInner() {
           isInReport={(id) => reportIds.has(id)}
           reportIds={reportIds}
           reportRows={reportTracts}
+          focusReportRow={focusReportRow}
           onFiltersApplied={handleFiltersApplied}
           zoomToLocation={zoomToLocation}
           zoomToBoundsSignal={zoomToBoundsSignal}
@@ -1532,6 +1562,7 @@ function AccessPortalPageInner() {
             onClose={handleCloseComparables}
             onView3DTerrain={handleView3DTerrain}
             onViewListing={(listingId) => setMapListingId(listingId)}
+            onFocusTract={(t) => setFocusReportRow({ row: t, nonce: Date.now() })}
           />
         )}
       </AnimatePresence>
@@ -1584,6 +1615,7 @@ function AccessPortalPageInner() {
             }}
             onView3DTerrain={handleView3DTerrain}
             onViewListing={(listingId) => setMapListingId(listingId)}
+            onFocusTract={(t) => setFocusReportRow({ row: t, nonce: Date.now() })}
           />
         )}
       </AnimatePresence>

@@ -46,6 +46,19 @@ export interface TillableFormat {
   inlineText: string
 }
 
+/** The tillable % is printed on a tract card (the card shows its Tillable
+ *  box only for a positive tillable figure, and the % only when
+ *  formatTillable can make one). Owner 11/21 (4b): where it is NOT shown,
+ *  the tract's soil rating and $/rating are not shown either. */
+export function tillablePctShown(
+  total: number | string | null | undefined,
+  tillable: number | string | null | undefined,
+  pct: number | string | null | undefined,
+): boolean {
+  const t = numOrNull(tillable)
+  return t !== null && t > 0 && formatTillable(total, tillable, pct).pctText !== null
+}
+
 export function formatTillable(
   total: number | string | null | undefined,
   tillable: number | string | null | undefined,

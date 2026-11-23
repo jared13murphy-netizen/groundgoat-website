@@ -6,13 +6,17 @@
  * tiles, same click → popup behavior on both.
  *
  * The popup ALWAYS renders Owner / Address / Acres / Last Sale.
- * Missing values display as "—". Backend (`/api/regrid/parcel`) is
- * responsible for filling sale price from MyDec when Regrid has $0
- * or null for IL / IN / IA / NE parcels.
+ * Missing values display as "—". Regrid is the ONLY source of parcel sale
+ * data (owner rule 11/19): the backend never fills a price from state
+ * declarations (MyDec / SDF / IA / NE).
  */
 import maplibregl from 'maplibre-gl'
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
-import { fmtSaleDate } from '@/lib/calendarDate'
+import { parcelFigures, figDisplay, figShown } from '@/lib/parcelFigures'
+import { parcelLabelSegments } from '@/lib/parcelLabel'
+import {
+  parcelSourceSpecs, parcelLayerId, setParcelFeatureState, type StateTilesConfig,
+} from '@/lib/parcelSources'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -29,6 +33,9 @@ export interface RegridConfig {
   // parcels whose `path` starts with /us/<one of these>/.
   unlimited?: boolean
   subscribed_state_abbrevs?: string[]
+  // Pre-built per-state parcel archives (STATE_TILES_CONTRACT.md §3).
+  // Present → one source per state; absent → the legacy single source.
+  state_tiles?: StateTilesConfig | null
 }
 
 // Build the MapLibre filter expression that hides parcels outside
@@ -76,8 +83,7 @@ async function fetchRegridParcel(qs: URLSearchParams): Promise<any | null> {
 // HTML builder can simply skip the row instead of writing "—".
 function fmtMoney(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
-  // $0 → null: a recorded $0 deed isn't a market sale. (See backend
-  // MyDec enrichment.)
+  // $0 → null: a recorded $0 deed isn't a market sale.
   if (!isFinite(v) || v === 0) return null
   return '$' + Math.round(v).toLocaleString('en-US')
 }
@@ -85,10 +91,6 @@ function fmtAcres(n: any): string | null {
   const v = typeof n === 'number' ? n : (n ? Number(n) : NaN)
   if (!isFinite(v) || v <= 0) return null
   return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + ' ac'
-}
-// Calendar day, never shifted a day by the viewer's time zone (owner 11/17).
-function fmtDate(s: any): string | null {
-  return fmtSaleDate(s)
 }
 function esc(s: any): string {
   if (s === null || s === undefined) return ''
@@ -237,10 +239,10 @@ function regridFallbackHTML(tileProps: any): string {
 }
 
 function regridPopupHTML(record: any): string {
-  const gisacre: number | null = record?.ll_gisacre ?? record?.gisacre ?? null
+  // Acres / price / $ per acre: the server's print strings, verbatim (owner
+  // 11/20). Never computed or re-formatted here.
+  const fig = parcelFigures(record)
   const deeded = record?.deeded_acres
-  const saleprice = record?.saleprice
-  const saledate = record?.saledate
   const parval = record?.parval
   const landval = record?.landval
   const improvval = record?.improvval
@@ -266,18 +268,16 @@ function regridPopupHTML(record: any): string {
   // Hero stat strip — Acres, $/Acre, Sale Price. Each cell rendered
   // only if its value is present; row hidden entirely if all three
   // are missing.
-  const acresLabel = fmtAcres(gisacre)
-  const priceLabel = fmtMoney(saleprice)
-  const validSalePrice = typeof saleprice === 'number' && saleprice > 0
-  const ppa = (validSalePrice && typeof gisacre === 'number' && gisacre > 0)
-    ? saleprice / gisacre
-    : null
-  const ppaLabel = ppa != null ? '$' + Math.round(ppa).toLocaleString('en-US') : null
+  // price_mode "total" (owner 11/4, decided server-side): the Sale Price
+  // cell leads and $ / Acre is dropped.
+  const acresLabel = figShown(figDisplay(fig, 'acres')) ? `${figDisplay(fig, 'acres')} ac` : null
+  const priceLabel = figShown(figDisplay(fig, 'price')) ? figDisplay(fig, 'price') : null
+  const ppaLabel = fig.priceMode !== 'total' && figShown(figDisplay(fig, 'price_per_acre')) ? figDisplay(fig, 'price_per_acre') : null
 
   const heroCells: { label: string; value: string; emphasize?: boolean }[] = []
   if (acresLabel) heroCells.push({ label: 'Acres', value: acresLabel })
   if (ppaLabel) heroCells.push({ label: '$ / Acre', value: ppaLabel, emphasize: true })
-  if (priceLabel) heroCells.push({ label: 'Sale Price', value: priceLabel })
+  if (priceLabel) heroCells.push({ label: 'Sale Price', value: priceLabel, emphasize: fig.priceMode === 'total' })
 
   const heroHTML = heroCells.length === 0 ? '' : (() => {
     const cellHTML = heroCells.map((c, i) => {
@@ -305,11 +305,11 @@ function regridPopupHTML(record: any): string {
   // Sections — each filtered to only include populated rows. The
   // section header itself is hidden if no rows survive.
   const lastSaleRows: string[] = []
-  if (saledate && fmtDate(saledate)) lastSaleRows.push(detailRow('Date', fmtDate(saledate)!))
+  if (figShown(figDisplay(fig, 'sale_date'))) lastSaleRows.push(detailRow('Date', figDisplay(fig, 'sale_date')))
   if (saleType) lastSaleRows.push(detailRow('Sale Type', saleType))
 
   const propertyRows: string[] = []
-  if (deeded && deeded !== gisacre && fmtAcres(deeded)) {
+  if (deeded && deeded !== fig.acres && fmtAcres(deeded)) {
     propertyRows.push(detailRow('Deeded Acres', fmtAcres(deeded)!))
   }
   if (usedesc) propertyRows.push(detailRow('Use', String(usedesc)))
@@ -374,43 +374,25 @@ export function addRegridLayer(
   config: RegridConfig,
   options: AddRegridLayerOptions = {},
 ): () => void {
-  const SOURCE_ID = 'regrid-parcels'
-  const FILL_LAYER = 'regrid-parcels-fill'
-  const LINE_LAYER = 'regrid-parcels-line'
-  const LABEL_LAYER = 'regrid-parcels-label'
   // Default 14 — callers that want the lower Regrid tile floor (z=11,
   // see ExploreMap.tsx REGRID_MIN_ZOOM comment) pass minZoom explicitly.
   const minzoom = options.minZoom ?? 14
   // Label sub-layer stays gated higher — dense owner/acres/$/date text
   // only once the user is meaningfully zoomed in.
   const labelMinzoom = options.labelMinZoom ?? 14
-  // Custom Regrid sources use the source-UUID as their internal MVT
-  // layer name; the default /api/v1/parcels endpoint uses 'parcels'.
-  // The backend tells us which one applies via config.source_layer.
-  const sourceLayer = config.source_layer || 'parcels'
+  // One source per state when the config carries state_tiles, else the
+  // legacy single 'regrid-parcels' source (src/lib/parcelSources.ts).
+  const specs = parcelSourceSpecs(config, { legacyMinzoom: minzoom, legacyMaxzoom: 14 })
+  if (!specs.length) return () => {}
+  const sourceLayer = specs[0].sourceLayer
+  const FILL_LAYERS = specs.map((sp) => parcelLayerId(sp, 'fill'))
 
-  if (map.getSource(SOURCE_ID)) {
+  if (specs.some((sp) => map.getSource(sp.id))) {
     // Already mounted (HMR or duplicate caller) — no-op cleanup.
     return () => {}
   }
 
-  map.addSource(SOURCE_ID, {
-    type: 'vector',
-    tiles: [config.tile_url_template],
-    minzoom,
-    // Source maxzoom 14: MapLibre over-zooms (reuses) z=14 tiles
-    // for higher zooms. Vector parcel boundaries scale without
-    // quality loss — saves ~75% of Regrid tile fetches at z=15+.
-    maxzoom: 14,
-    // `path` is the feature identity used for hover (see task #24):
-    // custom Regrid tile layers never carry ll_uuid on the tile
-    // features themselves (only on the click-fetch record), so
-    // promoting ll_uuid left setFeatureState permanently unmatched.
-    // `path` is present on every feature in both tile sources and
-    // is stable per-parcel, so hover highlight now keys off it.
-    promoteId: { [sourceLayer]: 'path' },
-    attribution: 'Parcel data &copy; <a href="https://regrid.com" target="_blank" rel="noopener">Regrid</a>',
-  } as any)
+  for (const sp of specs) map.addSource(sp.id, sp.source as any)
 
   const beforeId = options.beforeId && map.getLayer(options.beforeId)
     ? options.beforeId
@@ -419,11 +401,11 @@ export function addRegridLayer(
   // State-plan gate filter — null = no filter (unlimited users).
   const stateFilter = buildRegridStateFilter(config)
 
-  map.addLayer({
-    id: FILL_LAYER,
+  for (const sp of specs) map.addLayer({
+    id: parcelLayerId(sp, 'fill'),
     type: 'fill',
-    source: SOURCE_ID,
-    'source-layer': sourceLayer,
+    source: sp.id,
+    'source-layer': sp.sourceLayer,
     minzoom,
     ...(stateFilter ? { filter: stateFilter } : {}),
     paint: {
@@ -431,20 +413,20 @@ export function addRegridLayer(
       'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.22, 0.06],
     },
   }, beforeId)
-  map.addLayer({
-    id: LINE_LAYER,
+  for (const sp of specs) map.addLayer({
+    id: parcelLayerId(sp, 'line'),
     type: 'line',
-    source: SOURCE_ID,
-    'source-layer': sourceLayer,
+    source: sp.id,
+    'source-layer': sp.sourceLayer,
     minzoom,
     ...(stateFilter ? { filter: stateFilter } : {}),
     paint: { 'line-color': '#000000', 'line-width': 2.2, 'line-opacity': 0.85 },
   }, beforeId)
-  map.addLayer({
-    id: LABEL_LAYER,
+  for (const sp of specs) map.addLayer({
+    id: parcelLayerId(sp, 'label'),
     type: 'symbol',
-    source: SOURCE_ID,
-    'source-layer': sourceLayer,
+    source: sp.id,
+    'source-layer': sp.sourceLayer,
     minzoom: labelMinzoom,
     ...(stateFilter ? { filter: stateFilter } : {}),
     layout: {
@@ -459,72 +441,9 @@ export function addRegridLayer(
           'font-scale': 1.0,
           'text-font': ['literal', ['Open Sans Bold']],
         },
-        [
-          'case',
-          ['has', 'll_gisacre'],
-          ['concat', '\n', ['concat',
-            ['number-format', ['get', 'll_gisacre'], {
-              'locale': 'en-US',
-              'min-fraction-digits': 0, 'max-fraction-digits': 2,
-            }],
-            ' ac',
-          ]],
-          ['case', ['has', 'gisacre'],
-            ['concat', '\n', ['concat',
-              ['number-format', ['get', 'gisacre'], {
-                'locale': 'en-US',
-                'min-fraction-digits': 0, 'max-fraction-digits': 2,
-              }],
-              ' ac',
-            ]],
-            '',
-          ],
-        ],
-        { 'font-scale': 1.0 },
-        // Price per acre — saleprice / acres when both > 0. Total
-        // sale price segment was removed 2026-05-26 — $/acre is the
-        // headline number land buyers compare on.
-        ['case',
-          ['all',
-            ['has', 'saleprice'],
-            ['>', ['to-number', ['get', 'saleprice']], 0],
-            ['any', ['has', 'll_gisacre'], ['has', 'gisacre']],
-            ['>', ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]], 0],
-          ],
-          ['concat', '\n$/Acre: $',
-            ['number-format',
-              // Round before format. Without this, sub-cent residue
-              // from the upstream price could surface as ".152" etc.
-              ['round', ['/',
-                ['to-number', ['get', 'saleprice']],
-                ['to-number', ['coalesce', ['get', 'll_gisacre'], ['get', 'gisacre']]],
-              ]],
-              {
-                'locale': 'en-US',
-                'min-fraction-digits': 0,
-                'max-fraction-digits': 0,
-              },
-            ],
-          ],
-          '',
-        ],
-        { 'font-scale': 1.0 },
-        // Sale date — first 10 chars of saledate are YYYY-MM-DD
-        // regardless of whether value is bare date or full ISO
-        // datetime. length >= 10 guard prevents "//" on malformed.
-        ['case',
-          ['all',
-            ['has', 'saledate'],
-            ['>=', ['length', ['get', 'saledate']], 10],
-          ],
-          ['concat', '\nSale Date: ',
-            ['slice', ['get', 'saledate'], 5, 7], '/',
-            ['slice', ['get', 'saledate'], 8, 10], '/',
-            ['slice', ['get', 'saledate'], 0, 4],
-          ],
-          '',
-        ],
-        { 'font-scale': 1.0 },
+        // Acres / $ per acre (or total price) / sale date: the server's
+        // gg_label_* strings, printed as sent (src/lib/parcelLabel.ts).
+        ...parcelLabelSegments('Sale Date: '),
       ],
       'text-font': ['Open Sans Regular'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 16, 12, 18, 14],
@@ -559,16 +478,14 @@ export function addRegridLayer(
     map.getCanvas().style.cursor = 'pointer'
     const newPath = (e.features[0].properties as any)?.path as string | undefined
     if (!newPath || newPath === hoveredPath) return
-    if (hoveredPath) {
-      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath }, { hover: false })
-    }
+    if (hoveredPath) setParcelFeatureState(map, hoveredPath, [sourceLayer], { hover: false })
     hoveredPath = newPath
-    map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath }, { hover: true })
+    setParcelFeatureState(map, newPath, [sourceLayer], { hover: true })
   }
   const onLeave = () => {
     map.getCanvas().style.cursor = ''
     if (hoveredPath) {
-      map.setFeatureState({ source: SOURCE_ID, sourceLayer: sourceLayer, id: hoveredPath }, { hover: false })
+      setParcelFeatureState(map, hoveredPath, [sourceLayer], { hover: false })
       hoveredPath = null
     }
   }
@@ -616,23 +533,26 @@ export function addRegridLayer(
 
   const interactive = options.interactive !== false
   if (interactive) {
-    map.on('mousemove', FILL_LAYER, onMove)
-    map.on('mouseleave', FILL_LAYER, onLeave)
-    map.on('click', FILL_LAYER, onClick)
+    map.on('mousemove', FILL_LAYERS, onMove)
+    map.on('mouseleave', FILL_LAYERS, onLeave)
+    map.on('click', FILL_LAYERS, onClick)
   }
 
   return () => {
     try {
       if (!map.getStyle()) return
       if (interactive) {
-        map.off('mousemove', FILL_LAYER, onMove)
-        map.off('mouseleave', FILL_LAYER, onLeave)
-        map.off('click', FILL_LAYER, onClick)
+        map.off('mousemove', FILL_LAYERS, onMove)
+        map.off('mouseleave', FILL_LAYERS, onLeave)
+        map.off('click', FILL_LAYERS, onClick)
       }
-      for (const id of [LABEL_LAYER, LINE_LAYER, FILL_LAYER]) {
-        if (map.getLayer(id)) map.removeLayer(id)
+      for (const sp of specs) {
+        for (const kind of ['label', 'line', 'fill'] as const) {
+          const id = parcelLayerId(sp, kind)
+          if (map.getLayer(id)) map.removeLayer(id)
+        }
+        if (map.getSource(sp.id)) map.removeSource(sp.id)
       }
-      if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID)
     } catch {
       // map already torn down
     }

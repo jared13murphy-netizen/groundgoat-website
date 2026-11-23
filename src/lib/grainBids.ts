@@ -281,10 +281,10 @@ export function ensureElevatorLayer(map: maplibregl.Map) {
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
       },
-      // An elevator with no bids in the last few days stays on the map, faded.
+      // An elevator with no bids in the last few days stays on the map, barely faded (owner 11/22: 0.5 was too faint).
       paint: {
-        'icon-opacity': ['case', ['get', 'has_bids'], 1, 0.5],
-        'text-opacity': ['case', ['get', 'has_bids'], 1, 0.5],
+        'icon-opacity': ['case', ['get', 'has_bids'], 1, 0.9],
+        'text-opacity': ['case', ['get', 'has_bids'], 1, 0.9],
         'text-color': PIN_INK,
       },
     })
