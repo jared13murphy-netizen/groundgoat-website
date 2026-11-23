@@ -204,9 +204,40 @@ export interface Project {
 }
 
 /** The numbers beside each My Maps row; null = the account can't use it. */
-export interface MyMapsCounts { projects: number | null; saved_reports: number | null; notes: number | null; products: number | null }
+export interface MyMapsCounts { projects: number | null; saved_reports: number | null; notes: number | null; products: number | null; pins?: number | null }
 export function myMapsCounts() {
   return j<MyMapsCounts>('/api/my-maps/counts')
+}
+
+// ── Saved pins (owner 11/23): a dropped pin saved with a name, private to
+// the user; shown on the map while My Maps' "My Pins" toggle is on. ──────
+export const SAVED_PIN_NAME_MAX = 80
+export interface SavedPin { id: string; name: string; lat: number; lng: number; created_at: string | null; updated_at: string | null }
+async function pinReq<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetchWithAuth(`${API_URL}/api/my-maps/pins${path}`, init)
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`
+    try {
+      const body = await res.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+      else if (Array.isArray(body?.detail) && body.detail[0]?.msg) detail = String(body.detail[0].msg).replace(/^Value error, /, '')
+    } catch { /* keep the status message */ }
+    throw new Error(detail)
+  }
+  return res.json()
+}
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+export function listSavedPins() {
+  return pinReq<{ pins: SavedPin[] }>('').then(r => r.pins)
+}
+export function createSavedPin(name: string, lat: number, lng: number) {
+  return pinReq<{ pin: SavedPin }>('', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ name, lat, lng }) }).then(r => r.pin)
+}
+export function renameSavedPin(id: string, name: string) {
+  return pinReq<{ pin: SavedPin }>(`/${encodeURIComponent(id)}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ name }) }).then(r => r.pin)
+}
+export function deleteSavedPin(id: string) {
+  return pinReq<{ ok: boolean }>(`/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export interface SavedParcelRow {
