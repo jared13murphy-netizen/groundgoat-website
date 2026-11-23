@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { Check, ArrowLeft, ArrowRight, Eye, EyeOff, MapPin, ChevronDown, X, Loader2, Building2, Users, Plus, Mail } from 'lucide-react'
 import { US_STATES, getCountiesForState, getStateAbbreviation } from '@/data/counties'
 import { parseApiError } from '@/lib/parseApiError'
+import { CustomerMessage, paymentErrorText, reportPaymentError } from '@/lib/paymentError'
 import { PRICING, MAX_STATES, formatPrice, planTotal, cycleUnit } from '@/config/pricing'
 import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 import NeighborStatesUpsell from '@/components/NeighborStatesUpsell'
@@ -668,11 +669,13 @@ function SignUpContent() {
         }
       } else {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(parseApiError(errorData, 'Failed to create checkout session'))
+        // A 4xx detail is written for the customer; a 5xx means we broke.
+        if (response.status < 500) throw new CustomerMessage(parseApiError(errorData, ''))
+        throw new Error(`firm checkout HTTP ${response.status}`)
       }
     } catch (err: any) {
       console.error('Firm registration error:', err)
-      setError(err.message || 'Something went wrong. Please try again.')
+      setError(paymentErrorText(err))
       setStep(4)
     } finally {
       setLoading(false)
@@ -752,11 +755,12 @@ function SignUpContent() {
               }),
             })
             if (!loginResponse.ok) {
-              throw new Error('This email is already registered. Please check your password and try again.')
+              throw new CustomerMessage('This email is already registered. Please check your password and try again.')
             }
             authData = await loginResponse.json()
           } else {
-            throw new Error(parseApiError(data, 'Registration failed. Please try again.'))
+            if (registerResponse.status < 500) throw new CustomerMessage(parseApiError(data, ''))
+            throw new Error(`register HTTP ${registerResponse.status}`)
           }
         } else {
           authData = await registerResponse.json()
@@ -818,11 +822,12 @@ function SignUpContent() {
             window.location.href = checkoutData.checkout_url
             return
           } else {
-            throw new Error('Could not create checkout session. Please try again.')
+            throw new Error('checkout returned no payment page')
           }
         } else {
           const errorData = await checkoutResponse.json().catch(() => ({}))
-          throw new Error(parseApiError(errorData, 'Payment setup failed. Please try again.'))
+          if (checkoutResponse.status < 500) throw new CustomerMessage(parseApiError(errorData, ''))
+          throw new Error(`checkout HTTP ${checkoutResponse.status}`)
         }
       }
 
@@ -830,7 +835,8 @@ function SignUpContent() {
       
     } catch (err: any) {
       console.error('Registration error:', err)
-      setError(err.message || 'Something went wrong. Please try again.')
+      reportPaymentError(API_URL, typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null, err)
+      setError(paymentErrorText(err))
       setStep(3)
     } finally {
       setLoading(false)
