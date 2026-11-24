@@ -24,6 +24,7 @@ import {
   type LandClass, type ParcelDetail,
 } from '@/lib/configurableMapping'
 import { savedTractNeedsEngine } from '@/lib/savedTractLandTypes'
+import { landCoverPayload } from '@/lib/staffLandCover'
 import {
   SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, simplifyShapeKeepAcres, stripInsertedVertices,
   pointInRing, dropDegenerateHoles, pointInBoundary, ringCentre, polysToGeometry,
@@ -166,6 +167,9 @@ export function useTractEditor({
   const [soil, setSoil] = useState<{ rating: number | null; rating_type: string | null } | null>(null)
   const [soilBusy, setSoilBusy] = useState(false)
   const [layerTick, setLayerTick] = useState(0)
+  /** Bumped when a staff load lands (re-reads the soil line even when the
+   *  re-loaded tillable is identical to what was on screen). Map It: 0. */
+  const [staffLoadTick, setStaffLoadTick] = useState(0)
   const [savedName, setDefaultNameSaved] = useState('')
   const [, forceHist] = useState(0)
 
@@ -426,6 +430,7 @@ export function useTractEditor({
           // What was loaded is the clean state: a pre-loaded engine or
           // legacy map is not an unsaved change.
           markClean(loaded, rings)
+          setStaffLoadTick((n) => n + 1)
           if (t.boundary) fitMap(bboxOf((t.boundary as any).coordinates))
         } catch (e: any) {
           if (seq === loadSeq.current) setError(e?.message || 'Could not load the land types.')
@@ -908,7 +913,7 @@ export function useTractEditor({
     }, 700)
     return () => { cancelled = true; clearTimeout(t); setSoilBusy(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, tillableKey, mode, detail?.boundary])
+  }, [enabled, tillableKey, mode, detail?.boundary, staffLoadTick])
 
   const totals = useMemo(() => {
     const t: Record<string, number> = {}
@@ -950,17 +955,12 @@ export function useTractEditor({
         await new Promise((r) => setTimeout(r, 0))
         // The shape being edited goes LAST so it wins any overlap the
         // server still has to settle.
-        const edited = selectedRef.current
         const sent = shapesRef.current
-        const ordered = edited && sent.some((s) => s.id === edited)
-          ? [...sent.filter((s) => s.id !== edited), sent.find((s) => s.id === edited)!] : sent
         const sentPrint = fingerprint(sent, boundaryRef.current)
         setBusy('Saving…'); setError(null)
         const res = await store({
           boundary: boundaryGeom,
-          polygons: ordered
-            .map((s) => ({ cls: s.cls, geometry: polysToGeometry(s.polys) }))
-            .filter((p) => p.geometry) as any,
+          polygons: landCoverPayload(sent, selectedRef.current),
         })
         if (fingerprint(shapesRef.current, boundaryRef.current) !== sentPrint) {
           // Edited while the save was in flight: what was SENT is the clean

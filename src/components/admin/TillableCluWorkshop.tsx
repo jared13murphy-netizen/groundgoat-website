@@ -35,6 +35,8 @@ import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximi
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { polygonAcres, toRings, multiPolygonAcres } from '@/lib/polygonGeometry'
+import { oldWorkshopRequested } from '@/lib/staffLandCover'
+import StaffLandCoverEditor from './StaffLandCoverEditor'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 const TILE_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -81,7 +83,7 @@ function tillableSig(
   return `${sel}|${man}|${cut}|${ov}|${soil}`
 }
 
-interface TillableCluWorkshopProps {
+export interface TillableCluWorkshopProps {
   /** Staging mode — workshop edits a tract inside ListingStaging.scraped_data.
    *  Provide stagingId + tractIndex. Mutually exclusive with tractId. */
   stagingId?: number
@@ -342,7 +344,24 @@ function insertOnNearestSegment(ring: Pt[], pt: Pt): Pt[] {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function TillableCluWorkshop({
+/**
+ * The Tillable Workshop mount. A STAGED tract (stagingId + tractIndex) gets
+ * the Map It-style editor (StaffLandCoverEditor: all five land types, the
+ * customer polygon tools, FSA field lines). Published tracts (tractId) have
+ * no land-cover endpoints yet and keep the old Workshop below, as does any
+ * page opened with `?oldworkshop=1` (escape hatch so staff are never blocked).
+ */
+export default function TillableCluWorkshop(props: TillableCluWorkshopProps) {
+  // Read once per mount. These are client-only admin screens rendered after
+  // their data loads, so `window` is there by the time a Workshop mounts.
+  const [useOld] = useState(() => typeof window !== 'undefined' && oldWorkshopRequested(window.location.search))
+  const staged = props.tractId == null && props.stagingId != null && props.tractIndex != null
+  if (staged && !useOld) return <StaffLandCoverEditor {...props} />
+  return <LegacyTillableCluWorkshop {...props} />
+}
+
+/** The original FSA-CLU Workshop (published tracts, and `?oldworkshop=1`). */
+function LegacyTillableCluWorkshop({
   stagingId,
   tractIndex,
   tractUid,
