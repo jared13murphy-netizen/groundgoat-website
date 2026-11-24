@@ -525,6 +525,56 @@ function RightNow({ d, series }: { d: any; series: any[] | null }) {
     as absent: silence is the failure mode that actually happened. */
 function Backups({ d }: { d: any }) {
   const runs = (d.runs || []) as any[]
+  // THE BACKUP IS AWS'S NIGHTLY SNAPSHOT (11/24). The old card headlined the
+  // Railway-era dump job, which has produced nothing since 1 September, so it
+  // showed "5 databases without a good backup" in red while every RDS server
+  // was being snapshotted nightly. The backend's alerts already judge by AWS;
+  // the card now does too, and the dump job is shown underneath as the
+  // retired second copy it is.
+  const aws = d.aws || {}
+  const awsDbs = ((aws.databases || []) as any[]).filter(x => !x.is_replica)
+  const awsBad = (x: any) => !x.retention_days || (x.snapshot_age_hours != null && x.snapshot_age_hours > 36)
+  if (aws.available && awsDbs.length > 0) {
+    const bad = awsDbs.filter(awsBad)
+    const ages = awsDbs.map(x => x.snapshot_age_hours).filter((h: any) => h != null) as number[]
+    return (
+      <>
+        <div className="kpis" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <Kpi v={bad.length === 0 ? 'All backed up' : num(bad.length)}
+            k={bad.length === 0 ? 'every database, AWS nightly snapshot' : 'databases without a recent snapshot'}
+            tone={bad.length === 0 ? '' : 'red'} />
+          <Kpi small v={ages.length ? `${Math.round(Math.min(...ages))}h` : '—'} k="since the most recent snapshot" />
+        </div>
+        <table>
+          <thead><tr><th>Database server</th><th className="n">Last snapshot</th><th className="n">Kept</th><th className="n">State</th></tr></thead>
+          <tbody>
+            {awsDbs.map((x: any) => (
+              <tr key={x.database}>
+                <td className="t">
+                  {x.database}
+                  {x.restore_lag_minutes != null
+                    ? <div className="more" style={{ marginTop: 1 }}>can restore to {Math.round(x.restore_lag_minutes)} min ago</div>
+                    : null}
+                </td>
+                <td className="n dim">{x.snapshot_age_hours == null ? 'never' : `${Math.round(x.snapshot_age_hours)}h ago`}</td>
+                <td className="n dim">{x.retention_days ? `${x.retention_days} days` : 'off'}</td>
+                <td className="n" style={{ color: awsBad(x) ? 'var(--red)' : undefined }}>{awsBad(x) ? (x.retention_days ? 'stale' : 'off') : 'ok'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {runs.length > 0 && (
+          <div className="rows">
+            <Row label="Old Railway dump job (retired)"
+              value={<span className="dim">{(() => {
+                const h = runs.map(r => r.hours_ago).filter((v: any) => v != null) as number[]
+                return h.length ? `last ${Math.round(Math.min(...h) / 24)}d ago` : 'never ran'
+              })()}</span>} />
+          </div>
+        )}
+      </>
+    )
+  }
   const bad = runs.filter(r => r.verdict !== 'ok')
   return (
     <>
@@ -540,6 +590,7 @@ function Backups({ d }: { d: any }) {
           })()}
           k="since the most recent one" />
       </div>
+      <div className="rows"><Row label="AWS snapshot reading" value={<span className="dim">unavailable{aws.reason ? ` — ${aws.reason}` : ''}</span>} tone="amber" /></div>
       <table>
         <thead><tr><th>Database</th><th className="n">Last good</th><th className="n">State</th></tr></thead>
         <tbody>
@@ -547,8 +598,6 @@ function Backups({ d }: { d: any }) {
             <tr key={r.name}>
               <td className="t">
                 {r.name}
-                {/* What is actually in it, because "soils is 11 days old" does
-                    not tell you that the thing at risk is irreplaceable. */}
                 {r.what ? <div className="more" style={{ marginTop: 1 }}>{r.what}</div> : null}
               </td>
               <td className="n dim">
@@ -558,10 +607,6 @@ function Backups({ d }: { d: any }) {
                     ? `${Math.round(r.hours_ago)}h ago`
                     : `${Math.round(r.hours_ago / 24)}d ago`}
               </td>
-              {/* SAME RULE AS THE STRIP, or the same event is red at the top
-                  of the screen and amber in this table. A run that FAILED is
-                  red whether or not the data could be rebuilt: the backend's
-                  alert uses `irreplaceable OR failed` and this must match it. */}
               <td className="n" style={{
                 color: r.verdict === 'ok' ? undefined
                   : (r.failed || r.irreplaceable) ? 'var(--red)' : 'var(--amber)',
@@ -570,16 +615,6 @@ function Backups({ d }: { d: any }) {
           ))}
         </tbody>
       </table>
-      {/* Said plainly rather than left as an empty table: if nothing has ever
-          reported, the rows above are overdue because nothing can confirm
-          otherwise, which is a different sentence from "the backups failed". */}
-      {d.how ? <div className="rows"><Row label="Why every line says overdue" value={<span className="dim">nothing reports yet</span>} tone="amber" /></div> : null}
-      {(d.unexpected_jobs || []).length > 0 && (
-        <div className="rows">
-          <Row label="Reporting under another name" tone="amber"
-            value={(d.unexpected_jobs || []).join(', ')} />
-        </div>
-      )}
     </>
   )
 }
@@ -1326,7 +1361,7 @@ function Storage({ d, trend }: { d: any; trend: any }) {
       {vp != null && (
         <div className="store">
           <div className="top">
-            <span>All databases, one disk</span>
+            <span>{d.volume_label || 'All databases, one disk'}</span>
             <Chip>AWS RDS</Chip>
             <span className="pc" style={vtone === 'red' ? { color: 'var(--red)' } : undefined}>
               {num(vp, 1)}%
@@ -1360,7 +1395,7 @@ function Storage({ d, trend }: { d: any; trend: any }) {
               {capped && <div className="bar"><i className={tone} style={{ width: `${Math.min(100, pc)}%` }} /></div>}
               <div className="note">
                 {capped
-                  ? `${gb(s.used_gb)} of the shared ${gb(s.cap_gb)} disk · ${s.note}`
+                  ? `${gb(s.used_gb)} of ${s.own_rds_id ? `its own ${gb(s.cap_gb)} server (${s.own_rds_id})` : `the shared ${gb(s.cap_gb)} disk`} · ${s.note}`
                   : s.note}
               </div>
             </div>
@@ -1910,10 +1945,10 @@ const CARD_INFO: Record<string, CardInfo> = {
   },
   storage: {
     lines: [
-      { l: 'All databases, one disk',
-        d: 'Every database now lives on a single AWS disk, so this total is the one that runs out. A database sitting at 22% is not using a fifth of its own space — it is using a fifth of everybody\u2019s.' },
+      { l: 'Main databases, one disk',
+        d: 'The main, soils and old parcel databases share one AWS disk (gg-postgres), so this total is the one that runs out. A database sitting at 22% is using a fifth of everybody\u2019s space.' },
       { l: 'Each database',
-        d: 'That database\u2019s share of the same shared disk. The percentages add up to the total above.' },
+        d: 'That database\u2019s share of the shared disk — except National parcels, which has its own server (gg-parcels) and is measured against that server.' },
       { l: 'S3 buckets',
         d: 'Measured by AWS itself, once a day. This used to be a number somebody typed by hand — it said 1,870 GB while the bucket actually held 3,056 GB.' },
       { l: 'Growing / shrinking',
@@ -4655,7 +4690,7 @@ export default function CommandCenterPage() {
       case 'storage':
         return (
           <div className="grid" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
-            <Panel span={7} title="Storage" tag="one shared disk" infoId="storage"
+            <Panel span={7} title="Storage" tag="databases & backups" infoId="storage"
               panelState={st('storage')} onChart={chart('storage')}
               pip={!storageD || storageD.volume_pct == null ? undefined
                 : storageD.volume_pct >= 90 ? 'red'

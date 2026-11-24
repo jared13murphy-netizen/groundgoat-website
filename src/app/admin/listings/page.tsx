@@ -155,7 +155,7 @@ function AdminListingsPageContent() {
       // marketed_only hides bulk data-feed imports (MyDec / Indiana SDF / ATTOM /
       // Beacon) — sold comps that aren't marketed listings and never hit the map.
       // has_company=true hides listings with no listing company (per user).
-      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc&sort_by=${sortBy}&marketed_only=true&has_company=true`
+      let url = `${API_URL}/api/listings?limit=${itemsPerPage}&offset=${offset}&sort_order=desc&sort_by=${sortBy}&nulls_last=true&marketed_only=true&has_company=true`
 
       if (debouncedSearch) url += `&search=${encodeURIComponent(debouncedSearch)}`
       if (filterState) url += `&state=${encodeURIComponent(filterState)}`
@@ -331,7 +331,7 @@ function AdminListingsPageContent() {
             </Link>
             <div>
               <h1 className="font-display text-3xl font-bold text-white">Listings</h1>
-              <p className="text-gg-gray-400">{listings.length} listings</p>
+              <p className="text-gg-gray-400">Page {page} · showing {listings.length} listings</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
