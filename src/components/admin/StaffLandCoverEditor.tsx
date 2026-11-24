@@ -1,23 +1,33 @@
 'use client'
 
 /**
- * StaffLandCoverEditor — the Tillable Workshop for a STAGED tract, built on
- * the customer "Map It" polygon editor (useTractEditor + LandTypeTools).
+ * StaffLandCoverEditor — the Tillable Workshop, built on the customer
+ * "Map It" polygon editor (useTractEditor + LandTypeTools), for a STAGED
+ * tract or an already-PUBLISHED one (`target`).
  *
- * Owner 11/24: staff edit tillable / pasture / timber / water / other on the
- * staging screens exactly the way customers do in Map It. No name, no
- * project list, no Reports, no outline step — the tract boundary is drawn in
- * the boundary editor above and is not editable here.
+ * Owner 11/24: staff edit tillable / pasture / timber / water / other
+ * exactly the way customers do in Map It. No name, no project list, no
+ * Reports, no outline step — the tract boundary is drawn in the boundary
+ * editor above and is not editable here.
  *
- *   load   GET  /api/admin/staging/{id}/tracts/{i}/land-cover?uid=
- *   save   POST /api/admin/staging/{id}/tracts/{i}/clu?uid=   { land_cover }
- *   soil   POST /api/admin/staging/{id}/tracts/{i}/clu/compute-soil?uid=
- *   FSA    GET  /api/admin/staging/{id}/tracts/{i}/clu?uid=   (field outlines)
+ *            staged  {root} = /api/admin/staging/{id}/tracts/{i}   (+ ?uid=)
+ *            published {root} = /api/admin/tracts/{tract_id}        (no uid)
+ *   load   GET  {root}/land-cover
+ *   save   POST {root}/clu                 { land_cover }
+ *   soil   POST {root}/clu/compute-soil
+ *   FSA    GET  {root}/clu                 (field outlines)
  *
- * Rendered by TillableCluWorkshop for staged mounts (published tracts and
- * `?oldworkshop=1` keep the old Workshop). Same props, same save-safety
- * wiring: `?uid=`, onSaved(tract), 409 → message + reload + onSaveConflict,
- * and the dirty callback behind UnsavedTillableModal.
+ * One editor; only the URLs (landCoverPath) and the save response
+ * (readLandCoverSave) differ by target:
+ *   staged     `?uid=`, onSaved carries the full updated tract, 409 →
+ *              message + reload + onSaveConflict;
+ *   published  the save answers with numbers only (acres, rating, derived
+ *              prices) and takes a row lock instead of a 409 — onSaved gets
+ *              the same keys the old Workshop passed, and the editor
+ *              re-reads the tract to show exactly what was stored.
+ * Both: the dirty callback, and onComputed (live soil result + after Save).
+ *
+ * Rendered by TillableCluWorkshop unless the page has `?oldworkshop=1`.
  */
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
@@ -28,8 +38,9 @@ import { classifyBoundary } from '@/lib/configurableMapping'
 import { useTractEditor, type TractEditorStorage } from '@/components/mapping/useTractEditor'
 import LandTypeTools, { Btn, stat } from '@/components/mapping/LandTypeTools'
 import {
-  cleanFsaFields, fsaFieldClick, pruneTickedFields, readLandCoverLoad, savedShapesOf, soilRequestBody,
-  type FsaField, type StaffLandCoverLoad,
+  cleanFsaFields, computedArgsOf, fsaFieldClick, fsaHint, landCoverPath, landCoverTargetKey, pruneTickedFields,
+  readLandCoverLoad, readLandCoverSave, soilRequestBody,
+  type FsaField, type LandCoverEndpoint, type StaffLandCoverLoad, type StaffLandCoverTarget,
 } from '@/lib/staffLandCover'
 import type { TillableCluWorkshopProps } from './TillableCluWorkshop'
 
@@ -44,20 +55,26 @@ const fsaGeo = (fields: FsaField[]) => ({
   features: fields.map((f) => ({ type: 'Feature', properties: { id: f.fsa_clu_id }, geometry: f.geometry })),
 })
 
+export type StaffLandCoverEditorProps =
+  Omit<TillableCluWorkshopProps, 'stagingId' | 'tractIndex' | 'tractUid' | 'tractId'> & {
+    /** The staged or published tract being edited. */
+    target: StaffLandCoverTarget
+  }
+
 export default function StaffLandCoverEditor({
-  stagingId, tractIndex, tractUid, latitude, longitude, editorHeight = 380, reloadKey = 0,
-  onSaved, onDirtyChange, onSaveConflict,
-}: TillableCluWorkshopProps) {
-  const base = `${API_URL}/api/admin/staging/${stagingId}/tracts/${tractIndex}`
-  // `?uid=<_uid>` on every call, read through a ref so a uid that arrives
-  // later does not re-load the editor and throw away unsaved edits.
-  const tractUidRef = useRef<string | null>(tractUid ?? null)
-  tractUidRef.current = tractUid ?? null
-  /** uid the server reported on the last load / save (until the page has one). */
+  target, latitude, longitude, editorHeight = 380, reloadKey = 0,
+  onSaved, onComputed, onDirtyChange, onSaveConflict,
+}: StaffLandCoverEditorProps) {
+  const targetKey = landCoverTargetKey(target)
+  // Read through a ref: a staged tract's `uid` can arrive later, and that
+  // must not re-load the editor and throw away unsaved edits.
+  const targetRef = useRef(target); targetRef.current = target
+  /** Staged: uid the server reported on the last load / save (until the page has one). */
   const loadedUidRef = useRef<string | null>(null)
-  const url = (path: string) => {
-    const uid = tractUidRef.current || loadedUidRef.current
-    return `${base}${path}${uid ? `?uid=${encodeURIComponent(uid)}` : ''}`
+  const url = (endpoint: LandCoverEndpoint) => {
+    const t = targetRef.current
+    const uid = t.kind === 'staged' ? (t.uid || loadedUidRef.current) : null
+    return `${API_URL}${landCoverPath(t, endpoint, uid)}`
   }
 
   const [hasBeenVisible, setHasBeenVisible] = useState(false)
@@ -90,11 +107,14 @@ export default function StaffLandCoverEditor({
   const fieldsRef = useRef(fields); fieldsRef.current = fields
   const tickedRef = useRef(ticked); tickedRef.current = ticked
   const onSavedRef = useRef(onSaved); onSavedRef.current = onSaved
+  const onComputedRef = useRef(onComputed); onComputedRef.current = onComputed
+  /** Newest soil request: an older answer landing late is not reported. */
+  const soilSeqRef = useRef(0)
   const onDirtyChangeRef = useRef(onDirtyChange); onDirtyChangeRef.current = onDirtyChange
   const onSaveConflictRef = useRef(onSaveConflict); onSaveConflictRef.current = onSaveConflict
 
   const readLandCover = async (): Promise<StaffLandCoverLoad> => {
-    const res = await fetchWithAuth(url('/land-cover'))
+    const res = await fetchWithAuth(url('load'))
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
     return readLandCoverLoad(data)
@@ -142,21 +162,29 @@ export default function StaffLandCoverEditor({
       // there means "the FSA default fields".
       if (!body) return { rating: null, rating_type: null }
       if (savedSoilRef.current && !dirtyRef.current) return savedSoilRef.current
-      const res = await fetchWithAuth(url('/clu/compute-soil'), {
+      const seq = ++soilSeqRef.current
+      const res = await fetchWithAuth(url('soil'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+      // The host's "Computed" values (the old Workshop reported these from
+      // its Compute Soil Rating button): the shapes on screen, not yet saved.
+      if (seq === soilSeqRef.current) {
+        onComputedRef.current?.(computedArgsOf(data, editorRef.current?.totals?.tillable))
+      }
       return { rating: data.soil_rating ?? null, rating_type: data.soil_rating_type || null }
     },
     save: async ({ polygons }) => {
       setStatus(null)
-      const res = await fetchWithAuth(url('/clu'), {
+      const saveTarget = targetRef.current
+      const res = await fetchWithAuth(url('save'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ land_cover: polygons }),
       })
       const data = await res.json().catch(() => ({}))
-      if (res.status === 409) {
+      // (Published saves take a row lock and never answer 409.)
+      if (res.status === 409 && saveTarget.kind === 'staged') {
         // The boundary changed while this save was computing: the shapes on
         // screen were drawn against the old boundary. NOT saved — re-load
         // against the current boundary and let the page re-read the tract.
@@ -168,24 +196,32 @@ export default function StaffLandCoverEditor({
       if (!res.ok) {
         throw new Error(`Save failed: ${data.detail || `HTTP ${res.status}`}`)
       }
-      if (typeof data.tract_uid === 'string' && data.tract_uid) loadedUidRef.current = data.tract_uid
+      const result = readLandCoverSave(saveTarget, data)
+      if (result.uid) loadedUidRef.current = result.uid
       savedSoilRef.current = { rating: data.soil_rating ?? null, rating_type: data.soil_rating_type || null }
       if (infoRef.current) { infoRef.current = { ...infoRef.current, origin: 'staff' }; setInfo(infoRef.current) }
       setStatus(`✓ Saved · ${data.tillable_acres ?? 0} tillable ac`)
-      onSavedRef.current?.({
-        tillable_acres: data.tillable_acres ?? null,
-        soil_rating: data.soil_rating ?? null,
-        soil_rating_type: data.soil_rating_type ?? null,
-        price_per_acre: data.price_per_acre ?? null,
-        price_per_tillable_acre: data.price_per_tillable_acre ?? null,
-        price_per_soil_rating: data.price_per_soil_rating ?? null,
-        sale_price: data.sale_price ?? null,
-        sale_status: data.sale_status ?? null,
-        tract_uid: data.tract_uid ?? null,
-        tillable_rev: data.tillable_rev ?? null,
-        tract: data.tract && typeof data.tract === 'object' ? data.tract : null,
-      })
-      return { shapes: savedShapesOf(data) }
+      // Any live-soil answer still in flight is older than this save.
+      soilSeqRef.current++
+      // Same arguments the old Workshop passed after a save, so every host
+      // screen (acres / rating / derived prices) updates as it does today.
+      onSavedRef.current?.(result.saved)
+      onComputedRef.current?.(computedArgsOf(data))
+      if (result.shapes) return { shapes: result.shapes }
+      if (saveTarget.kind === 'published') {
+        // The published save answers with numbers only: re-read the tract so
+        // the screen shows exactly what was stored (clipped, overlaps
+        // settled). The save itself is done — a failed re-read keeps the
+        // shapes on screen.
+        try {
+          const stored = await readLandCover()
+          if (stored.origin === 'staff' && stored.shapes) {
+            infoRef.current = stored; setInfo(stored)
+            return { shapes: stored.shapes }
+          }
+        } catch { /* keep what is on screen */ }
+      }
+      return { shapes: null }
     },
     startOver: async () => {
       setTicked([])
@@ -206,7 +242,7 @@ export default function StaffLandCoverEditor({
   const editor = useTractEditor({
     mapRef,
     enabled: mapReady,
-    start: { kind: 'staff', key: `${stagingId}:${tractIndex}:${reloadKey}:${selfReload}` },
+    start: { kind: 'staff', key: `${targetKey}:${reloadKey}:${selfReload}` },
     projectId: null,
     storage,
     lockOutline: true,
@@ -246,6 +282,15 @@ export default function StaffLandCoverEditor({
   useEffect(() => { onDirtyChangeRef.current?.(editor.dirty) }, [editor.dirty])
   useEffect(() => () => { onDirtyChangeRef.current?.(false) }, [])
 
+  // Staff removed every tillable piece: the soil adapter is never called
+  // with none, so tell the host's "Computed" values here (0 ac, no rating).
+  const noTillable = !editor.shapes.some((sh) => sh.cls === 'tillable')
+  useEffect(() => {
+    if (!editor.dirty || !noTillable || editor.loading) return
+    soilSeqRef.current++
+    onComputedRef.current?.({ tillable_acres: 0, soil_rating: null, soil_rating_type: null })
+  }, [editor.dirty, noTillable, editor.loading])
+
   // A tick whose shapes are gone (deleted, undone, cleared) is forgotten.
   useEffect(() => {
     setTicked((t) => {
@@ -275,7 +320,7 @@ export default function StaffLandCoverEditor({
     setFsaNote(null)
     ;(async () => {
       try {
-        const res = await fetchWithAuth(url('/clu'))
+        const res = await fetchWithAuth(url('fsa'))
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
         if (!cancelled) setFields(cleanFsaFields(data.clus))
@@ -285,7 +330,7 @@ export default function StaffLandCoverEditor({
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasBeenVisible, base, reloadKey, selfReload])
+  }, [hasBeenVisible, targetKey, reloadKey, selfReload])
 
   useEffect(() => {
     const map = mapRef.current
@@ -368,9 +413,10 @@ export default function StaffLandCoverEditor({
             : '— click a polygon to select it, drag its dots to reshape it'}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
-          {loadFailed && (
+          {(loadFailed || noBoundary) && (
             <Btn tone="solid" icon={<RefreshCw size={13} />} text="Reload"
-                 title="Load this tract's land types again" onClick={() => setSelfReload((n) => n + 1)} />
+                 title={noBoundary ? 'Load this tract again (after its boundary is drawn and saved)' : "Load this tract's land types again"}
+                 onClick={() => setSelfReload((n) => n + 1)} />
           )}
           <Btn tone="solid" icon={expanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                text={expanded ? 'Shrink' : 'Expand'}
@@ -405,6 +451,7 @@ export default function StaffLandCoverEditor({
       {ready && (
         <LandTypeTools
           editor={editor} docked tone="solid" showOutlineButton={false} noSoil="no rating"
+          hint={fsaHint(showFsa, fields.length)}
           onSave={() => { void editor.save({ name: '' }) }}
           header={(
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>

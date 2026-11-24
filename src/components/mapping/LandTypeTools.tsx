@@ -136,7 +136,11 @@ export function LandTypeTotals({ editor: e, noSoil = '—' }: {
 }
 
 /** What a click does right now. */
-export function LandTypeHint({ editor: e }: { editor: TractEditor }) {
+export function LandTypeHint({ editor: e, idle }: {
+  editor: TractEditor
+  /** Host text for when no tool is armed (default: the Map It line). */
+  idle?: string | null
+}) {
   const drawingPoly = e.tool === 'draw' && e.drawing
   return (
     <div style={stat}>
@@ -144,7 +148,7 @@ export function LandTypeHint({ editor: e }: { editor: TractEditor }) {
         ? `Click inside the outline · Done, double-click or Enter to finish · Esc to cancel${e.draft.length >= 3 ? ` · drawing ${polygonAcres(e.draft).toFixed(2)} ac` : ''}`
         : e.tool === 'cutpoly' ? 'Click once on each side of the polygon to cut it'
         : e.tool === 'erase' ? 'Drag a box over points to remove them'
-        : 'Pick a type, then Add Polygon. Click a polygon to select it; picking a type recolors the selected one.'}
+        : idle || 'Pick a type, then Add Polygon. Click a polygon to select it; picking a type recolors the selected one.'}
     </div>
   )
 }
@@ -208,7 +212,7 @@ export function LandTypeToolRow({ editor: e, tone = 'dark', showOutlineButton = 
 
 /** All four pieces stacked, for a host with nothing of its own to add. */
 export default function LandTypeTools({
-  editor, docked = false, tone = 'dark', showOutlineButton = true, onSave, noSoil, beforeSave, header,
+  editor, docked = false, tone = 'dark', showOutlineButton = true, onSave, noSoil, beforeSave, header, hint,
 }: {
   editor: TractEditor
   /** normal flow (true) or the Map It overlay at the bottom of the map */
@@ -220,13 +224,15 @@ export default function LandTypeTools({
   beforeSave?: ReactNode
   /** Host line shown above the totals (e.g. boundary acres). */
   header?: ReactNode
+  /** Host hint shown under the totals while no tool is armed. */
+  hint?: string | null
 }) {
   return (
     <div style={docked ? dockedBar : overlayBar} onMouseDown={(ev) => ev.stopPropagation()}>
       <LandTypeMessages editor={editor} />
       {header}
       <LandTypeTotals editor={editor} noSoil={noSoil} />
-      <LandTypeHint editor={editor} />
+      <LandTypeHint editor={editor} idle={hint} />
       <LandTypeToolRow editor={editor} tone={tone} showOutlineButton={showOutlineButton}
                        onSave={onSave} beforeSave={beforeSave} />
     </div>

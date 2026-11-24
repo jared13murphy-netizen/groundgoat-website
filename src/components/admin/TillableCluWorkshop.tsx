@@ -35,7 +35,7 @@ import { Loader2, Save, Calculator, Sprout, Pencil, Check, Undo2, Trash2, Maximi
 import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
 import { polygonAcres, toRings, multiPolygonAcres } from '@/lib/polygonGeometry'
-import { oldWorkshopRequested } from '@/lib/staffLandCover'
+import { landCoverTargetOf, oldWorkshopRequested } from '@/lib/staffLandCover'
 import StaffLandCoverEditor from './StaffLandCoverEditor'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -128,9 +128,11 @@ export interface TillableCluWorkshopProps {
     tillable_rev?: number | null
     tract?: Record<string, any> | null
   }) => void
-  /** Called on each Compute Soil Rating (BEFORE save) with the freshly computed
-   *  values, so a parent can show them as the "Computed" option in a
-   *  Current/Computed/Manual comparison (data-cleanup). */
+  /** Called with freshly computed values (BEFORE save), so a parent can show
+   *  them as the "Computed" option in a Current/Computed/Manual comparison
+   *  (data-cleanup). Map It-style editor: on every live soil result while
+   *  editing, and again after Save with the saved values. Old Workshop: on
+   *  each Compute Soil Rating. */
   onComputed?: (r: {
     tillable_acres: number | null
     soil_rating: number | null
@@ -345,22 +347,25 @@ function insertOnNearestSegment(ring: Pt[], pt: Pt): Pt[] {
 // ---------------------------------------------------------------------------
 
 /**
- * The Tillable Workshop mount. A STAGED tract (stagingId + tractIndex) gets
- * the Map It-style editor (StaffLandCoverEditor: all five land types, the
- * customer polygon tools, FSA field lines). Published tracts (tractId) have
- * no land-cover endpoints yet and keep the old Workshop below, as does any
- * page opened with `?oldworkshop=1` (escape hatch so staff are never blocked).
+ * The Tillable Workshop mount. A STAGED tract (stagingId + tractIndex) and a
+ * PUBLISHED tract (tractId) both get the Map It-style editor
+ * (StaffLandCoverEditor: all five land types, the customer polygon tools,
+ * FSA field lines). A page opened with `?oldworkshop=1` keeps the old
+ * Workshop below (escape hatch so staff are never blocked).
  */
 export default function TillableCluWorkshop(props: TillableCluWorkshopProps) {
   // Read once per mount. These are client-only admin screens rendered after
   // their data loads, so `window` is there by the time a Workshop mounts.
   const [useOld] = useState(() => typeof window !== 'undefined' && oldWorkshopRequested(window.location.search))
-  const staged = props.tractId == null && props.stagingId != null && props.tractIndex != null
-  if (staged && !useOld) return <StaffLandCoverEditor {...props} />
+  const target = landCoverTargetOf(props)
+  if (target && !useOld) {
+    const { stagingId: _s, tractIndex: _i, tractUid: _u, tractId: _t, ...rest } = props
+    return <StaffLandCoverEditor target={target} {...rest} />
+  }
   return <LegacyTillableCluWorkshop {...props} />
 }
 
-/** The original FSA-CLU Workshop (published tracts, and `?oldworkshop=1`). */
+/** The original FSA-CLU Workshop (only with `?oldworkshop=1`). */
 function LegacyTillableCluWorkshop({
   stagingId,
   tractIndex,

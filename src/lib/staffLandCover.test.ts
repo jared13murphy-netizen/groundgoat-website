@@ -10,7 +10,8 @@ import {
   orderEditedLast, landCoverPayload, savedShapesOf, soilRequestBody, soilText,
   cleanFsaFields, fsaFieldAt, shapesInField, fieldStillTicked, pruneTickedFields,
   fsaFieldClick, oldWorkshopRequested,
-  type Pt, type FsaField,
+  landCoverTargetOf, landCoverTargetKey, landCoverPath, readLandCoverSave, computedArgsOf, fsaHint,
+  type Pt, type FsaField, type StaffLandCoverTarget,
 } from './staffLandCover.ts'
 
 let passed = 0
@@ -296,6 +297,122 @@ test('shapesInField ignores other classes and shapes reaching outside the field'
   const timber = ed('a', 'timber', [sq(0, 0, 0.01)])
   const wide = ed('b', 'tillable', [sq(0, 0, 0.03)])
   assert.deepEqual(shapesInField([timber, wide], F1), [])
+})
+
+// ── targets ─────────────────────────────────────────────────────────
+
+const STAGED: StaffLandCoverTarget = { kind: 'staged', stagingId: 7, tractIndex: 2, uid: 'u 1' }
+const PUBLISHED: StaffLandCoverTarget = { kind: 'published', tractId: 'abc-123' }
+
+test('landCoverTargetOf: tractId → published, stagingId + index → staged, else null', () => {
+  assert.deepEqual(landCoverTargetOf({ tractId: 'abc-123' }), PUBLISHED)
+  assert.deepEqual(landCoverTargetOf({ stagingId: 7, tractIndex: 2, tractUid: 'u 1' }), STAGED)
+  assert.deepEqual(landCoverTargetOf({ stagingId: 7, tractIndex: 0 }), { kind: 'staged', stagingId: 7, tractIndex: 0, uid: null })
+  // tractId wins when a host passes both
+  assert.equal(landCoverTargetOf({ tractId: 'abc-123', stagingId: 7, tractIndex: 2 })?.kind, 'published')
+  assert.equal(landCoverTargetOf({ stagingId: 7 }), null)
+  assert.equal(landCoverTargetOf({ tractId: '' }), null)
+  assert.equal(landCoverTargetOf({}), null)
+})
+
+test('landCoverTargetKey ignores the uid', () => {
+  assert.equal(landCoverTargetKey(STAGED), 's:7:2')
+  assert.equal(landCoverTargetKey({ ...STAGED, uid: null } as StaffLandCoverTarget), 's:7:2')
+  assert.equal(landCoverTargetKey(PUBLISHED), 'p:abc-123')
+})
+
+test('landCoverPath: published tract URLs, never a uid', () => {
+  assert.equal(landCoverPath(PUBLISHED, 'load'), '/api/admin/tracts/abc-123/land-cover')
+  assert.equal(landCoverPath(PUBLISHED, 'save'), '/api/admin/tracts/abc-123/clu')
+  assert.equal(landCoverPath(PUBLISHED, 'soil'), '/api/admin/tracts/abc-123/clu/compute-soil')
+  assert.equal(landCoverPath(PUBLISHED, 'fsa'), '/api/admin/tracts/abc-123/clu')
+  assert.equal(landCoverPath(PUBLISHED, 'save', 'u9'), '/api/admin/tracts/abc-123/clu')
+})
+
+test('landCoverPath: staged URLs carry ?uid= (argument first, then the target, else none)', () => {
+  assert.equal(landCoverPath(STAGED, 'load'), '/api/admin/staging/7/tracts/2/land-cover?uid=u%201')
+  assert.equal(landCoverPath(STAGED, 'save', 'new'), '/api/admin/staging/7/tracts/2/clu?uid=new')
+  assert.equal(landCoverPath(STAGED, 'soil'), '/api/admin/staging/7/tracts/2/clu/compute-soil?uid=u%201')
+  assert.equal(landCoverPath({ kind: 'staged', stagingId: 7, tractIndex: 2 }, 'fsa'), '/api/admin/staging/7/tracts/2/clu')
+})
+
+const PUB_SAVE = {
+  ok: true, tillable_clu_count: 0, manual_polygon_count: 2, tillable_acres: 41.2, soil_rating: 77.1,
+  soil_rating_type: 'CSR2', nccpi: 60, price_per_acre: 9000, price_per_tillable_acre: 11000,
+  price_per_soil_rating: 142.7, sale_price: 450000, sale_status: 'sold',
+}
+
+test('readLandCoverSave (published): the old Workshop\'s onSaved keys, no tract / uid / rev / shapes', () => {
+  const r = readLandCoverSave(PUBLISHED, PUB_SAVE)
+  assert.deepEqual(r.saved, {
+    tillable_acres: 41.2, soil_rating: 77.1, soil_rating_type: 'CSR2',
+    price_per_acre: 9000, price_per_tillable_acre: 11000, price_per_soil_rating: 142.7,
+    sale_price: 450000, sale_status: 'sold', tract_uid: null, tillable_rev: null, tract: null,
+  })
+  assert.equal(r.shapes, null)
+  assert.equal(r.uid, null)
+  // every key is present even when the server sent null (hosts test `'k' in r`)
+  const empty = readLandCoverSave(PUBLISHED, { ok: true, tillable_acres: 0, soil_rating: null })
+  for (const k of ['tillable_acres', 'soil_rating', 'soil_rating_type', 'price_per_acre', 'price_per_tillable_acre',
+    'price_per_soil_rating', 'sale_price', 'sale_status']) assert.ok(k in empty.saved, k)
+  assert.equal(empty.saved.tillable_acres, 0)
+  assert.equal(empty.saved.soil_rating, null)
+  // staged-only keys are never read from a published response
+  const odd = readLandCoverSave(PUBLISHED, { ...PUB_SAVE, tract_uid: 'x', tillable_rev: 4, tract: { staff_land_cover: { polygons: [] } } })
+  assert.equal(odd.saved.tract_uid, null); assert.equal(odd.saved.tillable_rev, null)
+  assert.equal(odd.saved.tract, null); assert.equal(odd.shapes, null)
+  assert.deepEqual(readLandCoverSave(PUBLISHED, null).saved.tillable_acres, null)
+})
+
+test('readLandCoverSave (staged): tract, uid, rev and the stored shapes come through', () => {
+  const shapes = [{ cls: 'timber', geometry: poly(sq(0, 0)) }]
+  const tract = { _uid: 'u2', staff_land_cover: { polygons: shapes } }
+  const r = readLandCoverSave(STAGED, { tillable_acres: 0, soil_rating: null, tract_uid: 'u2', tillable_rev: 3, tract })
+  assert.equal(r.saved.tract_uid, 'u2'); assert.equal(r.saved.tillable_rev, 3); assert.equal(r.saved.tract, tract)
+  assert.equal(r.uid, 'u2')
+  assert.deepEqual(r.shapes, shapes)
+  assert.equal(readLandCoverSave(STAGED, { tillable_acres: 1 }).shapes, null)
+})
+
+test('computedArgsOf: compute-soil / save response → the host\'s onComputed', () => {
+  assert.deepEqual(computedArgsOf({ tillable_acres: 41.2, soil_rating: 77.1, soil_rating_type: 'CSR2', nccpi: 60 }),
+    { tillable_acres: 41.2, soil_rating: 77.1, soil_rating_type: 'CSR2' })
+  // no rating → no rating type
+  assert.deepEqual(computedArgsOf({ tillable_acres: 5, soil_rating: null, soil_rating_type: 'CSR2' }),
+    { tillable_acres: 5, soil_rating: null, soil_rating_type: null })
+  // no acres in the response → the editor's own total
+  assert.deepEqual(computedArgsOf({ soil_rating: 70 }, 12.3456), { tillable_acres: 12.35, soil_rating: 70, soil_rating_type: null })
+  assert.deepEqual(computedArgsOf({}, 0), { tillable_acres: 0, soil_rating: null, soil_rating_type: null })
+  assert.deepEqual(computedArgsOf(null), { tillable_acres: null, soil_rating: null, soil_rating_type: null })
+  // a zero from the server is a value, not a gap
+  assert.equal(computedArgsOf({ tillable_acres: 0 }, 9).tillable_acres, 0)
+})
+
+test('fsaHint: only while the FSA lines are on and there are fields', () => {
+  assert.equal(fsaHint(true, 3), 'Click a yellow FSA field to add it as tillable; click it again to remove it.')
+  assert.equal(fsaHint(false, 3), null)
+  assert.equal(fsaHint(true, 0), null)
+})
+
+test('a published land-cover GET reads like a staged one (no uid, no rev)', () => {
+  const ring = sq(-93, 41)
+  const shapes = [{ cls: 'tillable', geometry: poly(sq(-93, 41, 0.005)), acres: 40 }]
+  const got = readLandCoverLoad({
+    tract: { id: 'abc-123', state: 'IA', polygon: ring, polygon_holes: null, total_acres: 160.1, reported_acres: 160 },
+    origin: 'legacy', needs_normalize: true, shapes, acres: { tillable: 40 },
+    soil_rating: 80.5, soil_rating_type: 'CSR2', nccpi: 66, engine_covered: null,
+  })
+  assert.equal(got.origin, 'legacy'); assert.equal(got.needsNormalize, true)
+  assert.equal(got.uid, null); assert.equal(got.tillableRev, null)
+  assert.equal(got.boundary.type, 'Polygon'); assert.equal(got.state, 'IA')
+  assert.deepEqual(got.shapes, shapes)
+  assert.equal(got.soilRating, 80.5); assert.equal(got.reportedAcres, 160)
+  // nothing stored → ask the engine (shapes null), as for a staged tract
+  const none = readLandCoverLoad({ tract: { id: 'abc-123', state: 'IA', polygon: ring, polygon_holes: null }, origin: 'none', shapes: null, engine_covered: null })
+  assert.equal(none.shapes, null); assert.equal(none.needsNormalize, false)
+  // no usable boundary → nothing to edit + the server's error
+  const bare = readLandCoverLoad({ tract: { id: 'abc-123', polygon: null }, origin: 'none', shapes: null, error: 'Tract has no boundary polygon' })
+  assert.equal(bare.boundary, null); assert.deepEqual(bare.shapes, []); assert.equal(bare.error, 'Tract has no boundary polygon')
 })
 
 // ── feature switch ──────────────────────────────────────────────────

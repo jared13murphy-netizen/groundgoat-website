@@ -1,6 +1,7 @@
 /**
  * Staff land cover — pure helpers for the Map It-style Tillable Workshop on
- * STAGED auction tracts (admin staging + private-treaty staging).
+ * STAGED auction tracts (admin staging + private-treaty staging) and on
+ * PUBLISHED tracts (`/api/admin/tracts/{tract_id}/…`, see landCoverPath).
  *
  * The editor itself is the customer Map It hook (useTractEditor). These
  * helpers translate between its state (shapes = { id, cls, polys }, a poly is
@@ -425,6 +426,142 @@ export function fsaFieldClick(opts: {
   const onTillable = opts.shapes.some((sh) => sh.cls === 'tillable' && pointInPolys(opts.point, sh.polys))
   if (onTillable) return { action: 'pass' }
   return { action: 'add', field }
+}
+
+// ── target: a staged tract or a published one ───────────────────────
+
+/** What the editor is editing. A STAGED tract lives inside a staging row
+ *  (index + the server-owned uid); a PUBLISHED tract is a `tracts` row. */
+export type StaffLandCoverTarget =
+  | { kind: 'staged'; stagingId: number; tractIndex: number; uid?: string | null }
+  | { kind: 'published'; tractId: string }
+
+/** The Workshop's mount props → a target. `tractId` wins (the props are
+ *  mutually exclusive); null when neither form is complete. */
+export function landCoverTargetOf(props: {
+  stagingId?: number | null
+  tractIndex?: number | null
+  tractUid?: string | null
+  tractId?: string | null
+}): StaffLandCoverTarget | null {
+  if (props.tractId != null && String(props.tractId) !== '') return { kind: 'published', tractId: String(props.tractId) }
+  if (props.stagingId != null && props.tractIndex != null) {
+    return { kind: 'staged', stagingId: props.stagingId, tractIndex: props.tractIndex, uid: props.tractUid ?? null }
+  }
+  return null
+}
+
+/** Stable identity of a target (uid left out: it can arrive later without
+ *  this being a different tract). */
+export function landCoverTargetKey(t: StaffLandCoverTarget): string {
+  return t.kind === 'published' ? `p:${t.tractId}` : `s:${t.stagingId}:${t.tractIndex}`
+}
+
+export type LandCoverEndpoint = 'load' | 'save' | 'soil' | 'fsa'
+
+const ENDPOINT_PATH: Record<LandCoverEndpoint, string> = {
+  load: '/land-cover', save: '/clu', soil: '/clu/compute-soil', fsa: '/clu',
+}
+
+/**
+ * Path (from the API root) of one of the four calls.
+ *
+ *   staged     /api/admin/staging/{id}/tracts/{i}{…}?uid=   (uid when known:
+ *              `uid` argument first, else the target's own)
+ *   published  /api/admin/tracts/{tract_id}{…}              (never a uid)
+ */
+export function landCoverPath(t: StaffLandCoverTarget, endpoint: LandCoverEndpoint, uid?: string | null): string {
+  const tail = ENDPOINT_PATH[endpoint]
+  if (t.kind === 'published') return `/api/admin/tracts/${encodeURIComponent(t.tractId)}${tail}`
+  const u = uid || t.uid || null
+  return `/api/admin/staging/${t.stagingId}/tracts/${t.tractIndex}${tail}${u ? `?uid=${encodeURIComponent(u)}` : ''}`
+}
+
+/** What a Workshop save hands the host page (`onSaved`): the same keys, in
+ *  both modes, as the old Workshop passed. */
+export interface LandCoverSavedArgs {
+  tillable_acres: number | null
+  soil_rating: number | null
+  soil_rating_type: string | null
+  price_per_acre: number | null
+  price_per_tillable_acre: number | null
+  price_per_soil_rating: number | null
+  sale_price: number | null
+  sale_status: string | null
+  tract_uid: string | null
+  tillable_rev: number | null
+  tract: Record<string, any> | null
+}
+
+export interface LandCoverSaveResult {
+  saved: LandCoverSavedArgs
+  /** Shapes as stored, when the response carries them (staged only). null =
+   *  the response has none: a published save answers with numbers only, so
+   *  the editor re-reads the tract to show exactly what was stored. */
+  shapes: ApiLandCover[] | null
+  /** A newer uid for the tract (staged only). */
+  uid: string | null
+}
+
+/**
+ * Read a successful save response (POST …/clu with `land_cover`).
+ *
+ * Staged: the full updated `tract`, its uid and tillable_rev come back.
+ * Published: today's published-save dict — acres, rating and the derived
+ * prices; there is no `tract`, uid or rev, and those stay null whatever the
+ * body holds.
+ */
+export function readLandCoverSave(t: StaffLandCoverTarget, data: any): LandCoverSaveResult {
+  const d = data && typeof data === 'object' ? data : {}
+  const staged = t.kind === 'staged'
+  const uid = staged && typeof d.tract_uid === 'string' && d.tract_uid ? d.tract_uid : null
+  return {
+    saved: {
+      tillable_acres: d.tillable_acres ?? null,
+      soil_rating: d.soil_rating ?? null,
+      soil_rating_type: d.soil_rating_type ?? null,
+      price_per_acre: d.price_per_acre ?? null,
+      price_per_tillable_acre: d.price_per_tillable_acre ?? null,
+      price_per_soil_rating: d.price_per_soil_rating ?? null,
+      sale_price: d.sale_price ?? null,
+      sale_status: d.sale_status ?? null,
+      tract_uid: staged ? (d.tract_uid ?? null) : null,
+      tillable_rev: staged ? (d.tillable_rev ?? null) : null,
+      tract: staged && d.tract && typeof d.tract === 'object' ? d.tract : null,
+    },
+    shapes: staged ? savedShapesOf(d) : null,
+    uid,
+  }
+}
+
+/** What the host's `onComputed` gets (the "Computed" column on the clean-up
+ *  screens): tillable acres + rating of the shapes on screen or just saved. */
+export interface LandCoverComputedArgs {
+  tillable_acres: number | null
+  soil_rating: number | null
+  soil_rating_type: string | null
+}
+
+/** From a compute-soil response or a save response (same three keys). When
+ *  the response has no tillable acres, `fallbackAcres` (the editor's own
+ *  total) is used, rounded to 2 places. */
+export function computedArgsOf(data: any, fallbackAcres?: number | null): LandCoverComputedArgs {
+  const d = data && typeof data === 'object' ? data : {}
+  const fb = fallbackAcres != null && Number.isFinite(fallbackAcres) ? Math.round(fallbackAcres * 100) / 100 : null
+  return {
+    tillable_acres: num(d.tillable_acres) ?? fb,
+    soil_rating: num(d.soil_rating),
+    soil_rating_type: num(d.soil_rating) != null && typeof d.soil_rating_type === 'string' && d.soil_rating_type
+      ? d.soil_rating_type : null,
+  }
+}
+
+/** Idle hint under the totals. With the FSA lines showing it says how the
+ *  FSA tool works; otherwise null (the toolbar's own hint). */
+export function fsaHint(showFsa: boolean, fieldCount: number): string | null {
+  return showFsa && fieldCount > 0
+    ? 'Click a yellow FSA field to add it as tillable; click it again to remove it.'
+    : null
 }
 
 // ── feature switch ──────────────────────────────────────────────────
