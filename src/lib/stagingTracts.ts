@@ -27,6 +27,8 @@ export const TILLABLE_WORK_KEYS = [
   'tillable_clu_overrides',
   'tillable_polygon',
   'tillable_polygon_source',
+  // The Map It-style Workshop's saved land cover (all five classes).
+  'staff_land_cover',
 ] as const
 
 /** Server-owned identity keys. Travel with the tract object, never edited. */
@@ -170,7 +172,7 @@ export function removedTractUids(before: unknown, after: unknown): string[] {
  * Swap `keys` between two tracts. A key missing on one side is swapped as an
  * explicit `null` (never dropped): the server keeps any key the client does
  * not send, so a dropped key would leave the old value on that tract.
- * Server identity keys and the six tillable keys are never moved, whatever
+ * Server identity keys and the tillable work keys are never moved, whatever
  * `keys` says: the server relocates tillable work itself.
  */
 export function swapKeys(a: Tract, b: Tract, keys: readonly string[]): [Tract, Tract] {

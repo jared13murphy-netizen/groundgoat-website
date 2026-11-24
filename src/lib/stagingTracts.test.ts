@@ -23,6 +23,7 @@ const A = () => ({
   polygon_coordinates: [[0, 0], [1, 0], [1, 1]],
   tillable_polygon: [[['A']]], tillable_polygon_source: 'workshop',
   tillable_clu_selection: { 1: true }, tillable_manual_polygons: ['mA'],
+  staff_land_cover: { v: 1, polygons: [{ cls: 'timber', geometry: 'gA' }], acres: { timber: 4 } },
   computed: { tillable_acres: 70, nccpi: 61 }, chosen: { tillable_acres: 'computed' },
   manual: { tillable_acres: 75 }, has_tract_image: true,
 })
@@ -141,6 +142,17 @@ test('swapKeys: a key missing on one side is swapped as explicit null, not dropp
   // missing on both → stays missing
   const [x, y] = swapKeys({ a: 1 }, { a: 2 }, ['nope'])
   assert.equal('nope' in x, false); assert.equal('nope' in y, false)
+})
+
+test('staff_land_cover (Map It-style Workshop) is a tillable work key: never moved, never invented', () => {
+  assert.equal((TILLABLE_WORK_KEYS as readonly string[]).includes('staff_land_cover'), true)
+  const [na, nb] = swapKeys(A(), B(), ['staff_land_cover', ...BOUNDARY_KEYS])
+  assert.deepEqual(na.staff_land_cover, A().staff_land_cover)
+  assert.equal('staff_land_cover' in nb, false)
+  // "Swap Everything" carries it with the tract object, like the rest
+  const [sa, sb] = swapTractObjects(A(), B())
+  assert.equal('staff_land_cover' in sa, false)
+  assert.deepEqual(sb.staff_land_cover, A().staff_land_cover)
 })
 
 test('swapKeys never moves server-owned keys even if asked to', () => {
