@@ -601,6 +601,13 @@ export default function TillableCluWorkshop({
         // disabled until the admin actually changes something.
         setSavedSig(tillableSig(list, sel, savedManual, savedRating, savedRatingType, savedCutouts, savedOverrides))
         if (data.error) setError(data.error)
+        // Owner 11/24: the scraper saved the mapping engine's tillable shape
+        // and nothing has been saved by staff yet. The shapes above ARE that
+        // engine drawing. They are the loaded baseline (Save stays off until
+        // something changes), and Verify publishes them as the engine's shape.
+        if (data.engine_drawn) {
+          setStatus('✓ Tillable drawn by the mapping engine. Adjust if needed, then Save.')
+        }
         setLoaded(true)
       } catch (e: any) {
         if (!cancelled) {
