@@ -231,12 +231,69 @@ export function findOriginalTract(
 }
 
 /**
- * Pick one staging row out of a list response ({items:[...]} or a bare
- * array) — used to re-read a single row through the list endpoint until a
- * single-row GET exists.
+ * Decides whether a single-row re-read may replace the page's copy of a
+ * staging row, so a re-read can never overwrite an edit made after it was
+ * requested. Per staging row id:
+ *
+ *  - only the LATEST re-read applies (an older response is 'superseded');
+ *  - a re-read that came back after a local edit (a PATCH was started, or
+ *    noteEdit() was called for an unsaved in-memory edit) is 'edited': it is
+ *    dropped, and one more re-read is owed;
+ *  - finishPatch() returns true when a re-read should run now: one is owed,
+ *    or one is still in flight (it predates this PATCH), and no other PATCH
+ *    for the row is still in flight.
+ *
+ * No React, no timers — the page keeps one instance in a ref.
  */
-export function pickStagingRow<T extends { id: number }>(listResponse: unknown, stagingId: number): T | null {
-  const items: unknown = Array.isArray(listResponse) ? listResponse : (listResponse as any)?.items
-  if (!Array.isArray(items)) return null
-  return (items as T[]).find((r) => r && r.id === stagingId) || null
+export class RowRereadGate {
+  seq: Record<number, number> = {}
+  edits: Record<number, number> = {}
+  rereads: Record<number, number> = {}
+  patches: Record<number, number> = {}
+  owed: Record<number, boolean> = {}
+
+  /** A local in-memory edit that is not PATCHed right away. */
+  noteEdit(id: number): void {
+    this.edits[id] = (this.edits[id] || 0) + 1
+  }
+
+  startPatch(id: number): void {
+    this.noteEdit(id)
+    this.patches[id] = (this.patches[id] || 0) + 1
+  }
+
+  /** True → re-read the row now. Call when the PATCH settles (ok or not). */
+  finishPatch(id: number): boolean {
+    this.patches[id] = Math.max(0, (this.patches[id] || 0) - 1)
+    if (this.patches[id] > 0) return false
+    if (this.owed[id] || (this.rereads[id] || 0) > 0) {
+      this.owed[id] = false
+      return true
+    }
+    return false
+  }
+
+  startReread(id: number): { seq: number; edits: number } {
+    this.seq[id] = (this.seq[id] || 0) + 1
+    this.rereads[id] = (this.rereads[id] || 0) + 1
+    return { seq: this.seq[id], edits: this.edits[id] || 0 }
+  }
+
+  /** Call exactly once per startReread, when the response (or failure) is in. */
+  finishReread(id: number, token: { seq: number; edits: number }, failed = false): 'apply' | 'superseded' | 'edited' | 'failed' {
+    this.rereads[id] = Math.max(0, (this.rereads[id] || 0) - 1)
+    if (token.seq !== this.seq[id]) return 'superseded'
+    if (failed) return 'failed'
+    if ((this.edits[id] || 0) !== token.edits) {
+      this.owed[id] = true
+      return 'edited'
+    }
+    return 'apply'
+  }
+
+  /** The row is gone from the page. */
+  forget(id: number): void {
+    delete this.seq[id]; delete this.edits[id]; delete this.rereads[id]
+    delete this.patches[id]; delete this.owed[id]
+  }
 }

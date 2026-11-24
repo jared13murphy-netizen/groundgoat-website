@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   tractUid, findTractIndex, replaceTractInScrapedData, withoutDeletedTracts,
   addPendingDeletes, clearPendingDeletes, buildStagingPatchBody, removedTractUids,
-  swapKeys, swapTractObjects, findOriginalTract, pickStagingRow,
+  swapKeys, swapTractObjects, findOriginalTract, RowRereadGate,
   BOUNDARY_KEYS, TILLABLE_WORK_KEYS,
 } from './stagingTracts.ts'
 
@@ -183,11 +183,72 @@ test('findOriginalTract: uid-less tracts match by source position, then by a uni
   assert.equal(findOriginalTract([{ tract_number: 5, acres: 9 }, A()], { tract_number: 5 })?.acres, 9)
 })
 
-test('pickStagingRow: from {items} or a bare array', () => {
-  assert.equal(pickStagingRow<{ id: number; n?: string }>({ items: [{ id: 1 }, { id: 2, n: 'x' }] }, 2)?.n, 'x')
-  assert.equal(pickStagingRow([{ id: 3 }], 3)?.id, 3)
-  assert.equal(pickStagingRow({ items: [{ id: 1 }] }, 9), null)
-  assert.equal(pickStagingRow(null, 1), null)
+test('RowRereadGate: a clean re-read applies', () => {
+  const g = new RowRereadGate()
+  g.startPatch(1); assert.equal(g.finishPatch(1), false)
+  const t = g.startReread(1)
+  assert.equal(g.finishReread(1, t), 'apply')
+})
+
+test('RowRereadGate: only the latest re-read applies', () => {
+  const g = new RowRereadGate()
+  const t1 = g.startReread(1)
+  const t2 = g.startReread(1)
+  assert.equal(g.finishReread(1, t1), 'superseded')
+  assert.equal(g.finishReread(1, t2), 'apply')
+  // rows are independent
+  const a = g.startReread(1); const b = g.startReread(2)
+  assert.equal(g.finishReread(2, b), 'apply'); assert.equal(g.finishReread(1, a), 'apply')
+})
+
+test('RowRereadGate: an edit PATCHed while a re-read is in flight drops it and re-reads after the PATCH', () => {
+  const g = new RowRereadGate()
+  const t = g.startReread(1)
+  g.startPatch(1)                       // local edit + its PATCH
+  assert.equal(g.finishReread(1, t), 'edited', 'response predates the edit')
+  assert.equal(g.finishPatch(1), true, 'one more re-read once the PATCH is done')
+  const t2 = g.startReread(1)
+  assert.equal(g.finishReread(1, t2), 'apply')
+  assert.equal(g.finishPatch(1), false)
+})
+
+test('RowRereadGate: PATCH that starts AND finishes while the re-read is still in flight', () => {
+  const g = new RowRereadGate()
+  const t = g.startReread(1)
+  g.startPatch(1)
+  assert.equal(g.finishPatch(1), true, 're-read still in flight predates this PATCH')
+  const t2 = g.startReread(1)
+  assert.equal(g.finishReread(1, t), 'superseded')
+  assert.equal(g.finishReread(1, t2), 'apply')
+})
+
+test('RowRereadGate: waits for the LAST of several PATCHes', () => {
+  const g = new RowRereadGate()
+  const t = g.startReread(1)
+  g.startPatch(1); g.startPatch(1)
+  assert.equal(g.finishReread(1, t), 'edited')
+  assert.equal(g.finishPatch(1), false)
+  assert.equal(g.finishPatch(1), true)
+  assert.equal(g.finishPatch(1), false, 'owed re-read is handed out once')
+})
+
+test('RowRereadGate: an unsaved in-memory edit also blocks the re-read; next PATCH re-reads', () => {
+  const g = new RowRereadGate()
+  const t = g.startReread(1)
+  g.noteEdit(1)
+  assert.equal(g.finishReread(1, t), 'edited')
+  g.startPatch(1)
+  assert.equal(g.finishPatch(1), true)
+})
+
+test('RowRereadGate: a failed re-read neither applies nor leaves a count behind', () => {
+  const g = new RowRereadGate()
+  const t = g.startReread(1)
+  assert.equal(g.finishReread(1, t, true), 'failed')
+  g.startPatch(1)
+  assert.equal(g.finishPatch(1), false)
+  g.forget(1)
+  assert.equal(g.finishReread(1, g.startReread(1)), 'apply')
 })
 
 console.log(`\n${passed} passed`)

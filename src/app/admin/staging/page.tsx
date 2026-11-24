@@ -45,7 +45,7 @@ import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
 import UnsavedTillableModal from '@/components/admin/UnsavedTillableModal'
 import {
   tractUid, findTractIndex, findOriginalTract, replaceTractInScrapedData, withoutDeletedTracts,
-  addPendingDeletes, clearPendingDeletes, buildStagingPatchBody, removedTractUids, pickStagingRow,
+  addPendingDeletes, clearPendingDeletes, buildStagingPatchBody, removedTractUids, RowRereadGate,
   type PendingDeletes,
 } from '@/lib/stagingTracts'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
@@ -981,39 +981,76 @@ export default function AdminStagingPage() {
     pendingDeletesRef.current = addPendingDeletes(pendingDeletesRef.current, stagingId, uids)
   }
 
+  // Keeps a row re-read from overwriting an edit made after it was asked
+  // for: only the latest re-read of a row applies, and a re-read that comes
+  // back after a local edit is dropped and run once more after that edit's
+  // PATCH has completed (see RowRereadGate).
+  const rereadGateRef = useRef(new RowRereadGate())
+  const listingsRef = useRef<StagingListing[]>([])
+  listingsRef.current = listings
+
   // The ONE way this page PATCHes scraped_data. Sends the page's copy plus
   // any queued deleted_tract_uids for the row.
   const patchStaging = async (stagingId: number, scrapedData: any, extra: Record<string, unknown> = {}) => {
     const body = buildStagingPatchBody(scrapedData, pendingDeletesRef.current[stagingId], extra)
-    const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
+    rereadGateRef.current.startPatch(stagingId)
+    let res: Response
+    try {
+      res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } catch (e) {
+      rereadGateRef.current.finishPatch(stagingId)
+      throw e
+    }
     const sent = body.deleted_tract_uids as string[] | undefined
     if (res.ok && sent?.length) {
       pendingDeletesRef.current = clearPendingDeletes(pendingDeletesRef.current, stagingId, sent)
     }
+    // A re-read was dropped (or is still in flight) because of this edit —
+    // run it again now that the edit is stored.
+    if (rereadGateRef.current.finishPatch(stagingId) && res.ok) void refetchStagingRow(stagingId)
     return res
   }
 
-  // Re-read ONE staging row and replace it in state — after anything that
-  // changes the tract list (add / delete / swap / Edit modal), so the page
-  // holds the server's tracts (uids, tillable revs, relocated tillable
-  // work). There is no single-row GET, so this re-runs the page's list call
-  // and takes just that row; other rows are left untouched.
+  // Re-read ONE staging row (GET /api/admin/staging/{id}) and replace it in
+  // state — after anything that changes the tract list (add / delete / swap
+  // / Edit modal) and after a Workshop 409, so the page holds the server's
+  // tracts (uids, tillable revs, relocated tillable work). Other rows are
+  // untouched. A row the server no longer has (404), or that is no longer
+  // pending, is removed from the page.
   const refetchStagingRow = async (stagingId: number): Promise<boolean> => {
+    const gate = rereadGateRef.current
+    const token = gate.startReread(stagingId)
+    let res: Response | null = null
+    let row: StagingListing | null = null
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=auction&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`)
-      if (!res.ok) return false
-      const row = pickStagingRow<StagingListing>(await res.json(), stagingId)
-      if (!row) return false
-      const scraped = withoutDeletedTracts(row.scraped_data, pendingDeletesRef.current[stagingId])
-      setListings((prev) => prev.map((l) => (l.id === stagingId ? { ...l, ...row, scraped_data: scraped } : l)))
-      return true
+      res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}`)
+      if (res.ok) row = await res.json()
     } catch {
+      res = null
+    }
+    const gone = !!res && (res.status === 404 || (res.ok && !!row && row.status !== 'pending'))
+    const failed = !res || (!gone && (!res.ok || !row || row.id !== stagingId))
+    const verdict = gate.finishReread(stagingId, token, failed)
+    if (gone) {
+      // Gone is gone, whatever was edited meanwhile.
+      if (listingsRef.current.some((l) => l.id === stagingId)) {
+        setListings((prev) => prev.filter((l) => l.id !== stagingId))
+        setTotalCount((prev) => Math.max(0, prev - 1))
+        showToast('error', 'This staged listing is no longer in staging — it was removed from the page.')
+      }
+      gate.forget(stagingId)
+      pendingDeletesRef.current = clearPendingDeletes(pendingDeletesRef.current, stagingId, pendingDeletesRef.current[stagingId] || [])
       return false
     }
+    if (verdict !== 'apply' || !row) return false
+    const fresh = row
+    const scraped = withoutDeletedTracts(fresh.scraped_data, pendingDeletesRef.current[stagingId])
+    setListings((prev) => prev.map((l) => (l.id === stagingId ? { ...l, ...fresh, scraped_data: scraped } : l)))
+    return true
   }
 
   // Boundary-save guard: a boundary save reloads the Tillable Workshop for
@@ -2653,6 +2690,7 @@ export default function AdminStagingPage() {
                                     // current shape immediately (not just
                                     // after Save).
                                     onPolygonChange={(_pts, gisAcres) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l
                                         const sd = { ...(l.scraped_data || {}) }
@@ -2665,6 +2703,7 @@ export default function AdminStagingPage() {
                                       }))
                                     }}
                                     onUpdate={(updatedTract) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       // Merge updated tract back into local state
                                       // so the card re-renders immediately
                                       // without a full re-fetch.
@@ -2710,6 +2749,7 @@ export default function AdminStagingPage() {
                                     latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
                                     longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
                                     onSaved={(r) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l
                                         // The server returns the FULL updated tract:
@@ -2789,6 +2829,7 @@ export default function AdminStagingPage() {
                                     siblingTractNumbers={info.tracts.map((t: any) =>
                                       String(t.tract_number ?? ''))}
                                     onTractNumberChange={(newNum) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l
                                         const sd = { ...(l.scraped_data || {}) }
