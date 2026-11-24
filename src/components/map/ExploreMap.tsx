@@ -114,10 +114,11 @@ import {
   StickyNote,
   Package as ProductsIcon,
   ChevronRight as ChevronRightIcon,
+  Pencil as PencilIcon,
 } from 'lucide-react'
 import { locateNoteItem, type NoteSearchResult } from '@/lib/notes'
 import NotesPanel from '@/components/notes/NotesPanel'
-import { myMapsCounts, type MyMapsCounts } from '@/lib/configurableMapping'
+import { myMapsCounts, type MyMapsCounts, listSavedPins, createSavedPin, renameSavedPin, deleteSavedPin, SAVED_PIN_NAME_MAX, type SavedPin } from '@/lib/configurableMapping'
 import { pinMinZoom, tileDotMinZoom, saleDotFade } from '@/lib/pinZooms'
 import { localIsoDate } from '@/lib/localDate'
 import { apiTractPrice, rowPrice, totalLabelFor } from '@/lib/tractPrice'
@@ -1912,13 +1913,16 @@ const pinActionButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-// ── Set Pin placement cursor (2026-09-08, web-only) — a small pink
+// Owner 11/23: every map pin (dropped, shared, saved) is RED, not pink.
+const PIN_RED = '#E53935'
+
+// ── Set Pin placement cursor (2026-09-08, web-only) — a small red
 // map-pin, 24x32, dark outline so it reads on both light and dark
 // basemap imagery. Hotspot (12, 30) points at the pin's tip. Falls back
 // to a plain crosshair if the data URI ever fails to load. ─────────────
 const SET_PIN_CURSOR_SVG =
   "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='32' viewBox='0 0 24 32'>" +
-  "<path d='M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z' fill='#F58CDE' stroke='#000' stroke-width='1.5'/>" +
+  "<path d='M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20s12-11 12-20C24 5.373 18.627 0 12 0z' fill='#E53935' stroke='#000' stroke-width='1.5'/>" +
   "<circle cx='12' cy='12' r='4.5' fill='#fff'/>" +
   "</svg>"
 const SET_PIN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(SET_PIN_CURSOR_SVG)}") 12 30, crosshair`
@@ -2768,7 +2772,8 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // pin (the "Set Pin" tile) into one marker/panel — same shape either
   // way, so clicking either kind of pin reopens the same Pin view.
   const [pinMode, setPinMode] = useState(false)
-  const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null)
+  // savedId/name are set when the pin is one of the user's saved pins (owner 11/23).
+  const [pin, setPin] = useState<{ lat: number; lng: number; savedId?: string; name?: string } | null>(null)
   const [pinParcel, setPinParcel] = useState<any>(null)
   const [pinGeo, setPinGeo] = useState<{
     state?: string | null
@@ -2797,8 +2802,11 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
   // and Town/Township/County (new /api/geo/locate) whenever the pin
   // coordinate changes. Cleared immediately so a stale prior pin's data
   // never flashes under the new coordinate.
+  // Keyed on the coordinate only: saving or renaming a pin doesn't re-fetch.
+  const pinLatKey = pin?.lat
+  const pinLngKey = pin?.lng
   useEffect(() => {
-    if (!pin) {
+    if (pinLatKey == null || pinLngKey == null) {
       setPinParcel(null)
       setPinGeo(null)
       setPinLoading(false)
@@ -2808,7 +2816,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     setPinParcel(null)
     setPinGeo(null)
     setPinLoading(true)
-    const qs = `lat=${pin.lat}&lng=${pin.lng}`
+    const qs = `lat=${pinLatKey}&lng=${pinLngKey}`
     Promise.all([
       fetchWithAuth(`${API_URL}/api/regrid/parcel?${qs}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
       fetchWithAuth(`${API_URL}/api/geo/locate?${qs}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
@@ -2820,7 +2828,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       if (!cancelled) setPinLoading(false)
     })
     return () => { cancelled = true }
-  }, [pin])
+  }, [pinLatKey, pinLngKey])
 
   const pinLink = pin
     ? `https://www.groundgoat.com/access?focusLat=${pin.lat.toFixed(6)}&focusLng=${pin.lng.toFixed(6)}&focusZoom=16&pin=1`
@@ -2855,6 +2863,89 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
     setUtilitiesOpen(false)
     setUtilitiesView('menu')
   }, [])
+
+  // ── Saved pins (owner 11/23) ─────────────────────────────────────────
+  // "allow the user to save that pin location as well as name it", and a
+  // My Pins toggle in My Maps (on by default, remembered on this device).
+  // Private to the user; the API 403s without a subscription, which hides
+  // the save button and the toggle.
+  const [savedPins, setSavedPins] = useState<SavedPin[]>([])
+  const [savedPinsAvailable, setSavedPinsAvailable] = useState(false)
+  const [savedPinsLoaded, setSavedPinsLoaded] = useState(false)
+  const [savedPinsError, setSavedPinsError] = useState<string | null>(null)
+  const [myPinsOn, setMyPinsOn] = useState(() => {
+    try { return localStorage.getItem('gg_my_pins_layer') !== 'off' } catch { return true }
+  })
+  const toggleMyPins = useCallback(() => {
+    setMyPinsOn(v => {
+      try { localStorage.setItem('gg_my_pins_layer', v ? 'off' : 'on') } catch { /* private mode */ }
+      return !v
+    })
+    // Hiding My Pins hides them all, including one whose card was open.
+    if (myPinsOn) setPin(p => (p?.savedId ? null : p))
+  }, [myPinsOn])
+  useEffect(() => {
+    let live = true
+    listSavedPins()
+      .then(p => { if (live) { setSavedPins(p); setSavedPinsAvailable(true); setSavedPinsError(null) } })
+      .catch((e: any) => {
+        if (!live) return
+        const msg = String(e?.message || '')
+        // 401/403 = this account can't save pins: hide the feature quietly.
+        if (/subscription|401|403|404|Not Found|auth|credential/i.test(msg)) setSavedPinsAvailable(false)
+        else { setSavedPinsAvailable(true); setSavedPinsError('Could not load your pins.') }
+      })
+      .finally(() => { if (live) setSavedPinsLoaded(true) })
+    return () => { live = false }
+  }, [])
+  // The Save / Rename name box in the Pin view.
+  const [pinNameMode, setPinNameMode] = useState<null | 'save' | 'rename'>(null)
+  const [pinNameDraft, setPinNameDraft] = useState('')
+  const [pinNameBusy, setPinNameBusy] = useState(false)
+  const [pinNameError, setPinNameError] = useState<string | null>(null)
+  // A different pin closes the name box.
+  useEffect(() => { setPinNameMode(null); setPinNameError(null) }, [pinLatKey, pinLngKey, pin?.savedId])
+  const startPinName = useCallback((mode: 'save' | 'rename') => {
+    setPinNameMode(mode)
+    setPinNameDraft(mode === 'rename' ? (pin?.name || '') : '')
+    setPinNameError(null)
+  }, [pin])
+  const submitPinName = useCallback(async () => {
+    if (!pin || !pinNameMode || pinNameBusy) return
+    const name = pinNameDraft.replace(/\s+/g, ' ').trim()
+    if (!name) { setPinNameError('Enter a name for this pin.'); return }
+    if (name.length > SAVED_PIN_NAME_MAX) { setPinNameError(`Keep the name to ${SAVED_PIN_NAME_MAX} characters.`); return }
+    setPinNameBusy(true)
+    setPinNameError(null)
+    try {
+      if (pinNameMode === 'save') {
+        const saved = await createSavedPin(name, pin.lat, pin.lng)
+        setSavedPins(list => [saved, ...list])
+        setPin({ lat: saved.lat, lng: saved.lng, savedId: saved.id, name: saved.name })
+      } else if (pin.savedId) {
+        const saved = await renameSavedPin(pin.savedId, name)
+        setSavedPins(list => list.map(p => (p.id === saved.id ? saved : p)))
+        setPin({ lat: saved.lat, lng: saved.lng, savedId: saved.id, name: saved.name })
+      }
+      setPinNameMode(null)
+    } catch (e: any) {
+      setPinNameError(e?.message || 'Could not save the pin.')
+    } finally {
+      setPinNameBusy(false)
+    }
+  }, [pin, pinNameMode, pinNameDraft, pinNameBusy])
+  const handleDeleteSavedPin = useCallback(async () => {
+    if (!pin?.savedId) return
+    if (!window.confirm(`Delete the pin "${pin.name || 'Pin'}"? This can't be undone.`)) return
+    try {
+      await deleteSavedPin(pin.savedId)
+      const gone = pin.savedId
+      setSavedPins(list => list.filter(p => p.id !== gone))
+      handleRemovePin()
+    } catch (e: any) {
+      setPinNameError(e?.message || 'Could not delete the pin.')
+    }
+  }, [pin, handleRemovePin])
 
   // ── Draw Area (2026-09-08) ───────────────────────────────────────────
   // Web version of the mobile app's Draw Area tile: click to drop dots,
@@ -3317,8 +3408,10 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       pinMarkerRef.current = null
     }
     if (!pin || !map || !mapLoaded) return
+    // A saved pin is already on the map (its own red marker) while My Pins is on.
+    if (pin.savedId && myPinsOn) return
 
-    const marker = new maplibregl.Marker({ color: '#F58CDE', anchor: 'bottom' })
+    const marker = new maplibregl.Marker({ color: PIN_RED, anchor: 'bottom' })
       .setLngLat([pin.lng, pin.lat])
       .addTo(map)
 
@@ -3338,7 +3431,44 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
       marker.remove()
       pinMarkerRef.current = null
     }
-  }, [pin, mapLoaded])
+  }, [pin, mapLoaded, myPinsOn])
+
+  // Saved pins (owner 11/23): a red marker + name label per pin while My
+  // Pins is on; a click opens the Pin view with Rename / Delete.
+  const savedPinMarkersRef = useRef<maplibregl.Marker[]>([])
+  useEffect(() => {
+    const map = mapRef.current
+    savedPinMarkersRef.current.forEach(m => m.remove())
+    savedPinMarkersRef.current = []
+    if (!map || !mapLoaded || !myPinsOn || !savedPinsAvailable) return
+    for (const sp of savedPins) {
+      const marker = new maplibregl.Marker({ color: PIN_RED, anchor: 'bottom' })
+        .setLngLat([sp.lng, sp.lat])
+        .addTo(map)
+      const el = marker.getElement()
+      el.setAttribute('data-gg-saved-pin', sp.id)
+      el.setAttribute('role', 'button')
+      el.setAttribute('aria-label', `Saved pin ${sp.name}`)
+      el.style.cursor = 'pointer'
+      const label = document.createElement('div')
+      label.textContent = sp.name
+      label.style.cssText = 'position:absolute;left:24px;top:2px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;' +
+        'padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.72);color:#fff;font:600 11px/1.3 system-ui,sans-serif;pointer-events:none'
+      el.appendChild(label)
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        setPinMode(false)
+        setPin({ lat: sp.lat, lng: sp.lng, savedId: sp.id, name: sp.name })
+        setUtilitiesView('pin')
+        setUtilitiesOpen(true)
+      })
+      savedPinMarkersRef.current.push(marker)
+    }
+    return () => {
+      savedPinMarkersRef.current.forEach(m => m.remove())
+      savedPinMarkersRef.current = []
+    }
+  }, [savedPins, myPinsOn, savedPinsAvailable, mapLoaded])
 
   // "while a pin exists or a non-default layer/year is active" — owner spec.
   const utilitiesActive = pin !== null || baseOverlay !== null || terrain3DOn || aerialYear !== null || drawPoints.length > 0
@@ -4715,7 +4845,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
   // Shared-pin marker (/go Set-Pin share, sharedPin prop) — a DOM Marker,
   // same visual treatment as the mobile app's own "dropped pin" (white
-  // outline behind a pink glyph, anchor bottom) so a shared pin reads the
+  // outline behind a red glyph, anchor bottom) so a shared pin reads the
   // same on both surfaces. No interaction beyond showing where the sender
   // meant — this isn't the tract-pin click system, just a marker.
   const sharedPinMarkerRef = useRef<maplibregl.Marker | null>(null)
@@ -4734,7 +4864,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
         <path fill="#fff" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
       </svg>
       <svg width="34" height="34" viewBox="0 0 24 24">
-        <path fill="#F58CDE" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
+        <path fill="${PIN_RED}" d="M12 2C7.6 2 4 5.6 4 10c0 5.4 6.6 11.2 7.2 11.7a1.2 1.2 0 0 0 1.6 0C13.4 21.2 20 15.4 20 10c0-4.4-3.6-8-8-8z"/>
       </svg>
     `
     el.style.position = 'relative'
@@ -12409,7 +12539,7 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
               </button>
             )}
             <span style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>
-              {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? 'Pin' : utilitiesView === 'drawArea' ? 'Quick Draw' : 'My Maps'}
+              {utilitiesView === 'layers' ? 'Layers' : utilitiesView === 'year' ? 'Map Year' : utilitiesView === 'pin' ? (pin?.savedId ? 'Saved Pin' : 'Pin') : utilitiesView === 'drawArea' ? 'Quick Draw' : 'My Maps'}
             </span>
           </div>
           <button
@@ -12577,6 +12707,43 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                   )}
                 </>
               )}
+              {/* My Pins (owner 11/23): the user's saved pins, on by default. */}
+              {savedPinsAvailable && (
+                <>
+                  <div
+                    data-testid="mymaps-my-pins"
+                    onClick={() => toggleMyPins()}
+                    style={{ display: 'flex', alignItems: 'center', height: 40, padding: '0 2px', cursor: 'pointer', gap: 8 }}
+                  >
+                    <MapPinIcon size={14} color={PIN_RED} fill={PIN_RED} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1, color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>My Pins</span>
+                    {savedPinsLoaded && !savedPinsError && (
+                      <span data-testid="mymaps-my-pins-count" style={{ fontSize: 13, color: '#A1A1AA', marginRight: 4 }}>{savedPins.length.toLocaleString()}</span>
+                    )}
+                    <button
+                      role="switch"
+                      aria-checked={myPinsOn}
+                      aria-label="My Pins"
+                      onClick={e => { e.stopPropagation(); toggleMyPins() }}
+                      style={{
+                        width: 32, height: 18, borderRadius: 9, flexShrink: 0, border: 'none', padding: 0, cursor: 'pointer',
+                        background: myPinsOn ? '#F58CDE' : 'rgba(255,255,255,0.18)',
+                        position: 'relative', transition: 'background 0.15s',
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute', top: 2, left: myPinsOn ? 16 : 2, width: 14, height: 14,
+                        borderRadius: '50%', background: '#fff', transition: 'left 0.15s',
+                      }} />
+                    </button>
+                  </div>
+                  {myPinsOn && (savedPinsError || (savedPinsLoaded && savedPins.length === 0)) && (
+                    <div style={{ padding: '2px 2px 0', color: 'rgba(255,255,255,0.45)', fontSize: 10 }}>
+                      {savedPinsError || 'No saved pins yet. Use Set Pin, then Save pin.'}
+                    </div>
+                  )}
+                </>
+              )}
               {/* Grain elevator pins (owner 11/9) — everyone since 11/12. */}
               {
                 <>
@@ -12728,6 +12895,50 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
 
           {utilitiesView === 'pin' && pin && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {pin.savedId && pinNameMode !== 'rename' && (
+                <div>
+                  <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Name</div>
+                  <div data-testid="saved-pin-name" style={{ color: '#fff', fontSize: 16, fontWeight: 700, wordBreak: 'break-word' }}>{pin.name}</div>
+                </div>
+              )}
+              {pinNameMode && (
+                <form
+                  onSubmit={e => { e.preventDefault(); submitPinName() }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  <label htmlFor="gg-pin-name" style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                    Pin name
+                  </label>
+                  <input
+                    id="gg-pin-name"
+                    data-testid="pin-name-input"
+                    autoFocus
+                    value={pinNameDraft}
+                    maxLength={SAVED_PIN_NAME_MAX}
+                    placeholder="e.g. North field gate"
+                    onFocus={e => e.currentTarget.select()}
+                    onChange={e => { setPinNameDraft(e.target.value); setPinNameError(null) }}
+                    onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setPinNameMode(null) } }}
+                    style={{ height: 40, borderRadius: 8, border: '1px solid #D4D4D8', background: '#fff', color: '#000', padding: '0 12px', fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
+                  />
+                  {pinNameError && <div style={{ color: '#f87171', fontSize: 12 }}>{pinNameError}</div>}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <button type="button" onClick={() => setPinNameMode(null)} style={{ ...pinActionButtonStyle, background: '#E4E4E7', borderColor: '#E4E4E7', color: '#000' }}>
+                      Cancel
+                    </button>
+                    <button type="submit" data-testid="pin-name-save" disabled={pinNameBusy || !pinNameDraft.trim()}
+                            style={{ ...pinActionButtonStyle, background: '#F58CDE', borderColor: '#F58CDE', color: '#000', opacity: pinNameBusy || !pinNameDraft.trim() ? 0.6 : 1 }}>
+                      {pinNameBusy ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </form>
+              )}
+              {!pinNameMode && !pin.savedId && savedPinsAvailable && (
+                <button type="button" data-testid="pin-save" onClick={() => startPinName('save')}
+                        style={{ ...pinActionButtonStyle, background: '#F58CDE', borderColor: '#F58CDE', color: '#000' }}>
+                  <MapPinIcon size={14} /> Save pin
+                </button>
+              )}
               <div>
                 <div style={{ color: 'rgba(255,255,255,0.40)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Coordinates</div>
                 <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>{pin.lat.toFixed(6)}, {pin.lng.toFixed(6)}</div>
@@ -12783,9 +12994,23 @@ export default function ExploreMap({ height = 'calc(100vh - 220px)', homeState, 
                 >
                   <DirectionsIcon size={14} /> Directions
                 </button>
-                <button onClick={handleRemovePin} style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}>
-                  <TrashIcon size={14} /> Remove
-                </button>
+                {pin.savedId ? (
+                  <>
+                    {!pinNameMode && (
+                      <button data-testid="pin-rename" onClick={() => startPinName('rename')} style={pinActionButtonStyle}>
+                        <PencilIcon size={14} /> Rename
+                      </button>
+                    )}
+                    {!pinNameMode && pinNameError && <div style={{ color: '#f87171', fontSize: 12 }}>{pinNameError}</div>}
+                    <button data-testid="pin-delete" onClick={handleDeleteSavedPin} style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}>
+                      <TrashIcon size={14} /> Delete pin
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={handleRemovePin} style={{ ...pinActionButtonStyle, color: '#f87171', borderColor: 'rgba(248,113,113,0.4)' }}>
+                    <TrashIcon size={14} /> Remove
+                  </button>
+                )}
               </div>
             </div>
           )}
