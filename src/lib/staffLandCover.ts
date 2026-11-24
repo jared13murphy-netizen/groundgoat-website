@@ -402,7 +402,7 @@ export type FieldClick =
  *
  *  - not on a field, or the overlay is off, or a tool is armed → pass;
  *  - on a field this session ticked, on one of its shapes → remove them;
- *  - on ground that is already tillable → pass (normal select / edit);
+ *  - on any drawn shape (tillable, timber, water…) → pass (normal select / edit);
  *  - otherwise → add the field as tillable.
  */
 export function fsaFieldClick(opts: {
@@ -423,8 +423,11 @@ export function fsaFieldClick(opts: {
       return { action: 'remove', field, shapeIds: mine.map((sh) => sh.id) }
     }
   }
-  const onTillable = opts.shapes.some((sh) => sh.cls === 'tillable' && pointInPolys(opts.point, sh.polys))
-  if (onTillable) return { action: 'pass' }
+  // 11/24 click-through: a click on a timber / water / pasture polygon ticked
+  // the field underneath and swallowed the shape. A click on ANY drawn shape
+  // is a normal select; a field is ticked only from bare ground.
+  const onShape = opts.shapes.some((sh) => pointInPolys(opts.point, sh.polys))
+  if (onShape) return { action: 'pass' }
   return { action: 'add', field }
 }
 

@@ -819,14 +819,18 @@ export function useTractEditor({
     let removed = 0
     const id = selectedRef.current
     if (!id) { setError('Select a polygon first, then drag over its points.'); return }
-    mutate((prev) => prev.map((sh) => sh.id !== id ? sh : {
+    // Count on the CURRENT shapes first: the state updater runs later, so
+    // counting inside it left `removed` at 0 and showed "No points inside
+    // that box" after every successful erase.
+    const next = shapesRef.current.map((sh) => sh.id !== id ? sh : {
       ...sh,
       polys: sh.polys.map((rings) => dropDegenerateHoles(
         rings.map((ring, ri) => {
           const t = trim(ring, ri); removed += ring.length - t.length; return t
         }))),
-    }))
-    if (!removed) setError('No points inside that box — drag a box right over the dots.')
+    })
+    if (!removed) { setError('No points inside that box — drag a box right over the dots.'); return }
+    mutate(() => next)
   }, [mutate, setError])
   const eraseRef = useRef(eraseInBox); eraseRef.current = eraseInBox
 
