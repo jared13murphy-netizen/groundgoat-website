@@ -12,34 +12,24 @@
  * Save opens a small panel the first time: name, optional project, Save /
  * Cancel. Later saves just save. Once saved, a Reports button sits in the bar.
  */
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, Eraser, FileText, Layers, Loader2, MapPin, PaintBucket, PenTool, Plus, Spline,
-  RotateCcw, RotateCw, Save, Scissors, Trash2, X,
+  ArrowRight, Check, FileText, Loader2, MapPin, PenTool,
+  RotateCcw, RotateCw, Save, X,
 } from 'lucide-react'
-import {
-  CLASS_COLOR, CLASS_LABEL, LAND_CLASSES, listProjects,
-} from '@/lib/configurableMapping'
+import { listProjects } from '@/lib/configurableMapping'
 import type { TractEditor } from './useTractEditor'
 import { polygonAcres } from '@/lib/polygonGeometry'
 import { openReports } from '@/lib/reportsPanel'
+// The land-type half of the bar (shared with the admin Tillable Workshop).
+import {
+  Btn, LandTypeHint, LandTypeMessages, LandTypeToolRow, LandTypeTotals,
+  PINK, overlayBar as bar, row, stat,
+} from './LandTypeTools'
 
-const PINK = '#F58CDE'
 const NEW_PROJECT = '__new__'
 const NO_PROJECT = ''
 
-const bar: CSSProperties = {
-  // Owner 10/30: at the bottom with a small gap; the Goat Search dock is
-  // hidden by the page while Map It is up (MapChatPanel `hidden`), so
-  // nothing sits on top of these buttons.
-  position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)',
-  zIndex: 560, width: 'min(960px, calc(100% - 24px))',
-  background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(6px)', color: '#fff',
-  borderRadius: 14, boxShadow: '0 4px 14px rgba(0,0,0,0.4)', padding: '10px 12px',
-  display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13,
-}
-const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }
-const stat: CSSProperties = { fontSize: 12, color: 'rgba(255,255,255,0.75)' }
 const field: CSSProperties = {
   // Owner 11/3: input boxes are ALWAYS white with a light gray border —
   // never a dark box, even inside a dark panel.
@@ -50,34 +40,6 @@ const field: CSSProperties = {
 const label: CSSProperties = {
   color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 600,
   textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4, display: 'block',
-}
-
-function Btn({ icon, dot, text, onClick, active, disabled, primary, title }: {
-  icon?: ReactNode
-  dot?: string
-  text: string
-  onClick: () => void
-  active?: boolean
-  disabled?: boolean
-  primary?: boolean
-  title?: string
-}) {
-  return (
-    <button
-      type="button" onClick={onClick} disabled={disabled} title={title || text} aria-label={title || text}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
-        padding: '7px 11px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-        cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1,
-        color: primary ? '#111' : '#fff',
-        background: primary ? PINK : active ? 'rgba(245,140,222,0.25)' : 'rgba(255,255,255,0.1)',
-        border: `1px solid ${active ? PINK : primary ? PINK : 'rgba(255,255,255,0.22)'}`,
-      }}>
-      {dot && <span style={{ width: 10, height: 10, borderRadius: '50%', background: dot, flex: 'none' }} />}
-      {icon}
-      {text}
-    </button>
-  )
 }
 
 export default function MapItToolbar({
@@ -173,7 +135,6 @@ export default function MapItToolbar({
   const busy = !!e.busy
   const landTypes = e.mode === 'landtypes'
   const drawingTract = e.tool === 'drawtract' && e.drawing
-  const drawingPoly = e.tool === 'draw' && e.drawing
   const hasOutline = e.boundary.length > 0
   const undoBtns = (
     <>
@@ -224,23 +185,7 @@ export default function MapItToolbar({
         </div>
       )}
 
-      {(e.error || e.notice || e.busy || e.loading) && (
-        <div style={{
-          fontSize: 12, padding: '6px 10px', borderRadius: 8,
-          background: e.error ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.08)',
-          color: e.error ? '#fca5a5' : 'rgba(255,255,255,0.85)',
-          display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          {e.busy && <Loader2 size={13} className="animate-spin" />}
-          <span style={{ flex: 1 }}>{e.error || e.busy || e.notice}</span>
-          {(e.error || e.notice) && !e.busy && (
-            <button type="button" onClick={e.clearMessages} aria-label="Dismiss"
-                    style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0 }}>
-              <X size={13} />
-            </button>
-          )}
-        </div>
-      )}
+      <LandTypeMessages editor={e} />
 
       <div style={{ ...row, justifyContent: 'space-between' }}>
         <div style={{ ...row, gap: 12 }}>
@@ -307,61 +252,9 @@ export default function MapItToolbar({
         </>
       ) : (
         <>
-          <div style={{ ...row, gap: 10 }}>
-            {LAND_CLASSES.map((c) => (
-              <span key={c} style={{ ...stat, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 9, height: 9, borderRadius: '50%', background: CLASS_COLOR[c] }} />
-                {CLASS_LABEL[c]} {(e.totals[c] ?? 0).toFixed(2)} ac
-              </span>
-            ))}
-            <span style={stat}>
-              Soil {e.soilBusy ? '…' : e.soil?.rating != null
-                ? `${e.soil.rating}${e.soil.rating_type ? ` (${e.soil.rating_type})` : ''}` : '—'}
-            </span>
-          </div>
-          <div style={stat}>
-            {drawingPoly
-              ? `Click inside the outline · Done, double-click or Enter to finish · Esc to cancel${e.draft.length >= 3 ? ` · drawing ${polygonAcres(e.draft).toFixed(2)} ac` : ''}`
-              : e.tool === 'cutpoly' ? 'Click once on each side of the polygon to cut it'
-              : e.tool === 'erase' ? 'Drag a box over points to remove them'
-              : 'Pick a type, then Add Polygon. Click a polygon to select it; picking a type recolors the selected one.'}
-          </div>
-          <div style={row}>
-            <Btn icon={<ArrowLeft size={13} />} text="Outline" disabled={busy}
-                 onClick={() => e.setMode('outline')} />
-            {LAND_CLASSES.map((c) => (
-              <Btn key={c} dot={CLASS_COLOR[c]} text={CLASS_LABEL[c]} active={e.drawClass === c}
-                   onClick={() => e.setDrawClass(c)} />
-            ))}
-            <Btn icon={drawingPoly ? <X size={13} /> : <Plus size={13} />} active={drawingPoly}
-                 text={drawingPoly ? 'Cancel Drawing' : 'Add Polygon'}
-                 disabled={busy || !e.classified} onClick={e.startDrawPolygon} />
-            {drawingPoly && (
-              <Btn icon={<Check size={13} />} text="Done" primary disabled={e.draft.length < 3}
-                   title="Finish this polygon (same as Enter)" onClick={() => e.finishDraft()} />
-            )}
-            <Btn icon={<Trash2 size={13} />} text="Delete" disabled={!e.selectedId} onClick={e.deleteSelected} />
-            <Btn icon={e.tool === 'cutpoly' ? <X size={13} /> : <Scissors size={13} />} active={e.tool === 'cutpoly'}
-                 text={e.tool === 'cutpoly' ? 'Cancel Cut' : 'Split'}
-                 disabled={!e.selectedId && e.tool !== 'cutpoly'} onClick={e.toggleCut} />
-            <Btn icon={e.tool === 'erase' ? <Check size={13} /> : <Eraser size={13} />} active={e.tool === 'erase'}
-                 text={e.tool === 'erase' ? 'Done Erasing' : 'Erase'}
-                 disabled={!e.selectedId && e.tool !== 'erase'} onClick={e.toggleErase} />
-            <Btn icon={<Spline size={13} />} text="Simplify"
-                 title={e.selectedId ? 'Remove extra dots from the selected polygon' : 'Remove extra dots from every polygon'}
-                 disabled={busy || !e.shapes.length} onClick={e.simplify} />
-            <Btn icon={<PaintBucket size={13} />}
-                 text={`Fill Holes${e.holesOnSelected > 0 ? ` (${e.holesOnSelected})` : ''}`}
-                 disabled={!e.selectedId || e.holesOnSelected === 0} onClick={e.fillHoles} />
-            <Btn icon={<X size={13} />} text="Clear" disabled={!e.shapes.length}
-                 onClick={() => { if (window.confirm('Clear every land-type polygon?')) e.clearPolygons() }} />
-            <Btn icon={<Layers size={13} />} text="Start Over" disabled={busy || !e.classified}
-                 title="Back to the engine's land types for this outline"
-                 onClick={() => { if (window.confirm('Throw away your edits and go back to the engine land types?')) e.startOver() }} />
-            {undoBtns}
-            <Btn icon={<Save size={13} />} text="Save" primary
-                 disabled={busy || !hasOutline} onClick={saveClick} />
-          </div>
+          <LandTypeTotals editor={e} />
+          <LandTypeHint editor={e} />
+          <LandTypeToolRow editor={e} onSave={saveClick} />
         </>
       )}
     </div>
