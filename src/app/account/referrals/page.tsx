@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Copy, Check, Share2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Copy, Check, Share2, ChevronDown, ChevronUp, Lock } from 'lucide-react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.groundgoat.com'
 
@@ -26,6 +26,11 @@ export default function AccountReferralsPage() {
   const [link, setLink] = useState<{ referral_code: string; referral_url: string; qr_code_url: string } | null>(null)
   const [earnings, setEarnings] = useState<Earnings | null>(null)
   const [copied, setCopied] = useState(false)
+  // Owner 11/23: this QR is shown to prospects to sign them up, so the
+  // commission plan (rate, earnings, per-person commissions, payouts) stays
+  // hidden until the user opens it on purpose. Not persisted: hidden again
+  // every time the page is opened.
+  const [showCommissionPlan, setShowCommissionPlan] = useState(false)
 
   useEffect(() => {
     (async () => {
@@ -75,7 +80,7 @@ export default function AccountReferralsPage() {
         </Link>
         <h1 className="font-display text-4xl font-bold text-white mb-2">Share Ground Goat</h1>
         <p className="text-gg-gray-400 mb-8">
-          When someone signs up through your code and pays for a subscription, you earn {rate}% of what they pay for their first year, sent to you monthly.
+          Scan the QR code or use the link to sign up for Ground Goat.
         </p>
 
         {link && (
@@ -99,47 +104,64 @@ export default function AccountReferralsPage() {
           </div>
         )}
 
-        {earnings && (
+        <button
+          type="button"
+          onClick={() => setShowCommissionPlan(v => !v)}
+          aria-expanded={showCommissionPlan}
+          className="w-full inline-flex items-center justify-between gap-2 text-sm font-semibold py-3 px-6 rounded-full bg-[#E4E4E7] text-black hover:bg-[#D4D4D8] transition-colors mb-6"
+        >
+          <span className="inline-flex items-center gap-2"><Lock size={14} /> {showCommissionPlan ? 'Hide commission plan' : 'Show commission plan'}</span>
+          {showCommissionPlan ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+
+        {showCommissionPlan && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <Stat label="Earned so far" value={money(earnings.totals.earned)} />
-              <Stat label="Paid to you" value={money(earnings.totals.paid_out)} />
-              <Stat label="Coming this month" value={money(earnings.totals.payout_pending)} highlight />
-              <Stat label="Building up" value={money(earnings.totals.not_yet_bundled)} />
-            </div>
-
-            <h2 className="text-xl font-semibold text-white mb-3">People you referred ({earnings.referred.length})</h2>
-            <div className="card mb-6">
-              {earnings.referred.length === 0 ? (
-                <p className="text-gg-gray-400 text-sm">Nobody yet. Share your link or show your QR code.</p>
-              ) : (
-                <ul className="divide-y divide-gg-gray-800">
-                  {earnings.referred.map(u => (
-                    <li key={u.user_id} className="py-3 flex justify-between items-center">
-                      <div>
-                        <p className="text-white">{u.name || u.email}</p>
-                        <p className="text-gg-gray-500 text-xs">Signed up {u.signed_up_at?.slice(0, 10)} · {u.status.replace('_', ' ')}</p>
-                      </div>
-                      <p className="text-white font-semibold">{money(u.earned)}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {earnings.payouts.length > 0 && (
+            <p className="text-gg-gray-400 mb-6">
+              When someone signs up through your code and pays for a subscription, you earn {rate}% of what they pay for their first year, sent to you monthly.
+            </p>
+            {earnings && (
               <>
-                <h2 className="text-xl font-semibold text-white mb-3">Payouts</h2>
-                <div className="card">
-                  <ul className="divide-y divide-gg-gray-800">
-                    {earnings.payouts.map(p => (
-                      <li key={p.id} className="py-3 flex justify-between items-center text-sm">
-                        <span className="text-gg-gray-300">{p.period_start} → {p.period_end}</span>
-                        <span className="text-white">{money(p.total)} <span className="text-gg-gray-500 text-xs ml-2">{p.status === 'paid' ? `paid ${p.paid_at?.slice(0, 10)}${p.paid_method ? ` by ${p.paid_method}` : ''}` : 'on its way'}</span></span>
-                      </li>
-                    ))}
-                  </ul>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  <Stat label="Earned so far" value={money(earnings.totals.earned)} />
+                  <Stat label="Paid to you" value={money(earnings.totals.paid_out)} />
+                  <Stat label="Coming this month" value={money(earnings.totals.payout_pending)} highlight />
+                  <Stat label="Building up" value={money(earnings.totals.not_yet_bundled)} />
                 </div>
+
+                <h2 className="text-xl font-semibold text-white mb-3">People you referred ({earnings.referred.length})</h2>
+                <div className="card mb-6">
+                  {earnings.referred.length === 0 ? (
+                    <p className="text-gg-gray-400 text-sm">Nobody yet. Share your link or show your QR code.</p>
+                  ) : (
+                    <ul className="divide-y divide-gg-gray-800">
+                      {earnings.referred.map(u => (
+                        <li key={u.user_id} className="py-3 flex justify-between items-center">
+                          <div>
+                            <p className="text-white">{u.name || u.email}</p>
+                            <p className="text-gg-gray-500 text-xs">Signed up {u.signed_up_at?.slice(0, 10)} · {u.status.replace('_', ' ')}</p>
+                          </div>
+                          <p className="text-white font-semibold">{money(u.earned)}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {earnings.payouts.length > 0 && (
+                  <>
+                    <h2 className="text-xl font-semibold text-white mb-3">Payouts</h2>
+                    <div className="card">
+                      <ul className="divide-y divide-gg-gray-800">
+                        {earnings.payouts.map(p => (
+                          <li key={p.id} className="py-3 flex justify-between items-center text-sm">
+                            <span className="text-gg-gray-300">{p.period_start} → {p.period_end}</span>
+                            <span className="text-white">{money(p.total)} <span className="text-gg-gray-500 text-xs ml-2">{p.status === 'paid' ? `paid ${p.paid_at?.slice(0, 10)}${p.paid_method ? ` by ${p.paid_method}` : ''}` : 'on its way'}</span></span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </>
