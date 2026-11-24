@@ -372,7 +372,9 @@ export default function TractDataCompare({
     return savedNum == null || draftNum !== savedNum
   })
   const chosenDirty = ((['acres', 'tillable_acres', 'soil_rating'] as const) as string[]).some(
-    (f) => (local as any)[f] !== ((chosen || {}) as any)[f]
+    // null and missing mean the same thing ("no pick"): the staging pages
+    // clear a pick by sending explicit null (the server merges key by key).
+    (f) => ((local as any)[f] ?? null) !== (((chosen || {}) as any)[f] ?? null)
   )
   const bldgDirty = bldg !== !!hasBuilding
   const houseDirty = house !== !!hasHouse

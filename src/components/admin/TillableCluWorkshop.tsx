@@ -86,6 +86,11 @@ interface TillableCluWorkshopProps {
    *  Provide stagingId + tractIndex. Mutually exclusive with tractId. */
   stagingId?: number
   tractIndex?: number
+  /** Staging mode — the tract's server-owned `_uid`. Sent as `?uid=` on every
+   *  Workshop call so the server edits THIS tract even if the array index has
+   *  shifted (add / delete / swap in another tab). Omit for a tract the
+   *  server has not returned a uid for yet; tractIndex is always sent too. */
+  tractUid?: string | null
   /** Published mode — workshop edits an already-live tract by tracts.id
    *  (UUID), used by the missing-boundaries page. Mutually exclusive with
    *  stagingId/tractIndex; persists straight to the tract_tillable_clu
@@ -113,6 +118,13 @@ interface TillableCluWorkshopProps {
     price_per_soil_rating?: number | null
     sale_price?: number | null
     sale_status?: string | null
+    /** Staging mode: the saved tract's `_uid` / new `_tillable_rev`, and the
+     *  server's FULL updated tract. The parent must REPLACE its in-memory
+     *  copy of the tract with `tract` — its old copy is stale for the six
+     *  tillable keys, computed, chosen and manual. */
+    tract_uid?: string | null
+    tillable_rev?: number | null
+    tract?: Record<string, any> | null
   }) => void
   /** Called on each Compute Soil Rating (BEFORE save) with the freshly computed
    *  values, so a parent can show them as the "Computed" option in a
@@ -125,6 +137,10 @@ interface TillableCluWorkshopProps {
   /** Called whenever the workshop's unsaved-edits (dirty) state flips, so the
    *  parent can disable commit buttons until the admin clicks Save. */
   onDirtyChange?: (dirty: boolean) => void
+  /** Staging mode: the Save was refused (HTTP 409) because the tract's
+   *  boundary changed while it was computing. Nothing was saved and the
+   *  workshop has re-loaded itself; the parent should re-read the tract. */
+  onSaveConflict?: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +345,7 @@ function insertOnNearestSegment(ring: Pt[], pt: Pt): Pt[] {
 export default function TillableCluWorkshop({
   stagingId,
   tractIndex,
+  tractUid,
   tractId,
   latitude,
   longitude,
@@ -337,6 +354,7 @@ export default function TillableCluWorkshop({
   onSaved,
   onComputed,
   onDirtyChange,
+  onSaveConflict,
 }: TillableCluWorkshopProps) {
   // Base URL for the three CLU endpoints — published-tract mode (tractId)
   // vs staging mode (stagingId + tractIndex). Both expose the same
@@ -344,6 +362,21 @@ export default function TillableCluWorkshop({
   const baseUrl = tractId != null
     ? `${API_URL}/api/admin/tracts/${tractId}/clu`
     : `${API_URL}/api/admin/staging/${stagingId}/tracts/${tractIndex}/clu`
+  // Staging endpoints take `?uid=<_uid>` next to the index. Read through a
+  // ref so a uid arriving later (a just-added tract gets its uid on the
+  // page's re-read) does not change baseUrl and re-run the load effect,
+  // which would throw away unsaved edits.
+  const tractUidRef = useRef<string | null>(tractUid ?? null)
+  tractUidRef.current = tractUid ?? null
+  // The uid the server reported on the last load (`tract.uid`) — used only
+  // while the parent has none to give (a tract it has not re-read yet).
+  const loadedUidRef = useRef<string | null>(null)
+  // Bumped to make the workshop re-load itself (after a 409 on Save).
+  const [selfReload, setSelfReload] = useState(0)
+  const cluUrl = (suffix = '') => {
+    const uid = tractId == null ? (tractUidRef.current || loadedUidRef.current) : null
+    return `${baseUrl}${suffix}${uid ? `?uid=${encodeURIComponent(uid)}` : ''}`
+  }
   const [hasBeenVisible, setHasBeenVisible] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loaded, setLoaded] = useState(false)
@@ -504,7 +537,7 @@ export default function TillableCluWorkshop({
     let cancelled = false
     const t = setTimeout(async () => {
       try {
-        const res = await fetchWithAuth(`${baseUrl}/tillable-acres`, {
+        const res = await fetchWithAuth(cluUrl('/tillable-acres'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ selections, manual_polygons: manualPolygons,
@@ -556,10 +589,11 @@ export default function TillableCluWorkshop({
       setLoading(true)
       setError(null)
       try {
-        const res = await fetchWithAuth(baseUrl)
+        const res = await fetchWithAuth(cluUrl())
         const data = await res.json()
         if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
         if (cancelled) return
+        if (tractId == null) loadedUidRef.current = typeof data.tract?.uid === 'string' ? data.tract.uid : null
         const list: Clu[] = data.clus || []
         const sel: Record<number, boolean> = {}
         for (const c of list) sel[c.fsa_clu_id] = c.current_tillable
@@ -615,7 +649,7 @@ export default function TillableCluWorkshop({
           // on an unchanged value, and the parent's optimistic clear would be
           // left standing incorrectly. Force the dirty signal back on so
           // Verify/Done re-blocks instead of falsely staying unblocked.
-          if (reloadKey > 0) onDirtyChangeRef.current?.(true)
+          if (reloadKey > 0 || selfReload > 0) onDirtyChangeRef.current?.(true)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -628,7 +662,7 @@ export default function TillableCluWorkshop({
     // re-render. onDirtyChangeRef (declared below, but already assigned by the
     // time any effect callback runs) gives the latest callback without that.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasBeenVisible, baseUrl, reloadKey])
+  }, [hasBeenVisible, baseUrl, reloadKey, selfReload])
 
   // After a re-fetch (reloadKey bump) the map already exists — it was
   // created once on first load — so the fresh tract polygon + CLUs won't
@@ -1266,7 +1300,7 @@ export default function TillableCluWorkshop({
         url = `${API_URL}/api/admin/tract-fix-boundary/${tractId}/propose-tillable`
       } else {
         // Staging mode — new endpoint that resolves county/state from DB.
-        url = `${API_URL}/api/admin/staging/${stagingId}/tracts/${tractIndex}/clu/propose-csb`
+        url = cluUrl('/propose-csb')
       }
       const res = await fetchWithAuth(url, tractId != null ? undefined : { method: 'POST' })
       const data = await res.json()
@@ -1327,7 +1361,7 @@ export default function TillableCluWorkshop({
         fsa_clu_id: c.fsa_clu_id,
         is_tillable: selection[c.fsa_clu_id] ?? c.default_tillable,
       }))
-      const res = await fetchWithAuth(`${baseUrl}/compute-soil`, {
+      const res = await fetchWithAuth(cluUrl('/compute-soil'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ selections, manual_polygons: manualPolygons,
@@ -1375,12 +1409,21 @@ export default function TillableCluWorkshop({
       // with the server-side else-clear added on 2026-06-11).
       body.soil_rating = soil !== null ? (soil.soil_rating ?? null) : null
       body.soil_rating_type = soil !== null && soil.soil_rating != null ? soil.soil_rating_type : null
-      const res = await fetchWithAuth(baseUrl, {
+      const res = await fetchWithAuth(cluUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 409 && tractId == null) {
+        // The boundary changed while this save was computing: the shapes on
+        // screen were drawn against the old boundary. NOT saved — re-load
+        // against the current boundary and let the parent re-read the tract.
+        setStatus('✗ The boundary changed while saving. Reload the tract and save again.')
+        setSelfReload((n) => n + 1)
+        onSaveConflict?.()
+        return
+      }
       if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
       setStatus(
         data.manual_polygon_count
@@ -1400,6 +1443,9 @@ export default function TillableCluWorkshop({
         price_per_soil_rating: data.price_per_soil_rating ?? null,
         sale_price: data.sale_price ?? null,
         sale_status: data.sale_status ?? null,
+        tract_uid: data.tract_uid ?? null,
+        tillable_rev: data.tillable_rev ?? null,
+        tract: data.tract && typeof data.tract === 'object' ? data.tract : null,
       })
     } catch (e: any) {
       setStatus(`✗ Save failed: ${e.message || e}`)
