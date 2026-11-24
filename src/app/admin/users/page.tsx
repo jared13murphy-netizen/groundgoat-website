@@ -494,9 +494,15 @@ export default function AdminUsersPage() {
     const sub = user.subscriptions[0]
     if (sub) {
       const label = getPlanLabel(sub.subscription_type)
+      // Add a State (11/11) gives one row per state, so list every state on
+      // a live row of this plan — not just the first one.
+      const live = user.subscriptions.filter(s =>
+        s.subscription_type === sub.subscription_type &&
+        ['active', 'trialing', 'past_due'].includes(String(s.status || '')))
+      const rows = live.length > 0 ? live : [sub]
       const scope = sub.subscription_type === 'firm'
         ? null
-        : (sub.county ? `${sub.county} County, ${sub.state}` : sub.state)
+        : Array.from(new Set(rows.map(s => (s.county ? `${s.county} County, ${s.state}` : s.state)).filter(Boolean))).join(', ')
       return (
         <div>
           <span className="text-white text-xs">{label}</span>

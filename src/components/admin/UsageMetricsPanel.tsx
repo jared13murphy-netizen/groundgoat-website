@@ -154,6 +154,14 @@ export default function UsageMetricsPanel() {
     }
   }, [hours, autoRefresh])
 
+  // Since 11/23 the Regrid API is off and `cycle` is {_error, _disabled}
+  // instead of Regrid's usage. Only a real cycle (with cycle_usage) is drawn.
+  const rawCycle = data?.regrid?.cycle as unknown as Record<string, unknown> | null | undefined
+  const regridOff = !!rawCycle && rawCycle._disabled === true
+  const regridCycle = rawCycle && 'cycle_usage' in rawCycle && 'cycle_dates' in rawCycle
+    ? (data!.regrid.cycle)
+    : null
+
   return (
     <div className="card mt-8">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -338,9 +346,16 @@ export default function UsageMetricsPanel() {
             {/* OUR locally-measured usage since the contract anniversary
                 — the cross-check on whatever Regrid bills us. Shown
                 FIRST because it's our source of truth. */}
+            {/* 11/23: the Regrid API is switched off — the backend now
+                sends an error object here instead of Regrid's cycle. */}
+            {regridOff && (
+              <div className="mb-3 rounded-lg bg-gg-gray-900/60 px-3 py-2 text-xs text-gg-gray-300">
+                Regrid API is switched off. Maps and reports read our own Regrid bulk copy, so there are no new Regrid charges. Numbers below are history.
+              </div>
+            )}
             <RegridMeasuredBlock
               measured={data.regrid.measured}
-              cycle={data.regrid.cycle}
+              cycle={regridCycle}
             />
 
             {/* Regrid's official billing-cycle usage (from their free
@@ -348,7 +363,7 @@ export default function UsageMetricsPanel() {
                 "Parcel API requests are tracked for billing by how many
                 Parcel Records are RETURNED in a response" — so the
                 "Records returned" tile is what counts against quota. */}
-            <RegridCycleBlock cycle={data.regrid.cycle} />
+            <RegridCycleBlock cycle={regridCycle} />
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
               <KpiTile
