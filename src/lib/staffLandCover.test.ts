@@ -249,9 +249,11 @@ test('field click on bare ground adds the field', () => {
   assert.equal(r.action === 'add' && r.field.fsa_clu_id, 1)
 })
 
-test('field click on a non-tillable shape adds the field (tillable drawn last wins)', () => {
-  const timber = ed('s1', 'timber', [sq(0, 0, 0.01)])
-  assert.equal(fsaFieldClick({ enabled: true, toolActive: false, point: inF1, fields: [F1], shapes: [timber], ticked: [] }).action, 'add')
+test('field click on a timber / water / pasture shape selects it, it never ticks the field underneath', () => {
+  for (const cls of ['timber', 'water', 'pasture', 'other']) {
+    const shape = ed('s1', cls, [sq(0, 0, 0.01)])
+    assert.equal(fsaFieldClick({ enabled: true, toolActive: false, point: inF1, fields: [F1], shapes: [shape], ticked: [] }).action, 'pass')
+  }
 })
 
 test('field click on ground that is already tillable is left to the editor', () => {
