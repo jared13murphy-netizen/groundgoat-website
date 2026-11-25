@@ -45,6 +45,7 @@ const ATT_MAX = 5
 /** IA IL NE MO KS IN MN WI SD, with the overlays' room left on each side. */
 const MIDWEST: [[number, number], [number, number]] = [[-104.2, 36.0], [-80.4, 49.4]]
 
+const SAT_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const PINK = '#F58CDE', BLUE = '#3987e5', AQUA = '#199e70', ORANGE = '#d95926'
 const GOOD = '#2fbf71', WARN = '#f2b233', BAD = '#ef5350'
 const BLANK = '#141a24'
@@ -384,8 +385,10 @@ function NorthStar({ ns, onNow, why }: { ns: any; onNow: any; why: string }) {
 
 /* ── The map ──────────────────────────────────────────────────────── */
 
-function CountyMap({ features, nowCounties, cfg, onPick }: {
+function CountyMap({ features, nowCounties, cfg, onPick, sat }: {
   features: any[] | null; nowCounties: any[] | null; cfg: Cfg
+  /** Satellite pictures under the heat instead of the plain dark map. */
+  sat: boolean
   /** A county was clicked: open its people panel. */
   onPick: (state: string, county: string) => void
 }) {
@@ -412,9 +415,14 @@ function CountyMap({ features, nowCounties, cfg, onPick }: {
         // No picture basemap (as in the approved mockup): every tile service
         // tried printed place names across the Midwest or needed a key. State
         // outlines come from our own static file once the style is up.
-        sources: {},
+        // Satellite (owner 11/25) is the same Esri imagery the main map uses: pictures
+        // only, no lettering. Hidden until the Map / Satellite switch turns it on.
+        sources: {
+          sat: { type: 'raster', tiles: [SAT_TILES], tileSize: 256, maxzoom: 19 },
+        },
         layers: [
           { id: 'bg', type: 'background', paint: { 'background-color': '#0e131b' } },
+          { id: 'sat', type: 'raster', source: 'sat', layout: { visibility: 'none' } },
         ],
       },
       center: [-92, 42], zoom: 4,
@@ -482,6 +490,21 @@ function CountyMap({ features, nowCounties, cfg, onPick }: {
       setReady(false)
     }
   }, [])
+
+  /* Map / Satellite. The heat stays on top, a little see-through over pictures. */
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    const apply = () => {
+      if (m.getLayer('sat')) m.setLayoutProperty('sat', 'visibility', sat ? 'visible' : 'none')
+      if (m.getLayer('cc7_states_fill')) m.setLayoutProperty('cc7_states_fill', 'visibility', sat ? 'none' : 'visible')
+      if (m.getLayer('cc7_fill')) m.setPaintProperty('cc7_fill', 'fill-opacity', sat ? 0.72 : 0.96)
+    }
+    apply()
+    // The outline layers arrive after a fetch; apply again once they exist.
+    const t = window.setTimeout(apply, 1500)
+    return () => window.clearTimeout(t)
+  }, [sat, ready, features])
 
   /* Tooltip. Registered once per layer; reads the current filters from a ref. */
   const showTip = useCallback((e: any, html: string) => {
@@ -883,6 +906,13 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
   const root = useRef<HTMLDivElement | null>(null)
   const fs = useEmPx(root)
   const [mode, setMode] = useState<Mode>('new')
+  /* Map / Satellite, remembered on this screen only. */
+  const [view, setViewRaw] = useState<'map' | 'sat'>('map')
+  useEffect(() => { try { if (localStorage.getItem('cc.mapview') === 'sat') setViewRaw('sat') } catch { /* private window */ } }, [])
+  const setView = useCallback((v: 'map' | 'sat') => {
+    setViewRaw(v)
+    try { localStorage.setItem('cc.mapview', v) } catch { /* private window */ }
+  }, [])
   const [plan, setPlan] = useState<Plan>('all')
   const [per, setPer] = useState(30)
   const [openFeature, setOpenFeature] = useState<any>(null)
@@ -959,8 +989,33 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
     }
   }, [mode, plan, features, liveD])
 
-  /* Live feed rows; rows not seen before flash once. */
-  const events: any[] = liveD?.events || []
+  /* Live feed rows; rows not seen before flash once. The poll brings the newest;
+     scrolling to the bottom loads older pages, back three days (owner 11/25). */
+  const liveEvents: any[] = liveD?.events || []
+  const [older, setOlder] = useState<any[]>([])
+  const [olderMore, setOlderMore] = useState(true)
+  const olderBusy = useRef(false)
+  const events: any[] = useMemo(() => {
+    const cut = liveEvents.length ? liveEvents[liveEvents.length - 1].t : null
+    return cut ? [...liveEvents, ...older.filter(e => e.t < cut)] : liveEvents
+  }, [liveEvents, older])
+  const loadOlder = useCallback(async () => {
+    if (olderBusy.current || !olderMore || !events.length) return
+    olderBusy.current = true
+    try {
+      const before = events[events.length - 1].t
+      const r = await fetchWithAuth(`${API_URL}/api/admin/command-center/live/older?before=${encodeURIComponent(before)}&limit=250`)
+      const j = r.ok ? await r.json() : null
+      if (j?.available) {
+        setOlder(o => [...o.filter(e => e.t >= before), ...(j.events || [])])
+        setOlderMore(!!j.more)
+      }
+    } catch { /* try again on the next scroll */ } finally { olderBusy.current = false }
+  }, [events, olderMore])
+  const onFeedScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) loadOlder()
+  }, [loadOlder])
   const seen = useRef<Set<string> | null>(null)
   const keyed = useMemo(() => {
     const used = new Map<string, number>()
@@ -1035,9 +1090,11 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
             <div className="v-gap" />
             <Seg value={plan} on={setPlan} items={[['all', 'All plans'], ['basic', 'Basic State'], ['premium', 'Premium State'], ['county', 'County'], ['firm', 'Firm'], ['trial', 'Free trial']]} />
             <Seg value={per} on={setPer} items={[[7, '7 d'], [30, '30 d'], [90, '90 d']]} />
+            <Seg value={view} on={setView} items={[['map', 'Map'], ['sat', 'Satellite']]} />
           </div>
           <div className="v-mapbox">
-            <CountyMap features={features} nowCounties={liveD?.now_counties || null} cfg={cfg} onPick={pickCounty} />
+            <CountyMap features={features} nowCounties={liveD?.now_counties || null} cfg={cfg} onPick={pickCounty} sat={view === 'sat'} />
+            {view === 'sat' && <div className="v-attr">Imagery © Esri</div>}
 
             <div className="v-ovl v-big">
               <b>{head.big}</b>
@@ -1087,11 +1144,11 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
         <div className="v-col" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
           <div className="v-card">
             <div className="v-ct"><h3><span className="v-livedot" />Happening now</h3><small>every action, live</small></div>
-            <div className="v-feed" ref={feedRef}>
+            <div className="v-feed" ref={feedRef} onScroll={onFeedScroll}>
               {keyed.length ? keyed.map(({ e, k }) => {
                 const [tag, cls] = EV[e.type] || ['•', 'i-map']
                 return (
-                  <div key={k} className={`v-ev ${flash(k) ? 'new' : ''} ${openEvent === e ? 'sel' : ''}`}
+                  <div key={k} className={`v-ev ${flash(k) && (!liveEvents.length || e.t >= liveEvents[liveEvents.length - 1].t) ? 'new' : ''} ${openEvent === e ? 'sel' : ''}`}
                     onClick={() => setOpenEvent(e)} title="Click for details">
                     <span className={`v-ic ${cls}`}>{tag}</span>
                     <span className="v-m"><b>{e.name || e.email || 'Someone'}</b> {e.text}{e.place ? <em> · {e.place}</em> : null}</span>
@@ -1099,6 +1156,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
                   </div>
                 )
               }) : <span className="v-mut">{DASH} {live.error || (liveD ? 'nothing has happened yet today' : 'no live reading yet')}</span>}
+              {keyed.length ? <div className="v-feedend">{olderMore ? 'scroll for older' : 'that is everything from the last 3 days'}</div> : null}
             </div>
           </div>
         </div>
@@ -1361,6 +1419,8 @@ const V7_CSS = `
 .v7 .v-inc .v-s{font-size:.76em;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .v-more{font-size:.74em;margin-top:.1em}.v7 .v-inc .v-s b{color:var(--ink)}
 .v7 .v-feed{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;scrollbar-width:thin;scrollbar-color:#2b3444 transparent}
+.v7 .v-feedend{flex:none;text-align:center;font-size:.72em;color:var(--ink3);padding:.6em 0}
+.v7 .v-attr{position:absolute;right:.5em;bottom:.3em;font-size:.6em;color:rgba(255,255,255,.7);text-shadow:0 0 3px #000;pointer-events:none;z-index:2}
 .v7 .v-ev{cursor:pointer;border-radius:.35em}.v7 .v-ev:hover{background:rgba(255,255,255,.04)}.v7 .v-ev.sel{background:rgba(245,140,222,.10)}
 .v7 .v-evd h2 .v-ic{font-size:.5em;margin-right:.3em}
 .v7 .v-evsum{font-size:.95em;color:var(--ink2);line-height:1.35}.v7 .v-evsum b{color:var(--ink)}
