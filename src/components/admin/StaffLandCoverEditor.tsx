@@ -37,6 +37,7 @@ import { fetchWithAuth } from '@/lib/fetchWithAuth'
 import { classifyBoundary } from '@/lib/configurableMapping'
 import { useTractEditor, type TractEditorStorage } from '@/components/mapping/useTractEditor'
 import LandTypeTools, { Btn, stat } from '@/components/mapping/LandTypeTools'
+import { emphasizeCmShapes } from '@/components/mapping/cmMapLayers'
 import {
   cleanFsaFields, computedArgsOf, fsaFieldClick, fsaHint, landCoverPath, landCoverTargetKey, pruneTickedFields,
   readLandCoverLoad, readLandCoverSave, soilRequestBody,
@@ -280,6 +281,18 @@ export default function StaffLandCoverEditor({
   // Unsaved-edits flag for the page (UnsavedTillableModal, Verify / Done).
   // A pre-loaded engine or legacy map is NOT dirty: only a staff edit is.
   useEffect(() => { onDirtyChangeRef.current?.(editor.dirty) }, [editor.dirty])
+
+  // Make the land-type shapes clearly visible on any imagery (see
+  // emphasizeCmShapes). The editor adds its layers after the map loads and
+  // again on some reloads, so re-apply whenever the map goes idle.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    const apply = () => { try { emphasizeCmShapes(map) } catch { /* layers not there yet */ } }
+    apply()
+    map.on('idle', apply)
+    return () => { map.off('idle', apply) }
+  }, [mapReady])
   useEffect(() => () => { onDirtyChangeRef.current?.(false) }, [])
 
   // Staff removed every tillable piece: the soil adapter is never called
@@ -371,7 +384,8 @@ export default function StaffLandCoverEditor({
       map.addLayer({
         id: FSA_LAYER, type: 'line', source: FSA_SOURCE,
         layout: { visibility: showFsaRef.current ? 'visible' : 'none' },
-        paint: { 'line-color': '#fde047', 'line-width': 1.2, 'line-opacity': 0.9 },
+        // thin and dashed, so a field line is never mistaken for a land-type shape
+        paint: { 'line-color': '#fde047', 'line-width': 1, 'line-opacity': 0.85, 'line-dasharray': [3, 2] },
       })
       timers.push(setTimeout(() => map.resize(), 50), setTimeout(() => map.resize(), 250))
       setMapReady(true)
