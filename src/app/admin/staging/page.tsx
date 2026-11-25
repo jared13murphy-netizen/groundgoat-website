@@ -2163,12 +2163,12 @@ export default function AdminStagingPage() {
                                   <Pencil size={14} />
                                 </button>
                                 {listing.scraped_data?.rescrape_listing_id && (
-                                  <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-medium rounded-full">RESCRAPE</span>
+                                  <span className="px-2 py-0.5 bg-orange-500 text-white text-xs font-semibold rounded-full">RESCRAPE</span>
                                 )}
                                 {/* Owner 9/22: a page the nightly scraper could not read a
                                     date from twice is staged anyway, flagged — say so up front. */}
                                 {listing.is_incomplete && listing.incomplete_reason && (
-                                  <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs font-medium rounded-full"
+                                  <span className="px-2 py-0.5 bg-yellow-400 text-black text-xs font-semibold rounded-full"
                                         title={listing.incomplete_reason}>
                                     {listing.incomplete_reason.toLowerCase().includes('date') ? 'CONFIRM DATE' : 'INCOMPLETE'}
                                   </span>
@@ -2182,7 +2182,7 @@ export default function AdminStagingPage() {
                               href={listing.source_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="block mt-0.5 text-xs text-gg-gray-400 hover:text-gg-pink break-all"
+                              className="block mt-0.5 text-xs text-gray-700 hover:text-gg-pink break-all"
                               title="Open the listing page in a new tab"
                             >
                               {listing.source_url}
@@ -2190,24 +2190,24 @@ export default function AdminStagingPage() {
                             <button
                               type="button"
                               onClick={() => loadHistory(listing.id, listing.source_url)}
-                              className="mt-1 text-[11px] text-gg-gray-500 hover:text-gg-pink underline underline-offset-2"
+                              className="mt-1 text-xs text-gray-800 font-medium hover:text-gg-pink underline underline-offset-2"
                               title="Every time this page was staged, ignored, rejected, verified or re-scraped, and by whom"
                             >
                               {historyFor === listing.id ? 'Hide history' : 'History'}
                             </button>
                             {historyFor === listing.id && (
-                              <ul className="mt-1 space-y-0.5 text-[11px] text-gg-gray-400">
+                              <ul className="mt-1 space-y-0.5 text-xs text-gray-700">
                                 {historyEvents.length === 0 && <li>No recorded events yet (history starts 9/22).</li>}
                                 {historyEvents.map((ev, k) => (
                                   <li key={k}>
-                                    <span className="text-gg-gray-300">{new Date(ev.created_at).toLocaleString()}</span>
-                                    {' · '}<span className="font-medium text-gg-gray-200">{ev.event}</span>
+                                    <span className="text-gray-600">{new Date(ev.created_at).toLocaleString()}</span>
+                                    {' · '}<span className="font-semibold text-gray-900">{ev.event}</span>
                                     {ev.actor ? ` · ${ev.actor}` : ''}{ev.note ? ` · ${ev.note}` : ''}
                                   </li>
                                 ))}
                               </ul>
                             )}
-                            <div className="flex items-center gap-4 mt-1 text-sm text-gg-gray-400">
+                            <div className="flex items-center gap-4 mt-1 text-sm text-gray-800">
                               <span className="flex items-center gap-1">
                                 <Calendar size={14} />
                                 {formatDate(listing.auction_date)}
@@ -2217,7 +2217,7 @@ export default function AdminStagingPage() {
                               {listing.scrape_duration_ms != null && (
                                 <>
                                   <span className="text-gg-gray-600">|</span>
-                                  <span className="text-gg-gray-500">Scraped in {formatDuration(listing.scrape_duration_ms)}</span>
+                                  <span className="text-gray-700">Scraped in {formatDuration(listing.scrape_duration_ms)}</span>
                                 </>
                               )}
                             </div>
@@ -2324,7 +2324,7 @@ export default function AdminStagingPage() {
                             <p className="text-gg-gray-900 font-semibold">
                               {formatDate(listing.auction_date)}
                               {info.auctionTime && (
-                                <span className="text-gg-gray-600 font-normal ml-1">@ {info.auctionTime}</span>
+                                <span className="text-gray-900 font-semibold ml-1">@ {info.auctionTime}</span>
                               )}
                             </p>
                           </div>
@@ -2469,7 +2469,7 @@ export default function AdminStagingPage() {
                                     )}
                                     <div className="ml-auto flex items-center gap-3 shrink-0">
                                       {stAcres != null && (
-                                        <span className="text-xs text-gg-gray-300">{formatAcres(Number(stAcres))} ac</span>
+                                        <span className="text-xs text-gray-800 font-medium">{formatAcres(Number(stAcres))} ac</span>
                                       )}
                                       {(() => {
                                         // Ring-aware: a multi-ring tract with
@@ -2478,7 +2478,7 @@ export default function AdminStagingPage() {
                                         // still read as "no polygon".
                                         const hasBoundary = toRings(tract.polygon_coordinates).some((r) => r.length >= 3)
                                         return (
-                                          <span className={`text-xs ${hasBoundary ? 'text-green-400' : 'text-yellow-400'}`}>
+                                          <span className={`text-xs font-semibold ${hasBoundary ? 'text-green-700' : 'text-amber-700'}`}>
                                             {hasBoundary ? '◼ Polygon' : '○ No polygon'}
                                           </span>
                                         )
