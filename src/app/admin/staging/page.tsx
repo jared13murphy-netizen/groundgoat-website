@@ -42,6 +42,7 @@ import NassStagingPreview from '@/components/admin/NassStagingPreview'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
+import TractNumberBox from '@/components/admin/TractNumberBox'
 import UnsavedTillableModal from '@/components/admin/UnsavedTillableModal'
 import {
   tractUid, findTractIndex, findOriginalTract, replaceTractInScrapedData, withoutDeletedTracts,
@@ -2412,16 +2413,37 @@ export default function AdminStagingPage() {
                                   stStatus              ? 'bg-gg-gray-700 text-gg-gray-300 border border-gg-gray-600' : ''
                                 return (
                                 <div key={idx} className="border-t border-gg-gray-800 pt-2 first:border-t-0 first:pt-0">
-                                  {/* Collapsed summary row */}
+                                  {/* Collapsed summary row. Owner 11/25: the
+                                      tract number is a box right on the row. */}
+                                  <div className="flex items-center gap-2 -mx-2 px-2">
                                   <button
                                     type="button"
                                     onClick={() => toggleTract(tractKey)}
-                                    className="group w-full flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-gg-black rounded-lg px-2 -mx-2 transition-colors"
+                                    aria-label={tractIsOpen ? 'Collapse tract' : 'Expand tract'}
+                                    className="text-gg-gray-400 text-xs w-5 h-8 shrink-0"
+                                  >{tractIsOpen ? '▼' : '▶'}</button>
+                                  <TractNumberBox
+                                    stagingId={listing.id}
+                                    index={idx}
+                                    numbers={info.tracts.map((t: any, i: number) => t.tract_number ?? i + 1)}
+                                    onSaved={(i, num) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
+                                      setListings(prev => prev.map(l => {
+                                        if (l.id !== listing.id) return l
+                                        const sd = { ...(l.scraped_data || {}) }
+                                        const ts = [...((sd.tracts as any[]) || [])]
+                                        if (!ts[i]) return l
+                                        ts[i] = { ...ts[i], tract_number: num }
+                                        sd.tracts = ts
+                                        return { ...l, scraped_data: sd }
+                                      }))
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleTract(tractKey)}
+                                    className="group flex-1 min-w-0 flex items-center gap-2 py-2 text-left hover:bg-gg-pink hover:text-gg-black rounded-lg px-2 transition-colors"
                                   >
-                                    <span className="text-gg-gray-400 text-xs w-3 shrink-0">{tractIsOpen ? '▼' : '▶'}</span>
-                                    <span className="text-base text-white font-bold tracking-tight shrink-0">
-                                      Tract {tract.tract_number ?? idx + 1}
-                                    </span>
                                     {stStatus && (
                                       <span className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded font-medium capitalize ${stStatusCls}`}>
                                         {stStatus.replace('_', ' ')}
@@ -2500,6 +2522,7 @@ export default function AdminStagingPage() {
                                       })()}
                                     </div>
                                   </button>
+                                  </div>
 
                                   <div className={tractIsOpen ? '' : 'hidden'}>
                                   {/* Sale Status chips — top of expanded tract panel.
