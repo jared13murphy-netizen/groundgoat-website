@@ -191,13 +191,30 @@ function useGrowth(period: number, mode: Mode) {
 }
 
 /** Endpoint C. Redis only on the server, so every two seconds is cheap. */
+/* Module scope on purpose: declared inside the component it got a new
+   identity every render, and the screen re-renders every 2 s from /live —
+   React remounted the controls and swallowed clicks that straddled it. */
+function Seg<T extends string | number>({ items, value, on }: { items: [T, string][]; value: T; on: (v: T) => void }) {
+  return (
+    <div className="v-seg" role="group">
+      {items.map(([v, l]) => (
+        <span key={String(v)} className={v === value ? 'on' : ''} role="button" tabIndex={0}
+          onClick={() => on(v)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') on(v) }}>{l}</span>
+      ))}
+    </div>
+  )
+}
+
 function useLive() {
   const [data, setData] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let stop = false
+    let busy = false   // one request at a time: a slow reply must not land after a newer one
     const load = async () => {
       if (typeof document !== 'undefined' && document.hidden) return
+      if (busy) return
+      busy = true
       try {
         const r = await fetchWithAuth(`${API_URL}/api/admin/command-center/live`)
         if (!r.ok) throw new Error(`the live endpoint answered ${r.status}`)
@@ -205,6 +222,8 @@ function useLive() {
         if (!stop) { setData(j); setError(null) }
       } catch (e: any) {
         if (!stop) setError(e?.message || 'could not load live activity')
+      } finally {
+        busy = false
       }
     }
     load()
@@ -664,12 +683,16 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
     const g = growth.data
     if (!g) return { big: DASH, label: '', delta: null as any, note: growth.error || 'loading the map' }
     if (mode === 'all') {
-      const total = (features || []).reduce((a, f) => a + pick(f.properties?.customers, plan), 0)
+      // The API's own total: counting only the drawn counties dropped
+      // everyone with no home county or in a county without an outline.
+      const total = g.customer_totals ? pick(g.customer_totals, plan)
+        : (features || []).reduce((a, f) => a + pick(f.properties?.customers, plan), 0)
       const fresh = pick(g.totals, plan)
+      const unplaced = g.no_home_county_customers
       return {
         big: n0(total), label: `customers · ${planName}`,
         delta: { v: fresh, text: `${n0(fresh)} new in the last ${per} days` },
-        note: isNum(g.no_home_county) && g.no_home_county > 0 ? `${n0(g.no_home_county)} users have no home county` : '',
+        note: isNum(unplaced) && unplaced > 0 ? `${n0(unplaced)} not on the map (no home county)` : '',
       }
     }
     const cur = pick(g.totals, plan), pri = pick(g.prior_totals, plan)
@@ -735,15 +758,6 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
     : mode === 'now'
       ? { t: 'People on now, at home county', lo: '', hi: '', bg: `linear-gradient(90deg,${PINK},${PINK})` }
       : { t: mode === 'all' ? 'Customers per county' : 'New users per county', lo: '1', hi: `${mx}+`, bg: `linear-gradient(90deg,${SEQ.join(',')})` }
-
-  const Seg = <T extends string | number>({ items, value, on }: { items: [T, string][]; value: T; on: (v: T) => void }) => (
-    <div className="v-seg" role="group">
-      {items.map(([v, l]) => (
-        <span key={String(v)} className={v === value ? 'on' : ''} role="button" tabIndex={0}
-          onClick={() => on(v)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') on(v) }}>{l}</span>
-      ))}
-    </div>
-  )
 
   const trendTick = { fill: '#6b7788', fontSize: fs * 0.7 }
 
