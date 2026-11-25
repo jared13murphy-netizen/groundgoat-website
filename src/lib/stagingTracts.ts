@@ -42,6 +42,11 @@ export const BOUNDARY_KEYS = ['polygon_coordinates', 'polygon_holes'] as const
  *  itself). Kept from the page's copy when the server's tract omits them. */
 export const PAGE_LOCAL_TRACT_KEYS = ['has_tract_image', 'tract_image_base64'] as const
 
+/** Computed keys the server adds to a staged tract in its responses only
+ *  (`engine_shapes`: the engine-shapes badge, see ./engineShapes.ts). They
+ *  are never sent back in a PATCH. */
+export const RESPONSE_ONLY_TRACT_KEYS = ['engine_shapes'] as const
+
 type Tract = Record<string, any>
 type ScrapedData = Record<string, any>
 
@@ -137,8 +142,29 @@ export function clearPendingDeletes(pending: PendingDeletes, stagingId: number, 
 }
 
 /**
+ * The document without the response-only tract keys. The same object is
+ * returned when no tract carries one (nothing is copied).
+ */
+export function withoutResponseOnlyTractKeys<T extends ScrapedData | null | undefined>(scraped: T): T {
+  const tracts = scraped?.tracts
+  if (!Array.isArray(tracts)) return scraped
+  const has = (t: Tract) => !!t && typeof t === 'object' && RESPONSE_ONLY_TRACT_KEYS.some((k) => k in t)
+  if (!tracts.some(has)) return scraped
+  return {
+    ...scraped,
+    tracts: tracts.map((t: Tract) => {
+      if (!has(t)) return t
+      const copy: Tract = { ...t }
+      for (const k of RESPONSE_ONLY_TRACT_KEYS) delete copy[k]
+      return copy
+    }),
+  } as T
+}
+
+/**
  * Body for `PATCH /api/admin/staging/{id}`: the page's copy of scraped_data
- * plus `deleted_tract_uids` when any are due. The server KEEPS every stored
+ * (minus the response-only tract keys) plus `deleted_tract_uids` when any
+ * are due. The server KEEPS every stored
  * tract the client did not send unless its uid is listed, so a delete that
  * is not listed is silently undone. A uid that is still present in the
  * document being sent is never listed.
@@ -148,7 +174,7 @@ export function buildStagingPatchBody(
   deletedUids: readonly string[] | undefined,
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  const body: Record<string, unknown> = { scraped_data: scraped, ...extra }
+  const body: Record<string, unknown> = { scraped_data: withoutResponseOnlyTractKeys(scraped), ...extra }
   const present = new Set(
     (Array.isArray(scraped?.tracts) ? scraped!.tracts : []).map((t: Tract) => tractUid(t)).filter(Boolean),
   )
