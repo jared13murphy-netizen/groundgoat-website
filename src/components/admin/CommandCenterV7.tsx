@@ -38,9 +38,9 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.groundgoat.com'
 const TZ = 'America/Chicago'
 
-const BASEMAP_DARK =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'
-const BASEMAP_ATTRIBUTION = '© Esri'
+/* Customer problems come first from the API; past this many the card would
+   push the Growth chart off the screen, so the rest are counted, not drawn. */
+const ATT_MAX = 5
 
 /** IA IL NE MO KS IN MN WI SD, with the overlays' room left on each side. */
 const MIDWEST: [[number, number], [number, number]] = [[-104.2, 36.0], [-80.4, 49.4]]
@@ -372,10 +372,12 @@ function CountyMap({ features, nowCounties, cfg }: {
       container,
       style: {
         version: 8,
-        sources: { base: { type: 'raster', tiles: [BASEMAP_DARK], tileSize: 256, attribution: BASEMAP_ATTRIBUTION } },
+        // No picture basemap (as in the approved mockup): every tile service
+        // tried printed place names across the Midwest or needed a key. State
+        // outlines come from our own static file once the style is up.
+        sources: {},
         layers: [
           { id: 'bg', type: 'background', paint: { 'background-color': '#0e131b' } },
-          { id: 'base', type: 'raster', source: 'base', paint: { 'raster-opacity': 0.55 } },
         ],
       },
       center: [-92, 42], zoom: 4,
@@ -403,6 +405,15 @@ function CountyMap({ features, nowCounties, cfg }: {
       styled = true
       fit()
       setReady(true)
+      fetch('/geo/us-states.json').then(r => r.json()).then(states => {
+        if (!alive || m.getSource('cc7_states')) return
+        m.addSource('cc7_states', { type: 'geojson', data: states })
+        m.addLayer({ id: 'cc7_states_fill', type: 'fill', source: 'cc7_states',
+          paint: { 'fill-color': '#141a24' } }, m.getLayer('cc7_fill') ? 'cc7_fill' : undefined)
+        m.addLayer({ id: 'cc7_states_line', type: 'line', source: 'cc7_states',
+          paint: { 'line-color': '#3b4659', 'line-width': 0.9 } },
+          m.getLayer('cc7_now_halo') ? 'cc7_now_halo' : undefined)
+      }).catch(() => { /* outlines are context; the heat still draws without them */ })
     }
     m.on('load', onStyled)
     m.on('styledata', onStyled)
@@ -462,6 +473,8 @@ function CountyMap({ features, nowCounties, cfg }: {
         id: 'cc7_line', type: 'line', source: 'cc7_counties',
         paint: { 'line-color': '#0e131b', 'line-width': 0.5 },
       })
+      // State lines stay drawn over the county colours.
+      if (m.getLayer('cc7_states_line')) m.moveLayer('cc7_states_line', m.getLayer('cc7_now_halo') ? 'cc7_now_halo' : undefined)
       m.on('mousemove', 'cc7_fill', (e: any) => {
         const p = e.features?.[0]?.properties
         if (!p) return
@@ -832,12 +845,12 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
           </div>
         </div>
 
-        <div className="v-col" style={{ gridTemplateRows: 'auto minmax(0,1fr)' }}>
+        <div className="v-col" style={{ gridTemplateRows: 'minmax(0,1.25fr) minmax(0,1fr)' }}>
           <div className="v-card">
             <div className="v-ct"><h3>Needs attention</h3><small>what went wrong · who it hit</small></div>
             <div className="v-incs">
               {!ov ? <span className="v-mut">{DASH} {why}</span>
-                : att.length ? att.map((a, i) => {
+                : att.length ? att.slice(0, ATT_MAX).map((a, i) => {
                   const cust = Number(a.customers) || 0
                   const names: string[] = a.names || []
                   return (
@@ -854,6 +867,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
                     </div>
                   )
                 }) : <span className="v-mut">Nothing went wrong in the last 24 hours</span>}
+              {att.length > ATT_MAX && <span className="v-mut v-more">+{att.length - ATT_MAX} more</span>}
             </div>
           </div>
           <div className="v-card">
@@ -1081,10 +1095,11 @@ const V7_CSS = `
 .v7 .v-incs{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .v7 .v-inc{display:flex;flex-direction:column;gap:.15em;padding:.45em 0 .45em .65em;margin-bottom:.35em;border-left:.25em solid var(--bad);background:rgba(239,83,80,.06)}
 .v7 .v-inc.w{border-left-color:var(--warn);background:rgba(242,178,51,.06)}
-.v7 .v-inc .v-t{font-weight:600;font-size:.88em}
+.v7 .v-inc .v-t{font-weight:600;font-size:.88em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .v-inc .v-t i{font-style:normal;font-size:.72em;font-weight:700;letter-spacing:.05em;margin-right:.45em;color:#ff8f8c}
 .v7 .v-inc.w .v-t i{color:var(--warn)}
-.v7 .v-inc .v-s{font-size:.76em;color:var(--ink2)}.v7 .v-inc .v-s b{color:var(--ink)}
+.v7 .v-inc .v-s{font-size:.76em;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .v-more{font-size:.74em;margin-top:.1em}.v7 .v-inc .v-s b{color:var(--ink)}
 .v7 .v-feed{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .v7 .v-ev{display:grid;grid-template-columns:2em minmax(0,1fr) auto;gap:.45em;align-items:center;padding:.3em .1em;border-bottom:1px solid var(--grid);font-size:.8em;flex:none}
 .v7 .v-ev.new{animation:v7slide .6s ease}
