@@ -81,6 +81,16 @@ const secs = (ms: any) => {
 }
 const secsFromS = (s: any) => isNum(s) ? secs(Number(s) * 1000) : DASH
 
+/** Feed time: "9:12:32 PM" today, "Nov 24 · 9:12 PM" on earlier days (the feed scrolls back 3 days). */
+const feedTime = (iso?: string | null) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const day = (x: Date) => x.toLocaleDateString('en-US', { timeZone: TZ })
+  if (day(d) === day(new Date())) return timeFull(iso)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ }) + ' · '
+    + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TZ })
+}
 const timeFull = (iso?: string | null) => {
   if (!iso) return ''
   const d = new Date(iso)
@@ -680,6 +690,110 @@ function CountyDrawer({ pick, onClose }: { pick: { state: string; county: string
   )
 }
 
+/* ── Feed drawer (owner 11/25): click any Happening-now row ───────── */
+
+const EV_NAME: Record<string, string> = {
+  report: 'Report', search: 'Goat Search', search_empty: 'Goat Search', tract: 'Tract', parcel: 'Parcel',
+  subscribe: 'Subscription', signup: 'New sign-up', save: 'Saved', crash: 'App crash',
+  checkout_failed: 'Checkout failed',
+}
+const dayTime = (iso?: string | null) => {
+  if (!iso) return DASH
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? DASH : d.toLocaleString('en-US',
+    { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: TZ })
+}
+const LONG_ROWS = new Set(['Stack trace', 'Last steps before the crash', 'Search details', 'Report settings', 'Error', 'Asked'])
+
+function EventDrawer({ ev, onPick, onClose }: { ev: any | null; onPick: (e: any) => void; onClose: () => void }) {
+  const [d, setD] = useState<any>(null)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [onClose])
+  useEffect(() => {
+    if (!ev) return
+    let alive = true
+    setD(null); setErr('')
+    const q = new URLSearchParams()
+    if (ev.ref) q.set('ref', ev.ref)
+    if (ev.uid) q.set('uid', ev.uid)
+    if (ev.email) q.set('email', ev.email)
+    fetchWithAuth(`${API_URL}/api/admin/command-center/live/event?${q}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(j => { if (alive) { if (j?.available === false) setErr(j.reason || 'not available'); else setD(j) } })
+      .catch(e => { if (alive) setErr(String(e?.message || e)) })
+    return () => { alive = false }
+  }, [ev])
+  const open = !!ev
+  const [tag, cls] = (ev && EV[ev.type]) || ['•', 'i-map']
+  const rows: [string, any][] = d?.rows || []
+  const act = ev?.act
+  const actRows: [string, any][] = act ? [
+    ['Request', act.endpoint], ['Took', isNum(act.ms) ? secs(act.ms) : null],
+    ['Answer', isNum(act.status) ? (Number(act.status) < 400 ? `OK (${act.status})` : `Failed (${act.status})`) : null],
+    ['Plan chosen', act.plan], ['Error', act.error],
+  ].filter(([, v]) => v !== null && v !== undefined && v !== '') as any : []
+  const p = d?.person
+  const recent: any[] = d?.recent || []
+  return (
+    <>
+      <div className={`v-scrim ${open ? 'on' : ''}`} onClick={onClose} />
+      <aside className={`v-drawer v-evd ${open ? 'on' : ''}`} aria-hidden={!open}>
+        {ev && <>
+          <h2><span className={`v-ic ${cls}`}>{tag}</span>{EV_NAME[ev.type] || 'Action'}
+            <span className="v-hint">click outside to close</span></h2>
+          <div className="v-evsum"><b>{ev.name || ev.email || 'Someone'}</b> {ev.text}
+            <small>{dayTime(ev.t)}{ev.place ? ` · ${ev.place}` : ''}</small></div>
+          <div className="v-evscroll">
+            <div className="v-dl">
+              <div><b>What happened</b><span /></div>
+              {[...actRows, ...rows].length ? [...actRows, ...rows].map(([k, v], i) => (
+                LONG_ROWS.has(k) && String(v).length > 60
+                  ? <div key={i} className="v-long"><span>{k}</span><pre>{String(v)}</pre></div>
+                  : <div key={i}><span>{k}</span><b>{String(v)}</b></div>
+              )) : <div><span className="v-mut">{err ? `${DASH} ${err}` : !d ? 'Loading…' : `${DASH} nothing more was saved for this one`}</span><b /></div>}
+            </div>
+            <div className="v-dl">
+              <div><b>Who</b><span /></div>
+              {p ? <>
+                <div><span>Name</span><b>{p.name}</b></div>
+                <div><span>Email</span><b>{p.email}</b></div>
+                {p.phone ? <div><span>Phone</span><b>{p.phone}</b></div> : null}
+                <div><span>Home county</span><b>{p.place || DASH}</b></div>
+                <div><span>Plan</span><b><span className="v-pd" style={{ background: PLAN_DOT[p.plan] || '#4a5466' }} />{PLAN_SHORT[p.plan] || p.plan}</b></div>
+                <div><span>Subscribed</span><b>{p.plan === 'none' ? DASH : since(p.subscribed_days)}</b></div>
+                <div><span>Actions / day</span><b>{n0(p.actions_per_day, 1)}</b></div>
+                <div><span>Days used (30)</span><b>{n0(p.days_used_30d)}</b></div>
+                <div><span>Signed up</span><b>{dayTime(p.signed_up)}</b></div>
+                <div><span>Last active</span><b>{dayTime(p.last_active)}</b></div>
+                {p.came_from ? <div><span>Came from</span><b>{p.came_from}</b></div> : null}
+              </> : <div><span className="v-mut">{!d && !err ? 'Loading…' : `${DASH} no account for this one`}</span><b /></div>}
+            </div>
+            {recent.length ? (
+              <div className="v-dl">
+                <div><b>Their latest</b><span /></div>
+                {recent.map((r, i) => {
+                  const [t2, c2] = EV[r.type] || ['•', 'i-map']
+                  return (
+                    <div key={i} className="v-evr" onClick={() => onPick(r)}>
+                      <span className={`v-ic ${c2}`}>{t2}</span>
+                      <span className="v-m">{r.text}</span>
+                      <time>{feedTime(r.t)}</time>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
+        </>}
+      </aside>
+    </>
+  )
+}
+
 /* ── Feature drawer ───────────────────────────────────────────────── */
 
 function Drawer({ f, fs, onClose }: { f: any; fs: number; onClose: () => void }) {
@@ -859,6 +973,18 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
   }, [events])
   const flash = (k: string) => seen.current !== null && !seen.current.has(k)
   useEffect(() => { seen.current = new Set(keyed.map(x => x.k)) }, [keyed])
+  /* The feed scrolls (owner 11/25). Someone reading further down must not be
+     pushed along by new rows arriving at the top: keep their place. */
+  const feedRef = useRef<HTMLDivElement | null>(null)
+  const feedH = useRef(0)
+  React.useLayoutEffect(() => {
+    const el = feedRef.current
+    if (!el) return
+    if (el.scrollTop > 4 && feedH.current) el.scrollTop += el.scrollHeight - feedH.current
+    feedH.current = el.scrollHeight
+  }, [keyed])
+  const [openEvent, setOpenEvent] = useState<any>(null)
+  const closeEvent = useCallback(() => setOpenEvent(null), [])
 
   const ns = ov?.ns
   const att: any[] = ov?.attention || []
@@ -961,14 +1087,15 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
         <div className="v-col" style={{ gridTemplateRows: 'minmax(0,1fr)' }}>
           <div className="v-card">
             <div className="v-ct"><h3><span className="v-livedot" />Happening now</h3><small>every action, live</small></div>
-            <div className="v-feed">
+            <div className="v-feed" ref={feedRef}>
               {keyed.length ? keyed.map(({ e, k }) => {
                 const [tag, cls] = EV[e.type] || ['•', 'i-map']
                 return (
-                  <div key={k} className={`v-ev ${flash(k) ? 'new' : ''}`}>
+                  <div key={k} className={`v-ev ${flash(k) ? 'new' : ''} ${openEvent === e ? 'sel' : ''}`}
+                    onClick={() => setOpenEvent(e)} title="Click for details">
                     <span className={`v-ic ${cls}`}>{tag}</span>
                     <span className="v-m"><b>{e.name || e.email || 'Someone'}</b> {e.text}{e.place ? <em> · {e.place}</em> : null}</span>
-                    <time>{timeFull(e.t)}</time>
+                    <time>{feedTime(e.t)}</time>
                   </div>
                 )
               }) : <span className="v-mut">{DASH} {live.error || (liveD ? 'nothing has happened yet today' : 'no live reading yet')}</span>}
@@ -1145,6 +1272,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
 
       <Drawer f={openFeature} fs={fs} onClose={() => setOpenFeature(null)} />
       <CountyDrawer pick={openCounty} onClose={closeCounty} />
+      <EventDrawer ev={openEvent} onPick={setOpenEvent} onClose={closeEvent} />
     </div>
   )
 }
@@ -1232,7 +1360,19 @@ const V7_CSS = `
 .v7 .v-inc.w .v-t i{color:var(--warn)}
 .v7 .v-inc .v-s{font-size:.76em;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .v7 .v-more{font-size:.74em;margin-top:.1em}.v7 .v-inc .v-s b{color:var(--ink)}
-.v7 .v-feed{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.v7 .v-feed{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;scrollbar-width:thin;scrollbar-color:#2b3444 transparent}
+.v7 .v-ev{cursor:pointer;border-radius:.35em}.v7 .v-ev:hover{background:rgba(255,255,255,.04)}.v7 .v-ev.sel{background:rgba(245,140,222,.10)}
+.v7 .v-evd h2 .v-ic{font-size:.5em;margin-right:.3em}
+.v7 .v-evsum{font-size:.95em;color:var(--ink2);line-height:1.35}.v7 .v-evsum b{color:var(--ink)}
+.v7 .v-evsum small{display:block;color:var(--ink3);font-size:.8em;margin-top:.2em}
+.v7 .v-evscroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:.8em;scrollbar-width:thin;scrollbar-color:#2b3444 transparent}
+.v7 .v-evscroll .v-dl{flex:none}
+.v7 .v-dl div.v-long{flex-direction:column;gap:.3em}
+.v7 .v-dl pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:.88em;color:var(--ink);background:#0b0e13;border:1px solid var(--line);border-radius:.4em;padding:.5em .6em;max-height:16em;overflow:auto}
+.v7 .v-dl b{text-align:right;max-width:65%;overflow-wrap:anywhere}
+.v7 .v-dl div.v-evr{display:grid;grid-template-columns:2em minmax(0,1fr) auto;gap:.45em;align-items:center;cursor:pointer}
+.v7 .v-dl div.v-evr:hover{background:rgba(255,255,255,.04)}
+.v7 .v-evr time{font-size:.85em;color:var(--ink3);white-space:nowrap}
 .v7 .v-ev{display:grid;grid-template-columns:2em minmax(0,1fr) auto;gap:.45em;align-items:center;padding:.3em .1em;border-bottom:1px solid var(--grid);font-size:.8em;flex:none}
 .v7 .v-ev.new{animation:v7slide .6s ease}
 @keyframes v7slide{from{background:rgba(245,140,222,.14)}to{background:transparent}}
