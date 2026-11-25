@@ -50,9 +50,14 @@ import {
 } from 'lucide-react'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { formatAcres } from '@/lib/format'
+import { pickStagingMapCenter, makeCountyCentreLookup } from '@/lib/stagingMapCenter'
+import { countyCentroids } from '@/data/countyCentroids'
 import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { fetchRegridConfig } from '@/components/map/regridLayer'
 import { parcelSourceSpecs, parcelLayerId, parcelLayers, usesStateTiles } from '@/lib/parcelSources'
+
+// "County, ST" → [lat, lng], built once (view-only map start fallback)
+const countyCentreLookup = makeCountyCentreLookup(countyCentroids)
 
 // Owner names + acres on the staging map show from this zoom (owner 11/25:
 // same as the app's Explore map owner names).
@@ -110,6 +115,11 @@ interface TractMapEditorProps {
   /** Center fallback when no polygon and no listing-level coord. */
   latitude?: number | null
   longitude?: number | null
+  /** VIEW-ONLY map start for a tract with no boundary and no coordinates —
+   *  the scraper's tract-level `map_center` ({latitude, longitude, ...}) and
+   *  the listing-level one. Never saved as the tract's location. */
+  mapCenter?: unknown
+  listingMapCenter?: unknown
   /** Auctioneer-published acres for this tract (from tract.scraped.acres
    *  or top-level tract.acres). When present, the "Align" overlay
    *  button appears whenever the drawn polygon's area differs from
@@ -461,6 +471,8 @@ export default function TractMapEditor({
   sourceImageKind,
   latitude,
   longitude,
+  mapCenter,
+  listingMapCenter,
   scrapedAcres,
   editorHeight = 320,
   onUpdate,
@@ -1040,19 +1052,19 @@ export default function TractMapEditor({
     const container = containerRef.current
     if (!container) return
 
-    // Center: existing polygon centroid > tract lat/lng > fallback.
-    let centerLng = -93.5
-    let centerLat = 41.9
-    let initZoom = 14
-    if (points.length >= 3) {
-      centerLng = points.reduce((s, p) => s + p[0], 0) / points.length
-      centerLat = points.reduce((s, p) => s + p[1], 0) / points.length
-      initZoom = 16
-    } else if (longitude != null && latitude != null) {
-      centerLng = Number(longitude)
-      centerLat = Number(latitude)
-      initZoom = 16
-    }
+    // Center: polygon centroid > tract lat/lng > tract map_center > listing
+    // map_center > county centre > state centre > old fixed default
+    // (owner 2026-11-25: no more mid-Iowa for an Indiana auction). View only —
+    // map_center is never saved as the tract's location.
+    const start = pickStagingMapCenter({
+      points, latitude, longitude,
+      tractMapCenter: mapCenter, listingMapCenter,
+      county: listingCounty, state: listingState,
+      countyCentre: countyCentreLookup,
+    })
+    const centerLng = start.lng
+    const centerLat = start.lat
+    const initZoom = start.zoom
 
     const map = new maplibregl.Map({
       container,
