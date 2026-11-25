@@ -12,6 +12,7 @@ import { WhatIsGroundGoatButton } from '@/components/PromoVideo'
 import NeighborStatesUpsell from '@/components/NeighborStatesUpsell'
 import { trackCompleteRegistration } from '@/lib/metaPixel'
 import { trackGoogleSignUp, adClickForSignup } from '@/lib/googleTags'
+import { firstTouchForSignup } from '@/lib/firstTouch'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -517,6 +518,7 @@ function SignUpContent() {
               verification_token: data.verification_token,  // Pass verification token
               terms_accepted: agreedToTerms,
               privacy_accepted: agreedToPrivacy,
+              ...firstTouchForSignup(),
             }),
           })
 
@@ -658,6 +660,7 @@ function SignUpContent() {
           promo_code: promoValidation?.valid ? promoCode.trim().toUpperCase() : null,
           referral_code: referralCode,
           logo_base64: firmData.firmLogo || null,
+          ...firstTouchForSignup(),
         }),
       })
 
@@ -739,6 +742,7 @@ function SignUpContent() {
             // Google Ads click id from the landing page, for server-side
             // conversion matching (backend ad_conversions.py).
             ...adClickForSignup(),
+            ...firstTouchForSignup(),
           }),
         })
 
