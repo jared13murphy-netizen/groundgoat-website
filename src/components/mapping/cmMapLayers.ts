@@ -129,3 +129,25 @@ export function removeCmEditLayers(map: maplibregl.Map) {
     if (map.hasImage('cm-scissors')) map.removeImage('cm-scissors')
   } catch { /* map torn down underneath us */ }
 }
+
+/** Staff editor (owner 2026-11-25): on green summer imagery the Map It fill
+ *  (22%) all but disappears and a correct 74-acre tillable polygon reads as
+ *  "a few thin squiggly lines" — only its outline shows where it steps round
+ *  a waterway. Staff must SEE the shape, so the staff editor paints the fill
+ *  solid enough to read on any imagery and gives the outline a dark casing.
+ *  Customer Map It is unchanged. Safe to call repeatedly. */
+export function emphasizeCmShapes(map: maplibregl.Map) {
+  if (!map.getLayer(LYR_FILL) || !map.getLayer('cm-shapes-line')) return false
+  map.setPaintProperty(LYR_FILL, 'fill-opacity',
+    ['case', ['boolean', ['get', 'selected'], false], 0.62, 0.5])
+  if (!map.getLayer('cm-shapes-casing')) {
+    map.addLayer({
+      id: 'cm-shapes-casing', type: 'line', source: SRC.shapes,
+      paint: { 'line-color': '#0f172a', 'line-width': 4.5, 'line-opacity': 0.55 },
+    }, 'cm-shapes-line')
+  }
+  map.setPaintProperty('cm-shapes-line', 'line-width',
+    ['case', ['boolean', ['get', 'selected'], false], 3.5, 2.5])
+  return true
+}
+
