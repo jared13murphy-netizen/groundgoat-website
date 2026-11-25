@@ -38,7 +38,6 @@ import openListingReport from '@/lib/openListingReport'
 import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
-import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
 import UnsavedTillableModal from '@/components/admin/UnsavedTillableModal'
 import {
   tractUid, findTractIndex, findOriginalTract, replaceTractInScrapedData, withoutDeletedTracts,
@@ -2022,61 +2021,6 @@ export default function AdminPrivateTreatyStagingPage() {
                           </div>
                         </div>
 
-                        {/* Swap Tracts — only shown when >= 2 tracts */}
-                        {info.tracts.length >= 2 && (
-                          <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/40 rounded-lg">
-                            <p className="text-xs text-gray-900 mb-2">
-                              <strong>Tract data mismatched?</strong> If you changed a tract number and the acres, soil rating, or polygon are now on the wrong tract, use Swap Tracts to fix it.
-                            </p>
-                            <SwapStagingTractsPanel
-                              tracts={info.tracts}
-                              onSwap={async (updatedTracts) => {
-                                const original = listings
-                                const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
-                                updated.tracts = updatedTracts
-                                setListings((prev) =>
-                                  prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
-                                )
-                                // D16: reset per-tract React state keyed by index so stale
-                                // cluReloadKeys, discardNonces, and dirtyTracts don't attach
-                                // to the wrong tract.
-                                const lid = listing.id
-                                setCluReloadKeys((prev) => {
-                                  const next = { ...prev }
-                                  updatedTracts.forEach((_: any, idx: number) => {
-                                    delete next[`${lid}-${idx}`]
-                                  })
-                                  return next
-                                })
-                                setDiscardNonces((prev) => {
-                                  const next = { ...prev }
-                                  updatedTracts.forEach((_: any, idx: number) => {
-                                    delete next[`${lid}-${idx}`]
-                                  })
-                                  return next
-                                })
-                                setDirtyTracts((prev) => {
-                                  const next = { ...prev }
-                                  Object.keys(next).forEach((k) => {
-                                    if (k.startsWith(`${lid}::`)) delete next[k]
-                                  })
-                                  return next
-                                })
-                                try {
-                                  const res = await patchStaging(listing.id, updated)
-                                  if (!res.ok) throw new Error('Failed to save swap')
-                                  // The server moves the tillable work with the
-                                  // boundary — take its version of the row.
-                                  await refetchStagingRow(listing.id)
-                                  fetchValidation(listing.id)
-                                } catch (e) {
-                                  setListings(original)
-                                  throw e
-                                }
-                              }}
-                            />
-                          </div>
-                        )}
 
                         {/* Tract Details — each tract is a vertical block:
                             map+image header on top (magic-lab pattern),
