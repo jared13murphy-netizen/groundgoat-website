@@ -8,7 +8,6 @@ import { ArrowLeft, Save, Loader2, Trash2, ExternalLink, Pencil, Plus, CheckCirc
 import { getCountiesForState } from '@/data/counties'
 import ListingTractCard from '@/components/admin/ListingTractCard'
 import { formatTillable } from '@/lib/tillable'
-import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 
@@ -1057,23 +1056,6 @@ export default function EditListingPage() {
               </div>
             )}
 
-            {/* Swap Tracts — only shown when >= 2 tracts exist */}
-            {listing.tracts && listing.tracts.length >= 2 && (
-              <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/40 rounded-lg">
-                <p className="text-xs text-gray-900 mb-2">
-                  <strong>Tract data mismatched?</strong> If you changed a tract number and the acres, soil rating, or polygon are now on the wrong tract, use Swap Tracts to fix it.
-                </p>
-                <SwapTractsPanel
-                  listingId={listing.id}
-                  tracts={(listing.tracts as any[]).map((t) => ({
-                    id: t.id,
-                    tract_number: t.tract_number,
-                    total_acres: t.total_acres,
-                  }))}
-                  onSwapped={refreshListing}
-                />
-              </div>
-            )}
 
             {/* Existing Tracts — full inline editor per tract: editable scalars
                 (acres, tillable, soil, price, status, etc.), boundary polygon

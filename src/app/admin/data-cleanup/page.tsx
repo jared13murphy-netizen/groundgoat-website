@@ -20,7 +20,6 @@ import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import LandTypeButtons from '@/components/admin/LandTypeButtons'
 import TractDataCompare from '@/components/admin/TractDataCompare'
-import SwapTractsPanel from '@/components/admin/SwapTractsPanel'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import { toRings } from '@/lib/polygonRings'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
@@ -1156,23 +1155,6 @@ export default function TractDataCleanupPage() {
                         <div className="text-gg-gray-400 text-sm py-4">This listing has no tracts.</div>
                       )}
 
-                      {/* Swap Tracts — only shown when >= 2 live tracts are loaded */}
-                      {loaded && !loaded.loading && loaded.tracts.length >= 2 && (
-                        <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/40 rounded-lg">
-                          <p className="text-xs text-gray-900 mb-2">
-                            <strong>Tract data mismatched?</strong> If you changed a tract number and the acres, soil rating, or polygon are now on the wrong tract, use Swap Tracts to fix it.
-                          </p>
-                          <SwapTractsPanel
-                            listingId={it.listing_id}
-                            tracts={loaded.tracts.map((t) => ({
-                              id: t.id,
-                              tract_number: t.tract_number,
-                              total_acres: t.total_acres,
-                            }))}
-                            onSwapped={() => { loadListing(it.listing_id); fetchValidation(it.listing_id) }}
-                          />
-                        </div>
-                      )}
 
                       {loaded && !loaded.loading && loaded.tracts.length > 0 && (
                         <div className="space-y-6">
