@@ -136,3 +136,48 @@ export function formatAuctionDateTime(
   const t = formatAuctionTime(dateString, state)
   return t ? `${d} at ${t}` : d
 }
+
+const STATE_NAME_TO_ABBR: Record<string, string> = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO',
+  connecticut: 'CT', delaware: 'DE', 'district of columbia': 'DC', florida: 'FL', georgia: 'GA',
+  hawaii: 'HI', idaho: 'ID', illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY',
+  louisiana: 'LA', maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN',
+  mississippi: 'MS', missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV', 'new hampshire': 'NH',
+  'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND',
+  ohio: 'OH', oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA', 'rhode island': 'RI',
+  'south carolina': 'SC', 'south dakota': 'SD', tennessee: 'TN', texas: 'TX', utah: 'UT', vermont: 'VT',
+  virginia: 'VA', washington: 'WA', 'west virginia': 'WV', wisconsin: 'WI', wyoming: 'WY',
+}
+
+/** 'Iowa' / 'iowa' / 'IA' -> 'IA' (null when unknown). */
+export function stateAbbr(state?: string | null): string | null {
+  if (!state) return null
+  const t = String(state).trim()
+  if (/^[A-Za-z]{2}$/.test(t)) return t.toUpperCase()
+  return STATE_NAME_TO_ABBR[t.toLowerCase()] || null
+}
+
+/**
+ * Staging (owner 11/25): show the auction's time in ITS OWN time zone with
+ * the zone named — "1:00 PM CST". A value with an offset/Z is an instant
+ * (converted to the state's zone); a naive "…T13:00:00" is already the
+ * auction's wall-clock time (shown as is, zone label added).
+ */
+export function formatAuctionTimeInZone(value?: string | null, state?: string | null): string {
+  if (!value) return ''
+  const s = String(value)
+  const tz = tzForState(stateAbbr(state))
+  const hasOffset = /(Z|[+-]\d{2}:?\d{2})$/.test(s)
+  if (hasOffset) return formatAuctionTime(s, stateAbbr(state))
+  const m = s.match(/T(\d{2}):(\d{2})/)
+  if (!m) return ''
+  const h = parseInt(m[1], 10)
+  if (h === 0 && m[2] === '00') return ''
+  const label = `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`
+  if (!tz) return label
+  // Zone abbreviation for that calendar day (CST vs CDT).
+  const day = new Date(s.slice(0, 10) + 'T12:00:00Z')
+  const zone = isNaN(day.getTime()) ? '' : (new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+    .formatToParts(day).find((p) => p.type === 'timeZoneName')?.value || '')
+  return zone ? `${label} ${zone}` : label
+}

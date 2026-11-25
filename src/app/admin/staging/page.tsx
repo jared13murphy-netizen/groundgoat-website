@@ -1,5 +1,6 @@
 'use client'
 
+import { formatAuctionTimeInZone } from '@/lib/auctionTime'
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -1701,29 +1702,12 @@ export default function AdminStagingPage() {
     const tracts = scraped.tracts || []
     const firstTract = tracts[0] || {}
 
-    // Extract time from auction_time or auction_datetime
-    // Handles both naive ISO strings (2026-03-20T10:00:00) and UTC (2026-03-20T15:00:00Z)
-    let auctionTime: string | null = null
+    // Auction time in the AUCTION's own time zone, zone named (owner 11/25):
+    // "1:00 PM CST". A UTC/offset value is converted (it used to print the
+    // UTC hour — 1 PM CST showed as 7 PM); a naive value is the wall clock.
     const timeSource = listing.auction_time || listing.auction_datetime
-    if (timeSource) {
-      try {
-        const timeStr = String(timeSource)
-        const timeMatch = timeStr.match(/T(\d{2}):(\d{2})/)
-        if (timeMatch && !timeStr.endsWith('Z')) {
-          // Naive ISO string — parse hours/minutes directly to avoid timezone shift
-          const h = parseInt(timeMatch[1])
-          const m = timeMatch[2]
-          const ampm = h >= 12 ? 'PM' : 'AM'
-          const h12 = h % 12 || 12
-          auctionTime = `${h12}:${m} ${ampm}`
-        } else {
-          const dt = new Date(timeSource)
-          if (!isNaN(dt.getTime())) {
-            auctionTime = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-          }
-        }
-      } catch {}
-    }
+    const stateForTime = listing.state || firstTract.state_abbr || listing.state_full || firstTract.state_full || firstTract.state || null
+    const auctionTime: string | null = timeSource ? (formatAuctionTimeInZone(String(timeSource), stateForTime) || null) : null
 
     // Extract listing image URL
     const imageUrl = listing.image || listing.primary_image_url || null
