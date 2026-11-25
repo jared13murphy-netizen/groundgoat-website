@@ -6,9 +6,16 @@
  *
  * Used on the Auction Staging and PT Staging screens where tracts have no
  * real DB IDs yet.  All three modes:
- *   polygons   — polygon_coordinates, tillable_polygon, tillable_acres
+ *   polygons   — exactly the tract BOUNDARY keys. The tillable work is not
+ *                moved here: the server moves it to whichever tract ends up
+ *                holding the boundary (it matches on polygon_coordinates).
  *   data       — all non-polygon data fields
- *   everything — both sets
+ *   everything — the two tract objects trade places wholesale (each one's
+ *                server `_uid` / `_tillable_rev` and tillable work travel
+ *                with it); only the tract number stays with its slot.
+ *
+ * `_uid`, `_tillable_rev` and the six Workshop tillable keys are server
+ * owned and are never moved key-by-key (see src/lib/stagingTracts.ts).
  *
  * The component calls onSwap(updatedTracts) and lets the parent persist the
  * change (via its existing PATCH scraped_data path) so there's no separate
@@ -19,13 +26,14 @@ import { useState } from 'react'
 import { Loader2, ChevronsUpDown, Check } from 'lucide-react'
 import { formatAcres } from '@/lib/format'
 import { polygonAreaCentroid } from '@/lib/polygonCentroid'
+import { BOUNDARY_KEYS, swapKeys, swapTractObjects } from '@/lib/stagingTracts'
 
 type SwapMode = 'polygons' | 'data' | 'everything'
 
 const MODE_LABELS: Record<SwapMode, { label: string; desc: string }> = {
   polygons: {
     label: 'Swap Polygons',
-    desc: 'Move the tract and tillable boundary drawings between these two tracts',
+    desc: 'Move the tract boundary drawings between these two tracts (each boundary keeps its tillable work)',
   },
   data: {
     label: 'Swap Data',
@@ -36,11 +44,6 @@ const MODE_LABELS: Record<SwapMode, { label: string; desc: string }> = {
     desc: 'Fully swap these two tracts — all data and polygons trade places',
   },
 }
-
-const POLYGON_KEYS = [
-  'polygon_coordinates', 'tillable_polygon', 'tillable_acres',
-  'tillable_manual_polygons', 'tillable_cutout_polygons', 'tillable_clu_overrides',
-] as const
 
 const DATA_KEYS = [
   'acres', 'soil_rating', 'soil_rating_type',
@@ -53,21 +56,10 @@ const DATA_KEYS = [
   'has_house', 'has_building',
   'corn_acres', 'soybean_acres', 'wheat_acres', 'hay_acres',
   'other_crop_acres', 'non_ag_acres', 'pasture_acres', 'timber_acres', 'other_acres',
-  // tillable_acres is in POLYGON_KEYS; in data-only mode we still swap it so
-  // the acreage number follows the polygon assignment.
+  // In data-only mode the tillable acreage NUMBER is swapped with the rest of
+  // the data (unchanged behavior). The tillable drawings never are.
   'tillable_acres',
 ] as const
-
-function swapKeys(a: any, b: any, keys: readonly string[]): [any, any] {
-  const na = { ...a }
-  const nb = { ...b }
-  for (const k of keys) {
-    const tmp = na[k]
-    na[k] = nb[k]
-    nb[k] = tmp
-  }
-  return [na, nb]
-}
 
 export default function SwapStagingTractsPanel({
   tracts,
@@ -116,15 +108,13 @@ export default function SwapStagingTractsPanel({
       return
     }
 
-    const keys: readonly string[] =
-      mode === 'polygons'
-        ? POLYGON_KEYS
-        : mode === 'data'
-        ? DATA_KEYS
-        : [...POLYGON_KEYS, ...DATA_KEYS.filter((k) => !POLYGON_KEYS.includes(k as any))]
-
     const updated = [...tracts]
-    const [na, nb] = swapKeys(updated[ia], updated[ib], keys)
+    // swapKeys sends a key missing on one side as explicit null (the server
+    // keeps keys the client omits, so a dropped key would not swap).
+    const [na, nb] =
+      mode === 'everything'
+        ? swapTractObjects(updated[ia], updated[ib])
+        : swapKeys(updated[ia], updated[ib], mode === 'polygons' ? BOUNDARY_KEYS : DATA_KEYS)
     // After a polygon swap the old images are stale — NULL both so they regenerate
     if (mode === 'polygons' || mode === 'everything') {
       na.image_base64 = null

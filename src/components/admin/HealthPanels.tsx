@@ -110,7 +110,10 @@ function useDashboard(refreshMs: number) {
 // ─────────────────────────────────────────────────────────────────────
 function fmtAge(iso: string | null): string {
   if (!iso) return 'never'
-  const ms = Date.now() - new Date(iso).getTime()
+  // Older backends sent "…+00:00Z" (two zone marks), which Date can't parse.
+  const t = new Date(iso.replace(/([+-]\d\d:\d\d)Z$/, '$1')).getTime()
+  if (Number.isNaN(t)) return '—'
+  const ms = Date.now() - t
   if (ms < 0) return 'just now'
   const min = Math.floor(ms / 60_000)
   if (min < 1)  return 'just now'
@@ -180,6 +183,21 @@ export default function HealthPanels() {
 // ─────────────────────────────────────────────────────────────────────
 function RegridUsagePanel({ regrid }: { regrid?: RegridSummary }) {
   if (!regrid) return null
+  // 11/23: the Regrid API is switched off — we read our own bulk copy, so
+  // there are no live calls to count. Say that instead of a row of zeros.
+  if ((regrid as any).cycle?._disabled) {
+    return (
+      <div className="card mt-6">
+        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+          <Activity size={20} className="text-gg-pink" />
+          Regrid
+        </h2>
+        <p className="text-sm text-gg-gray-300 mt-1">
+          Regrid API is switched off. Maps, parcel taps and reports read our own Regrid bulk copy, so there are no Regrid calls or charges.
+        </p>
+      </div>
+    )
+  }
   const t = regrid.totals_24h
   const calls = t.calls || 0
   const cacheHits = t.cache_hits || 0
@@ -270,7 +288,7 @@ function ServiceHealthPanel({ services }: { services: ServiceStatus[] }) {
             Service Health
           </h2>
           <p className="text-sm text-gg-gray-400 mt-0.5">
-            Live ping of each Railway service + DB. Refreshes every 60s.
+            Live ping of the API, database, scraper and website. Refreshes every 60s.
           </p>
         </div>
         <div className={`text-xs px-3 py-1 rounded-full border ${

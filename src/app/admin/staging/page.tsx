@@ -42,7 +42,14 @@ import TractMapEditor from '@/components/admin/TractMapEditor'
 import TillableCluWorkshop from '@/components/admin/TillableCluWorkshop'
 import TractDataCompare from '@/components/admin/TractDataCompare'
 import SwapStagingTractsPanel from '@/components/admin/SwapStagingTractsPanel'
+import UnsavedTillableModal from '@/components/admin/UnsavedTillableModal'
+import {
+  tractUid, findTractIndex, findOriginalTract, replaceTractInScrapedData, withoutDeletedTracts,
+  addPendingDeletes, clearPendingDeletes, buildStagingPatchBody, removedTractUids, RowRereadGate,
+  type PendingDeletes,
+} from '@/lib/stagingTracts'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
+import MissedAuctionsPanel, { useMissedAuctions } from '@/components/admin/MissedAuctionsPanel'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
 import { polygonAcres, polygonPerimeterFeet, formatPerimeter } from '@/lib/polygonGeometry'
 import { toRings } from '@/lib/polygonRings'
@@ -84,6 +91,12 @@ interface RunLogEntry {
 }
 
 interface TractForm {
+  /** Server-owned tract uid (null for a tract the server has not seen). */
+  _uid?: string | null
+  /** Position in scraped_data.tracts this row was built from; -1 = added in
+   *  the modal. Lets a uid-less tract be matched without its (editable,
+   *  possibly duplicate) tract number. */
+  _src_index: number
   tract_number: number
   acres: string
   tillable_acres: string
@@ -145,6 +158,8 @@ function buildEditForm(scraped: any): EditForm {
     description: listing.description || '',
     primary_image_source: primaryImageSource,
     tracts: tracts.map((t: any, i: number) => ({
+      _uid: tractUid(t),
+      _src_index: i,
       tract_number: t.tract_number ?? i + 1,
       acres: t.acres != null ? String(t.acres) : '',
       tillable_acres: t.tillable_acres != null ? String(t.tillable_acres) : '',
@@ -187,9 +202,9 @@ function applyEditToScrapedData(original: any, form: EditForm): any {
   }
 
   updated.tracts = form.tracts.map((t) => {
-    const origTract = (original?.tracts || []).find(
-      (ot: any) => ot.tract_number === t.tract_number
-    ) || {}
+    // By server uid (never by tract number: numbers are editable and can be
+    // duplicate, which used to copy one tract's whole record onto another).
+    const origTract: any = findOriginalTract(original?.tracts, t) || {}
     const acresVal = t.acres ? parseFloat(t.acres) : null
     const tillVal = t.tillable_acres ? parseFloat(t.tillable_acres) : null
     const soilVal = t.soil_rating ? parseFloat(t.soil_rating) : null
@@ -482,7 +497,11 @@ export default function AdminStagingPage() {
   const [companyCounts, setCompanyCounts] = useState<Record<string, number>>({})
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'staging' | 'results'>('staging')
+  const [activeTab, setActiveTab] = useState<'staging' | 'results' | 'missed'>('staging')
+
+  // Missed tab: what the scraper missed + what the nightly AI check did.
+  // Loaded with the page so the count on the tab shows before it is opened.
+  const missed = useMissedAuctions()
 
   // Run log
   const [runLog, setRunLog] = useState<RunLogEntry[]>([])
@@ -740,6 +759,7 @@ export default function AdminStagingPage() {
       }
       fetchStagingListings()
       fetchRunLog()
+      missed.reload()
     } catch (err) {
       router.push('/signin')
     }
@@ -755,7 +775,7 @@ export default function AdminStagingPage() {
         const data = await response.json()
         // Handle both paginated response {items, total} and legacy array response
         if (data && Array.isArray(data.items)) {
-          setListings(data.items)
+          setListings(data.items.map((l: StagingListing) => ({ ...l, scraped_data: withoutDeletedTracts(l.scraped_data, pendingDeletesRef.current[l.id]) })))
           setTotalCount(data.total || data.items.length)
           if (data.company_counts) {
             setCompanyCounts(data.company_counts)
@@ -949,6 +969,104 @@ export default function AdminStagingPage() {
     setTimeout(() => setToast(null), 4000)
   }
 
+  // Tract uids deleted on this page but not yet delivered to the server, per
+  // staging row. The server KEEPS any stored tract a PATCH does not send
+  // unless its uid is listed in `deleted_tract_uids`, so every delete is
+  // queued here and rides along with the next PATCH of that row (cleared
+  // once that PATCH succeeds). Kept in a ref, not useState: it is read
+  // inside async handlers that must see the latest value, and nothing
+  // renders from it.
+  const pendingDeletesRef = useRef<PendingDeletes>({})
+  const queueTractDelete = (stagingId: number, uids: (string | null | undefined)[]) => {
+    pendingDeletesRef.current = addPendingDeletes(pendingDeletesRef.current, stagingId, uids)
+  }
+
+  // Keeps a row re-read from overwriting an edit made after it was asked
+  // for: only the latest re-read of a row applies, and a re-read that comes
+  // back after a local edit is dropped and run once more after that edit's
+  // PATCH has completed (see RowRereadGate).
+  const rereadGateRef = useRef(new RowRereadGate())
+  const listingsRef = useRef<StagingListing[]>([])
+  listingsRef.current = listings
+
+  // The ONE way this page PATCHes scraped_data. Sends the page's copy plus
+  // any queued deleted_tract_uids for the row.
+  const patchStaging = async (stagingId: number, scrapedData: any, extra: Record<string, unknown> = {}) => {
+    const body = buildStagingPatchBody(scrapedData, pendingDeletesRef.current[stagingId], extra)
+    rereadGateRef.current.startPatch(stagingId)
+    let res: Response
+    try {
+      res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } catch (e) {
+      rereadGateRef.current.finishPatch(stagingId)
+      throw e
+    }
+    const sent = body.deleted_tract_uids as string[] | undefined
+    if (res.ok && sent?.length) {
+      pendingDeletesRef.current = clearPendingDeletes(pendingDeletesRef.current, stagingId, sent)
+    }
+    // A re-read was dropped (or is still in flight) because of this edit —
+    // run it again now that the edit is stored.
+    if (rereadGateRef.current.finishPatch(stagingId) && res.ok) void refetchStagingRow(stagingId)
+    return res
+  }
+
+  // Re-read ONE staging row (GET /api/admin/staging/{id}) and replace it in
+  // state — after anything that changes the tract list (add / delete / swap
+  // / Edit modal) and after a Workshop 409, so the page holds the server's
+  // tracts (uids, tillable revs, relocated tillable work). Other rows are
+  // untouched. A row the server no longer has (404), or that is no longer
+  // pending, is removed from the page.
+  const refetchStagingRow = async (stagingId: number): Promise<boolean> => {
+    const gate = rereadGateRef.current
+    const token = gate.startReread(stagingId)
+    let res: Response | null = null
+    let row: StagingListing | null = null
+    try {
+      res = await fetchWithAuth(`${API_URL}/api/admin/staging/${stagingId}`)
+      if (res.ok) row = await res.json()
+    } catch {
+      res = null
+    }
+    const gone = !!res && (res.status === 404 || (res.ok && !!row && row.status !== 'pending'))
+    const failed = !res || (!gone && (!res.ok || !row || row.id !== stagingId))
+    const verdict = gate.finishReread(stagingId, token, failed)
+    if (gone) {
+      // Gone is gone, whatever was edited meanwhile.
+      if (listingsRef.current.some((l) => l.id === stagingId)) {
+        setListings((prev) => prev.filter((l) => l.id !== stagingId))
+        setTotalCount((prev) => Math.max(0, prev - 1))
+        showToast('error', 'This staged listing is no longer in staging — it was removed from the page.')
+      }
+      gate.forget(stagingId)
+      pendingDeletesRef.current = clearPendingDeletes(pendingDeletesRef.current, stagingId, pendingDeletesRef.current[stagingId] || [])
+      return false
+    }
+    if (verdict !== 'apply' || !row) return false
+    const fresh = row
+    const scraped = withoutDeletedTracts(fresh.scraped_data, pendingDeletesRef.current[stagingId])
+    setListings((prev) => prev.map((l) => (l.id === stagingId ? { ...l, ...fresh, scraped_data: scraped } : l)))
+    return true
+  }
+
+  // Boundary-save guard: a boundary save reloads the Tillable Workshop for
+  // that tract, which would silently drop unsaved Workshop edits. When the
+  // Workshop is dirty, ask first (UnsavedTillableModal). Resolves true to
+  // let the boundary save go ahead.
+  const [tillableGuard, setTillableGuard] = useState<{ label: string; resolve: (go: boolean) => void } | null>(null)
+  const confirmBoundarySave = (stagingId: number, idx: number, label: string): boolean | Promise<boolean> => {
+    if (!dirtyTracts[`${stagingId}::${idx}::till`]) return true
+    return new Promise<boolean>((resolve) => setTillableGuard({ label, resolve }))
+  }
+  const answerTillableGuard = (go: boolean) => {
+    tillableGuard?.resolve(go)
+    setTillableGuard(null)
+  }
+
   // Persist the per-tract "has buildings" checkbox. Verify POSTs with no
   // body, so per-tract edits must be PATCHed into scraped_data here.
   // Updates local state optimistically.
@@ -961,11 +1079,7 @@ export default function AdminStagingPage() {
       prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
     )
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) showToast('error', 'Failed to save buildings flag')
       else fetchValidation(listing.id)
     } catch {
@@ -984,11 +1098,7 @@ export default function AdminStagingPage() {
       prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
     )
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) showToast('error', 'Failed to save house flag')
       else fetchValidation(listing.id)
     } catch {
@@ -1007,11 +1117,7 @@ export default function AdminStagingPage() {
       prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
     )
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) showToast('error', 'Failed to save sale status')
       else fetchValidation(listing.id)
     } catch {
@@ -1031,20 +1137,24 @@ export default function AdminStagingPage() {
     if (!updated.tracts[idx]) updated.tracts[idx] = {}
     // An explicit pick supersedes any earlier Edit-modal manual override for
     // that field (the radio is the more recent, authoritative choice).
+    // Cleared with explicit null, never `delete`: the server merges manual /
+    // chosen key by key, so a key that is simply missing comes back from the
+    // stored copy.
     const manual = { ...((updated.tracts[idx] || {}).manual || {}) }
     for (const f of ['acres', 'tillable_acres', 'soil_rating']) {
-      if (nextChosen?.[f]) delete manual[f]
+      if (nextChosen?.[f]) manual[f] = null
     }
-    updated.tracts[idx] = { ...updated.tracts[idx], chosen: nextChosen, manual }
+    const prevChosen = (updated.tracts[idx] || {}).chosen || {}
+    const chosen = { ...(nextChosen || {}) }
+    for (const f of Object.keys(prevChosen)) {
+      if (chosen[f] === undefined) chosen[f] = null
+    }
+    updated.tracts[idx] = { ...updated.tracts[idx], chosen, manual }
     setListings((prev) =>
       prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
     )
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) showToast('error', 'Failed to save Scraped/Computed selection')
       else fetchValidation(listing.id)
     } catch {
@@ -1063,11 +1173,7 @@ export default function AdminStagingPage() {
       prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l))
     )
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) showToast('error', 'Failed to save land types')
       else fetchValidation(listing.id)
     } catch {
@@ -1086,20 +1192,16 @@ export default function AdminStagingPage() {
     if (!Array.isArray(updated.tracts)) updated.tracts = []
     if (!updated.tracts[idx]) updated.tracts[idx] = {}
     const manual = { ...((updated.tracts[idx] || {}).manual || {}) }
-    if (value == null) delete manual[field]
-    else manual[field] = value
+    // null (not `delete`) clears it — see saveTractChosen.
+    manual[field] = value == null ? null : value
     updated.tracts[idx].manual = manual
     // A hand-typed value supersedes any Scraped/Computed pick for that field.
     const chosen = { ...((updated.tracts[idx] || {}).chosen || {}) }
-    if (value != null) delete chosen[field]
+    if (value != null) chosen[field] = null
     updated.tracts[idx].chosen = chosen
     setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) showToast('error', 'Failed to save value')
       else fetchValidation(listing.id)
     } catch {
@@ -1124,13 +1226,13 @@ export default function AdminStagingPage() {
       if (sib) { newTract.latitude = sib.latitude; newTract.longitude = sib.longitude }
       updated.tracts.push(newTract)
       setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) showToast('error', 'Failed to add tract')
-      else fetchValidation(listing.id)
+      else {
+        // The server assigns the new tract its uid — re-read the row to get it.
+        await refetchStagingRow(listing.id)
+        fetchValidation(listing.id)
+      }
     } catch {
       showToast('error', 'Network error — tract not added')
     } finally {
@@ -1141,7 +1243,7 @@ export default function AdminStagingPage() {
   // Delete a manual-only staging tract (no DB id) by removing it from the
   // local scraped_data array and PATCHing the staging record — mirrors addStagingTract.
   // Confirmation now happens in ConfirmDeleteTractModal before this is called.
-  const handleDeleteStagingTract = async (tractNumber: number, listing: StagingListing) => {
+  const handleDeleteStagingTract = async (tract: any, listing: StagingListing) => {
     const updated = JSON.parse(JSON.stringify(listing.scraped_data || {}))
     if (!Array.isArray(updated.tracts)) updated.tracts = []
     // Defense in depth: the modal already blocks this, but never let a delete
@@ -1149,7 +1251,16 @@ export default function AdminStagingPage() {
     if (updated.tracts.length <= 1) {
       throw new Error("This is the listing's only tract. Delete the whole listing instead.")
     }
-    updated.tracts = updated.tracts.filter((t: any) => t.tract_number !== tractNumber)
+    // Remove exactly ONE tract: by server uid, else by its position. (Never
+    // by tract number — duplicates would all be deleted.)
+    const uid = tractUid(tract)
+    const at = findTractIndex(updated.tracts, uid, tract?._index)
+    if (at === -1) throw new Error('Could not find this tract. Refresh the page and try again.')
+    const removedUid = tractUid(updated.tracts[at])
+    updated.tracts.splice(at, 1)
+    // The server keeps any stored tract the PATCH omits unless its uid is
+    // listed as deleted.
+    queueTractDelete(listing.id, [removedUid])
     setListings((prev) => prev.map((l) => (l.id === listing.id ? { ...l, scraped_data: updated } : l)))
     // D16-style cleanup: removing a tract shifts every later tract's index
     // down by one, so index-keyed state (dirtyTracts/cluReloadKeys/
@@ -1174,12 +1285,9 @@ export default function AdminStagingPage() {
       return next
     })
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scraped_data: updated }),
-      })
+      const res = await patchStaging(listing.id, updated)
       if (!res.ok) throw new Error('Failed to delete tract')
+      await refetchStagingRow(listing.id)
       fetchValidation(listing.id)
     } catch (e: any) {
       throw new Error(e?.message || 'Network error — tract not deleted')
@@ -1198,6 +1306,13 @@ export default function AdminStagingPage() {
         const detail = (await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`
         throw new Error(String(detail))
       }
+      // No staging PATCH happens here — the row is next PATCHed by an
+      // auto-save or the flush before Verify. Queue the tract's uid so that
+      // PATCH tells the server it is deleted (otherwise the server, which
+      // keeps tracts the client omits, would put it back).
+      const stagedRow = listings.find(l => l.id === listingId)
+      const stagedTract = ((stagedRow?.scraped_data?.tracts as any[]) || []).find((t: any) => t.id === tractId)
+      queueTractDelete(listingId, [tractUid(stagedTract)])
       // Remove the tract from local scraped_data state
       setListings(prev => prev.map(l => {
         if (l.id !== listingId) return l
@@ -1249,7 +1364,7 @@ export default function AdminStagingPage() {
       if (tract.id) {
         await handleDeleteTract(tract.id, listing.id)
       } else {
-        await handleDeleteStagingTract(tract.tract_number, listing)
+        await handleDeleteStagingTract(tract, listing)
       }
       setDeleteTractTarget(null)
     } catch (e: any) {
@@ -1275,11 +1390,7 @@ export default function AdminStagingPage() {
       // Flush in-memory scraped_data (TractDataCompare picks, tract number
       // changes) before any verify variant — rescrape reads scraped_data too.
       if (item) {
-        const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scraped_data: item.scraped_data }),
-        })
+        const patchRes = await patchStaging(id, item.scraped_data)
         if (!patchRes.ok) {
           showToast('error', 'Failed to save your selections before verifying — not verified')
           setActionLoading(null)
@@ -1346,11 +1457,7 @@ export default function AdminStagingPage() {
       // numbers, etc. are silently discarded.
       const item = listings.find(l => l.id === id)
       if (item) {
-        const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scraped_data: item.scraped_data }),
-        })
+        const patchRes = await patchStaging(id, item.scraped_data)
         if (!patchRes.ok) {
           showToast('error', 'Failed to save your selections before publishing — not published')
           setActionLoading(null)
@@ -1384,11 +1491,7 @@ export default function AdminStagingPage() {
       // changes would otherwise be silently discarded.
       const item = listings.find(l => l.id === duplicateModal.stagingId)
       if (item) {
-        const patchRes = await fetchWithAuth(`${API_URL}/api/admin/staging/${duplicateModal.stagingId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scraped_data: item.scraped_data }),
-        })
+        const patchRes = await patchStaging(duplicateModal.stagingId, item.scraped_data)
         if (!patchRes.ok) {
           showToast('error', 'Failed to save your selections before replacing — not replaced')
           setDuplicateModal(prev => prev ? { ...prev, loading: false } : null)
@@ -1521,15 +1624,16 @@ export default function AdminStagingPage() {
     setSaving(true)
 
     const updatedScrapedData = applyEditToScrapedData(editingListing.scraped_data, editForm)
+    // Tracts removed in the modal must be named to the server, or it keeps them.
+    const removedInModal = removedTractUids(editingListing.scraped_data?.tracts, updatedScrapedData.tracts)
+    queueTractDelete(editingListing.id, removedInModal)
+    const tractListChanged = removedInModal.length > 0
+      || (updatedScrapedData.tracts || []).length !== (editingListing.scraped_data?.tracts || []).length
+      || (updatedScrapedData.tracts || []).some((t: any) => !tractUid(t))
 
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${editingListing.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scraped_data: updatedScrapedData,
-          auction_date: editForm.sale_date || null,
-        }),
+      const response = await patchStaging(editingListing.id, updatedScrapedData, {
+        auction_date: editForm.sale_date || null,
       })
 
       if (response.ok) {
@@ -1540,6 +1644,8 @@ export default function AdminStagingPage() {
               : l
           )
         )
+        // Tracts added or removed → take the server's list (new uids).
+        if (tractListChanged) await refetchStagingRow(editingListing.id)
         fetchValidation(editingListing.id)
         closeEditModal()
       } else {
@@ -1578,7 +1684,7 @@ export default function AdminStagingPage() {
       : 1
     setEditForm((prev) => ({
       ...prev,
-      tracts: [...prev.tracts, { tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '', soil_rating: '', latitude: '', longitude: '', sale_status: '', sale_price: '', price_per_acre: '' }],
+      tracts: [...prev.tracts, { _src_index: -1, tract_number: nextNum, acres: '', tillable_acres: '', county: '', state: '', soil_rating: '', latitude: '', longitude: '', sale_status: '', sale_price: '', price_per_acre: '' }],
     }))
   }
 
@@ -1919,6 +2025,19 @@ export default function AdminStagingPage() {
           >
             <BarChart3 size={14} />
             Scraper Results
+          </button>
+          <button
+            onClick={() => { setActiveTab('missed'); missed.reload() }}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+              activeTab === 'missed' ? 'bg-gg-gray-700 text-white' : 'text-gg-gray-400 hover:text-white'
+            }`}
+          >
+            Missed
+            {missed.needsPerson > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-xs font-bold leading-none bg-[#F58CDE] text-black">
+                {missed.needsPerson}
+              </span>
+            )}
           </button>
         </div>
 
@@ -2280,12 +2399,11 @@ export default function AdminStagingPage() {
                                   return next
                                 })
                                 try {
-                                  const res = await fetchWithAuth(`${API_URL}/api/admin/staging/${listing.id}`, {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ scraped_data: updated }),
-                                  })
+                                  const res = await patchStaging(listing.id, updated)
                                   if (!res.ok) throw new Error('Failed to save swap')
+                                  // The server moves the tillable work with the
+                                  // boundary — take its version of the row.
+                                  await refetchStagingRow(listing.id)
                                   fetchValidation(listing.id)
                                 } catch (e) {
                                   setListings(original)
@@ -2478,7 +2596,7 @@ export default function AdminStagingPage() {
                                           <button
                                             type="button"
                                             onClick={() => setDeleteTractTarget({
-                                              tract: { ...tract, tract_number: tract.tract_number ?? idx + 1, total_acres: stAcres ?? null, sale_status: stStatus },
+                                              tract: { ...tract, _index: idx, tract_number: tract.tract_number ?? idx + 1, total_acres: stAcres ?? null, sale_status: stStatus },
                                               listing,
                                             })}
                                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm"
@@ -2572,6 +2690,7 @@ export default function AdminStagingPage() {
                                     // current shape immediately (not just
                                     // after Save).
                                     onPolygonChange={(_pts, gisAcres) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l
                                         const sd = { ...(l.scraped_data || {}) }
@@ -2584,6 +2703,7 @@ export default function AdminStagingPage() {
                                       }))
                                     }}
                                     onUpdate={(updatedTract) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       // Merge updated tract back into local state
                                       // so the card re-renders immediately
                                       // without a full re-fetch.
@@ -2612,6 +2732,7 @@ export default function AdminStagingPage() {
                                       fetchValidation(listing.id)
                                     }}
                                     onDirtyChange={(d) => setTractDirty(`${listing.id}::${idx}::map`, d)}
+                                    confirmBoundarySave={() => confirmBoundarySave(listing.id, idx, `Tract ${tract.tract_number ?? idx + 1}`)}
                                     discardNonce={discardNonces[`${listing.id}-${idx}`] || 0}
                                   />
                                   {/* FSA-CLU tillable workshop — admin clicks
@@ -2622,12 +2743,32 @@ export default function AdminStagingPage() {
                                   <TillableCluWorkshop
                                     stagingId={listing.id}
                                     tractIndex={idx}
+                                    tractUid={tractUid(tract)}
+                                    onSaveConflict={() => { refetchStagingRow(listing.id) }}
                                     reloadKey={cluReloadKeys[`${listing.id}-${idx}`] || 0}
                                     latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
                                     longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
                                     onSaved={(r) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l
+                                        // The server returns the FULL updated tract:
+                                        // REPLACE this page's copy with it (by uid,
+                                        // else index). The old copy is stale for the
+                                        // six tillable keys, computed (nccpi, per-state
+                                        // ratings), chosen and manual — patching a few
+                                        // fields used to send the rest back on the
+                                        // next auto-save.
+                                        if (r.tract) {
+                                          return {
+                                            ...l,
+                                            scraped_data: replaceTractInScrapedData(l.scraped_data, r.tract, {
+                                              uid: r.tract_uid ?? tractUid(tract), index: idx,
+                                            }),
+                                          }
+                                        }
+                                        // Older backend (no `tract` in the response):
+                                        // previous field-by-field patch.
                                         const sd = { ...(l.scraped_data || {}) }
                                         const ts = [...((sd.tracts as any[]) || [])]
                                         const cur = ts[idx] || {}
@@ -2688,6 +2829,7 @@ export default function AdminStagingPage() {
                                     siblingTractNumbers={info.tracts.map((t: any) =>
                                       String(t.tract_number ?? ''))}
                                     onTractNumberChange={(newNum) => {
+                                      rereadGateRef.current.noteEdit(listing.id)
                                       setListings(prev => prev.map(l => {
                                         if (l.id !== listing.id) return l
                                         const sd = { ...(l.scraped_data || {}) }
@@ -2973,6 +3115,9 @@ export default function AdminStagingPage() {
             )}
           </div>
         )}
+
+        {/* Missed Tab */}
+        {activeTab === 'missed' && <MissedAuctionsPanel state={missed} />}
       </div>
 
       {/* Screenshot/Map Modal */}
@@ -3469,6 +3614,15 @@ export default function AdminStagingPage() {
         </div>
       )}
 
+      <UnsavedTillableModal
+
+        tractLabel={tillableGuard?.label ?? null}
+
+        onGoBack={() => answerTillableGuard(false)}
+
+        onDiscard={() => answerTillableGuard(true)}
+
+      />
       <ConfirmDeleteTractModal
         tract={deleteTractTarget ? {
           tract_number: deleteTractTarget.tract.tract_number ?? null,

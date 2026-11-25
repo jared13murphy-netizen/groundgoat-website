@@ -24,6 +24,7 @@ import {
   type LandClass, type ParcelDetail,
 } from '@/lib/configurableMapping'
 import { savedTractNeedsEngine } from '@/lib/savedTractLandTypes'
+import { landCoverPayload } from '@/lib/staffLandCover'
 import {
   SRC, LYR_VERTS, LYR_FILL, nextId, geometryToPolys, explodeShapes, simplifyShapes, simplifyShapeKeepAcres, stripInsertedVertices,
   pointInRing, dropDegenerateHoles, pointInBoundary, ringCentre, polysToGeometry,
@@ -69,16 +70,64 @@ export type TractStart =
       /** the auction tract it came from + the company's stated acres (THE acres while unchanged) */
       tractId: string | null; statedAcres: number | null }
 
+/** A staff session (the admin Tillable Workshop on a staged tract): the
+ *  storage adapter's load() supplies the boundary and the shapes. `key`
+ *  re-loads the session whenever it changes. Never produced by Map It. */
+export type StaffStart = { kind: 'staff'; key: string }
+
+type PolygonInput = { cls: LandClass; geometry: any }
+
+/**
+ * Where a session reads and writes. Map It passes none and every call goes
+ * to the customer endpoints exactly as before; the admin Tillable Workshop
+ * passes its own (staging endpoints). Any member left out uses Map It's.
+ */
+export interface TractEditorStorage {
+  /** Staff start only: the outline + the shapes to open with. `shapes`
+   *  null = ask classify(); [] = open blank. */
+  load?: () => Promise<{
+    boundary: GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+    shapes: PolygonInput[] | null
+    state: string | null
+    /** fit the loaded shapes once (clip + no overlaps) before editing */
+    needsNormalize: boolean
+  }>
+  /** Engine land types for an outline (default: classifyBoundary). */
+  classify?: (boundary: any, state: string | null) => Promise<{ polygons: PolygonInput[]; engine_covered: boolean }>
+  /** Soil rating over the tillable pieces (default: previewSoil). Never
+   *  called with zero tillable pieces. */
+  soil?: (tillable: any[], state: string | null, boundary: any) => Promise<{ rating: number | null; rating_type: string | null }>
+  /** Save the outline + land types; the just-edited shape is LAST. May
+   *  return the shapes as stored, which then replace the ones on screen.
+   *  When given, save() needs no name and onSaved is the adapter's job. */
+  save?: (payload: { boundary: any; polygons: PolygonInput[] }) => Promise<{ shapes?: PolygonInput[] | null } | void>
+  /** Start Over: the shapes to go back to, or null to re-run classify(). */
+  startOver?: () => Promise<PolygonInput[] | null>
+}
+
 interface Params {
   mapRef: { current: maplibregl.Map | null }
   enabled: boolean
-  start: TractStart | null
+  start: TractStart | StaffStart | null
   /** Locked project the tract belongs to (Add a New Tract / Edit). */
   projectId: string | null
   projectName?: string | null
   onSaved?: (info: SavedInfo) => void
   onBusy?: (msg: string | null) => void
   onError?: (msg: string | null) => void
+  /** Storage adapter (admin Workshop). Omitted = Map It's own endpoints. */
+  storage?: TractEditorStorage
+  /** Never enter the outline step: the session opens on, and stays on,
+   *  land types (the boundary is not editable there). */
+  lockOutline?: boolean
+  /** fitBounds padding for the outline (default: room for the Map It bar). */
+  fitPadding?: number | { top: number; bottom: number; left: number; right: number }
+  /** Return false to ignore Enter / Esc / Cmd-Z (several editors on one
+   *  page). Default: always listen. */
+  keyboardActive?: () => boolean
+  /** A plain land-types click (no tool armed, not on a handle), before the
+   *  editor selects a shape. Return true to take the click. */
+  onPlainClick?: (e: { lngLat: { lng: number; lat: number }; point: { x: number; y: number } }) => boolean
 }
 
 type Snap = { boundary: Pt[][][]; shapes: Shape[]; classified: boolean }
@@ -94,13 +143,14 @@ const coarsePointer = () =>
 
 export function useTractEditor({
   mapRef, enabled, start, projectId, projectName, onSaved, onBusy, onError,
+  storage, lockOutline, fitPadding, keyboardActive, onPlainClick,
 }: Params) {
   // ── state ────────────────────────────────────────────────────────
   const [detail, setDetail] = useState<ParcelDetail | null>(null)
   const [boundary, setBoundaryState] = useState<Pt[][][]>([])
   const [shapes, setShapesState] = useState<Shape[]>([])
   const [classified, setClassified] = useState(false)
-  const [mode, setModeState] = useState<TractMode>('outline')
+  const [mode, setModeState] = useState<TractMode>(lockOutline ? 'landtypes' : 'outline')
   const [tool, setTool] = useState<TractTool>(null)
   const [drawing, setDrawing] = useState(false)
   const [draft, setDraft] = useState<Pt[]>([])
@@ -117,6 +167,9 @@ export function useTractEditor({
   const [soil, setSoil] = useState<{ rating: number | null; rating_type: string | null } | null>(null)
   const [soilBusy, setSoilBusy] = useState(false)
   const [layerTick, setLayerTick] = useState(0)
+  /** Bumped when a staff load lands (re-reads the soil line even when the
+   *  re-loaded tillable is identical to what was on screen). Map It: 0. */
+  const [staffLoadTick, setStaffLoadTick] = useState(0)
   const [savedName, setDefaultNameSaved] = useState('')
   const [, forceHist] = useState(0)
 
@@ -143,6 +196,11 @@ export function useTractEditor({
   const onErrorRef = useRef(onError); onErrorRef.current = onError
   const projectIdRef = useRef(projectId); projectIdRef.current = projectId
   const projectNameRef = useRef(projectName); projectNameRef.current = projectName
+  const storageRef = useRef(storage); storageRef.current = storage
+  const lockOutlineRef = useRef(lockOutline); lockOutlineRef.current = lockOutline
+  const fitPaddingRef = useRef(fitPadding); fitPaddingRef.current = fitPadding
+  const keyboardActiveRef = useRef(keyboardActive); keyboardActiveRef.current = keyboardActive
+  const onPlainClickRef = useRef(onPlainClick); onPlainClickRef.current = onPlainClick
   /** source parcels of a saved tract being edited (no detail record). */
   const sourceRef = useRef<string[]>([])
   // Owner 11/3: Regrid's total acres is THE acres of a parcel. While the
@@ -260,7 +318,7 @@ export function useTractEditor({
   const fitMap = useCallback((bb: [[number, number], [number, number]] | null) => {
     const map = mapRef.current
     if (!map || !bb) return
-    map.fitBounds(bb as any, { padding: { top: 90, bottom: 150, left: 60, right: 60 }, maxZoom: 18, duration: 700 })
+    map.fitBounds(bb as any, { padding: fitPaddingRef.current ?? { top: 90, bottom: 150, left: 60, right: 60 }, maxZoom: 18, duration: 700 })
   }, [mapRef])
 
   const resetSession = useCallback(() => {
@@ -272,7 +330,7 @@ export function useTractEditor({
     refAcresRef.current = null
     setDetail(null); setBoundaryState([]); setShapesState([]); setClassified(false)
     setDefaultNameSaved('')
-    setModeState('outline'); setTool(null); setDrawing(false); setDraft([]); setCutPts([])
+    setModeState(lockOutlineRef.current ? 'landtypes' : 'outline'); setTool(null); setDrawing(false); setDraft([]); setCutPts([])
     setMarq(null); setSelectedId(null); setFrame(null); setSoil(null)
     setBusyState(null); setErrorState(null); setNotice(null); setDirty(false); setLoading(false)
     cleanRef.current = fingerprint([], [])
@@ -281,6 +339,7 @@ export function useTractEditor({
   const startLlUuid = start?.kind === 'parcel' ? start.ll_uuid : null
   const startTractId = start?.kind === 'tract' ? start.id : null
   const startBoundary = start?.kind === 'boundary' ? start : null
+  const startStaffKey = start?.kind === 'staff' ? start.key : null
 
   /** Load a parcel's outline as the tract outline. Used by the parcel
    *  entry and by "Choose Parcel" in an Add-a-New-Tract session. */
@@ -340,6 +399,47 @@ export function useTractEditor({
       fitMap(bboxOf(startBoundary.geometry.coordinates as any))
       return
     }
+    if (startStaffKey != null) {
+      // Staff session: the adapter supplies the outline and the shapes.
+      const load = storageRef.current?.load
+      if (!load) return
+      const seq = loadSeq.current
+      setLoading(true); setBusy('Loading land types…')
+      ;(async () => {
+        try {
+          const t = await load()
+          if (seq !== loadSeq.current) return
+          const rings = geometryToPolys(t.boundary)
+          startStateRef.current = t.state ?? null
+          let loaded = t.shapes ? simplifyShapes(explodeShapes(t.shapes as any)) : []
+          if (t.shapes && t.needsNormalize && loaded.length && t.boundary) {
+            // Derived from older work: fit once so nothing overlaps. A
+            // failure here keeps the shapes as loaded (the save fits them).
+            try {
+              const res = await normalizeGeometry(t.boundary, loaded
+                .map((sh) => ({ cls: sh.cls, geometry: polysToGeometry(sh.polys) }))
+                .filter((x) => x.geometry) as any)
+              if (seq !== loadSeq.current) return
+              loaded = simplifyShapes(explodeShapes(res.polygons as any))
+            } catch { /* keep as loaded */ }
+          }
+          const known = t.shapes != null || !rings.length
+          boundaryRef.current = rings; shapesRef.current = loaded; classifiedRef.current = known
+          setBoundaryState(rings)
+          setShapesState(loaded); setClassified(known)
+          // What was loaded is the clean state: a pre-loaded engine or
+          // legacy map is not an unsaved change.
+          markClean(loaded, rings)
+          setStaffLoadTick((n) => n + 1)
+          if (t.boundary) fitMap(bboxOf((t.boundary as any).coordinates))
+        } catch (e: any) {
+          if (seq === loadSeq.current) setError(e?.message || 'Could not load the land types.')
+        } finally {
+          if (seq === loadSeq.current) { setLoading(false); setBusy(null) }
+        }
+      })()
+      return
+    }
     if (!startTractId) return
     const seq = loadSeq.current
     setLoading(true); setBusy('Opening map…')
@@ -377,7 +477,7 @@ export function useTractEditor({
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, startLlUuid, startTractId, startBoundary?.key])
+  }, [enabled, startLlUuid, startTractId, startBoundary?.key, startStaffKey])
 
   // ── classify (outline -> land types) ─────────────────────────────
   const ensureClassified = useCallback(async (): Promise<void> => {
@@ -390,12 +490,15 @@ export function useTractEditor({
       setBusy('Fitting land types to the boundary…'); setError(null)
       try {
         const warm = prewarmRef.current
-        const fresh: Awaited<ReturnType<typeof classifyBoundary>> =
-          (warm && warm.key === JSON.stringify(geom) ? await warm.p : null)
-          ?? await classifyBoundary(geom, state)
+        const classify = storageRef.current?.classify
+        const fresh: Pick<Awaited<ReturnType<typeof classifyBoundary>>, 'polygons' | 'engine_covered'> = classify
+          ? await classify(geom, state)
+          : (warm && warm.key === JSON.stringify(geom) ? await warm.p : null)
+            ?? await classifyBoundary(geom, state)
         // Still normalise: the engine's classes are disjoint, but the
         // user may already have drawn shapes of their own over them.
-        const res = await normalizeGeometry(
+        // (An adapter's blank answer has nothing to fit.)
+        const res = classify && !fresh.polygons.length ? { polygons: [] } : await normalizeGeometry(
           geom, fresh.polygons.map((p) => ({ cls: p.cls, geometry: p.geometry })))
         if (!fresh.engine_covered) {
           setError('Part of this boundary is outside the mapped area — '
@@ -428,6 +531,7 @@ export function useTractEditor({
 
   const setMode = useCallback((m: TractMode) => {
     if (m === modeRef.current) return
+    if (m === 'outline' && lockOutlineRef.current) return
     // A draft never survives a mode change.
     setTool(null); setDrawing(false); setDraft([]); setCutPts([]); setMarq(null)
     dropDraftHist()
@@ -474,7 +578,15 @@ export function useTractEditor({
       setError(e?.message || 'Could not fit that shape to the others.')
     }
   }, [setError])
-  const enforceRef = useRef(enforceNoOverlap); enforceRef.current = enforceNoOverlap
+  /** The overlap fit in flight, if any (an adapter save waits for it). */
+  const enforcingRef = useRef<Promise<void> | null>(null)
+  const enforceRef = useRef(enforceNoOverlap)
+  enforceRef.current = (next: Shape[], keepId?: string | null) => {
+    const run = enforceNoOverlap(next, keepId)
+    enforcingRef.current = run
+    void run.finally(() => { if (enforcingRef.current === run) enforcingRef.current = null })
+    return run
+  }
 
   // ── shape actions ────────────────────────────────────────────────
   const setClassOf = useCallback((id: string, cls: LandClass) => {
@@ -514,6 +626,28 @@ export function useTractEditor({
     if (selectedRef.current) deleteShape(selectedRef.current)
   }, [deleteShape])
 
+  /** Add a ready-made geometry as land type `cls` (one shape per polygon
+   *  part). Added last, so it wins any overlap, like a drawn polygon. */
+  const addGeometry = useCallback((cls: LandClass, geometry: any) => {
+    const added = explodeShapes([{ cls, geometry }])
+    if (!added.length) return
+    const next = [...shapesRef.current, ...added]
+    mutate(() => next)
+    shapesRef.current = next
+    setSelectedId(null)
+    void enforceRef.current(next)
+  }, [mutate])
+
+  /** Remove several shapes in ONE undo step (no hole-closing). */
+  const deleteShapes = useCallback((ids: string[]) => {
+    const next = shapesRef.current.filter((s) => !ids.includes(s.id))
+    if (next.length === shapesRef.current.length) return
+    mutate(() => next)
+    shapesRef.current = next
+    setSelectedId((cur) => (cur && ids.includes(cur) ? null : cur))
+    void enforceRef.current(next, null)
+  }, [mutate])
+
   const fillHoles = useCallback(() => {
     const id = selectedRef.current
     if (!id) return
@@ -549,6 +683,23 @@ export function useTractEditor({
    *  call when the engine polygons are already loaded with the parcel;
    *  otherwise re-classifies. */
   const startOver = useCallback(() => {
+    const again = storageRef.current?.startOver
+    if (again) {
+      // Adapter session: it knows where the engine shapes come from.
+      setBusy('Loading the engine land types…'); setError(null)
+      again().then((polys) => {
+        if (polys) {
+          mutate(() => simplifyShapes(explodeShapes(polys as any)))
+          setSelectedId(null)
+          return
+        }
+        snapshotTract()
+        setShapesState([]); setClassified(false); setSelectedId(null)
+      }).catch((e: any) => {
+        setError(e?.message || 'Could not load the engine land types.')
+      }).finally(() => setBusy(null))
+      return
+    }
     const d = detailRef.current
     if (d?.polygons?.length && sameBoundaryAsParcel(boundaryRef.current, d)) {
       mutate(() => simplifyShapes(explodeShapes(d.polygons as any)))
@@ -558,7 +709,7 @@ export function useTractEditor({
     // Outline was edited — the parcel's own polygons no longer fit it.
     snapshotTract()
     setShapesState([]); setClassified(false); setSelectedId(null)
-  }, [mutate, snapshotTract])
+  }, [mutate, snapshotTract, setBusy, setError])
 
   const holesOnSelected = useMemo(() => {
     const sh = shapes.find((x) => x.id === selectedId)
@@ -668,14 +819,18 @@ export function useTractEditor({
     let removed = 0
     const id = selectedRef.current
     if (!id) { setError('Select a polygon first, then drag over its points.'); return }
-    mutate((prev) => prev.map((sh) => sh.id !== id ? sh : {
+    // Count on the CURRENT shapes first: the state updater runs later, so
+    // counting inside it left `removed` at 0 and showed "No points inside
+    // that box" after every successful erase.
+    const next = shapesRef.current.map((sh) => sh.id !== id ? sh : {
       ...sh,
       polys: sh.polys.map((rings) => dropDegenerateHoles(
         rings.map((ring, ri) => {
           const t = trim(ring, ri); removed += ring.length - t.length; return t
         }))),
-    }))
-    if (!removed) setError('No points inside that box — drag a box right over the dots.')
+    })
+    if (!removed) { setError('No points inside that box — drag a box right over the dots.'); return }
+    mutate(() => next)
   }, [mutate, setError])
   const eraseRef = useRef(eraseInBox); eraseRef.current = eraseInBox
 
@@ -751,7 +906,7 @@ export function useTractEditor({
     setSoilBusy(true)
     const t = setTimeout(async () => {
       try {
-        const r = await previewSoil(tillable, st,
+        const r = await (storageRef.current?.soil ?? previewSoil)(tillable, st,
           detailRef.current?.boundary ?? polysToGeometry(boundaryRef.current))
         if (!cancelled) setSoil({ rating: r.rating, rating_type: r.rating_type })
       } catch {
@@ -762,7 +917,7 @@ export function useTractEditor({
     }, 700)
     return () => { cancelled = true; clearTimeout(t); setSoilBusy(false) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, tillableKey, mode, detail?.boundary])
+  }, [enabled, tillableKey, mode, detail?.boundary, staffLoadTick])
 
   const totals = useMemo(() => {
     const t: Record<string, number> = {}
@@ -788,6 +943,49 @@ export function useTractEditor({
   // ── save ─────────────────────────────────────────────────────────
   const save = useCallback(async (opts: SaveOptions): Promise<boolean> => {
     if (savingRef.current) return false
+    const store = storageRef.current?.save
+    if (store) {
+      // Adapter save (admin Workshop): no name, no project. Same order of
+      // steps as below; the adapter owns the request and its onSaved.
+      if (drawingRef.current && draftRef.current.length >= 3) finishDraftRef.current()
+      const boundaryGeom = polysToGeometry(boundaryRef.current)
+      if (!boundaryGeom) { setError('This tract has no boundary to save land types against.'); return false }
+      savingRef.current = true
+      try {
+        if (!classifiedRef.current) await ensureClassified()
+        // Let the overlap fit of the last edit (or of the ring just
+        // finished) land first, so what is sent is what is on screen.
+        while (enforcingRef.current) await enforcingRef.current
+        await new Promise((r) => setTimeout(r, 0))
+        // The shape being edited goes LAST so it wins any overlap the
+        // server still has to settle.
+        const sent = shapesRef.current
+        const sentPrint = fingerprint(sent, boundaryRef.current)
+        setBusy('Saving…'); setError(null)
+        const res = await store({
+          boundary: boundaryGeom,
+          polygons: landCoverPayload(sent, selectedRef.current),
+        })
+        if (fingerprint(shapesRef.current, boundaryRef.current) !== sentPrint) {
+          // Edited while the save was in flight: what was SENT is the clean
+          // state; the newer edit stays on screen, unsaved.
+          cleanRef.current = sentPrint
+          setDirty(true)
+        } else if (res && Array.isArray(res.shapes)) {
+          // Show exactly what the server stored.
+          const stored = explodeShapes(res.shapes as any)
+          shapesRef.current = stored
+          setShapesState(stored); setSelectedId(null)
+          markClean(stored, boundaryRef.current)
+        } else {
+          markClean(shapesRef.current, boundaryRef.current)
+        }
+        return true
+      } catch (e: any) {
+        setError(e?.message || 'Save failed.')
+        return false
+      } finally { setBusy(null); savingRef.current = false }
+    }
     const name = opts.name.trim()
     if (!name) { setError('Name this tract before saving.'); return false }
     // Finish a ring in progress first.
@@ -842,6 +1040,7 @@ export function useTractEditor({
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (keyboardActiveRef.current && !keyboardActiveRef.current()) return
       if (e.key === 'Enter' && drawingRef.current) { e.preventDefault(); finishDraftRef.current() }
       if (e.key === 'Escape') {
         if (drawingRef.current || draftRef.current.length || toolRef.current) {
@@ -1266,6 +1465,7 @@ export function useTractEditor({
         return
       }
       if (modeRef.current !== 'landtypes') return
+      if (toolRef.current === null && onPlainClickRef.current?.(e)) return
       const onShape = map.getLayer(LYR_FILL)
         ? map.queryRenderedFeatures(e.point, { layers: [LYR_FILL] }) : []
       if (onShape.length) {
@@ -1360,6 +1560,7 @@ export function useTractEditor({
     setMode, setDrawClass, startDrawTract, startDrawPolygon, toggleCut, toggleErase,
     deleteSelected, fillHoles, simplify, clearPolygons, startOver, snapToParcel,
     finishDraft, cancelDraft, undo, redo, save, loadParcel,
+    addGeometry, deleteShapes,
     clearMessages: () => { setNotice(null); setError(null) },
   }
 }

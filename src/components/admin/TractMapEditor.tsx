@@ -131,6 +131,11 @@ interface TractMapEditorProps {
    *  Publish Incomplete) until every tract's edits are saved. Fires false on
    *  unmount so a collapsed/removed editor never leaves the listing "dirty". */
   onDirtyChange?: (dirty: boolean) => void
+  /** Asked right before ANY write of the tract boundary (Save, clear, Delete
+   *  polygon). Resolve false to cancel the write. The staging pages use it
+   *  to stop a boundary save from reloading a Tillable Workshop that still
+   *  has unsaved edits (the reload would silently discard them). */
+  confirmBoundarySave?: () => boolean | Promise<boolean>
   /** Called when the user clicks "Show Tillable" / "Hide Tillable".
    *  Parent owns the showTillable state so the comparison panel can
    *  reflect what's visible. */
@@ -457,6 +462,7 @@ export default function TractMapEditor({
   onUpdate,
   onPolygonChange,
   onDirtyChange,
+  confirmBoundarySave,
   onToggleTillable,
   onComputeTillable,
   listingUrl,
@@ -2707,6 +2713,7 @@ export default function TractMapEditor({
       setStatus('Need at least 3 points to save a boundary')
       return
     }
+    if (confirmBoundarySave && !(await confirmBoundarySave())) return
 
     // Saving a cleared polygon: route to the appropriate delete/clear
     // endpoint — but ONLY when there are no rings at all. Checking
@@ -2920,6 +2927,7 @@ export default function TractMapEditor({
       'and tract image so you can redraw cleanly. The tract\'s scraped ' +
       'acres/county/etc. are kept.'
     )) return
+    if (confirmBoundarySave && !(await confirmBoundarySave())) return
     setDeleting(true)
     setStatus(null)
     try {
