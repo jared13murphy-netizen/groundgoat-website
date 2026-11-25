@@ -115,6 +115,10 @@ const dotClass = (s?: string) => s === 'green' ? 'g' : s === 'amber' ? 'w' : s =
 
 /* ── Colour ramps (client side, per mode / plan) ─────────────────── */
 
+/* Map outlines (owner 11/25): gray county lines, white state borders. */
+const COUNTY_LINE = '#6b7280'
+const COUNTY_LINE_W: any = ['interpolate', ['linear'], ['zoom'], 3, 0.25, 6, 0.6, 9, 1]
+
 function hexRgb(h: string): [number, number, number] {
   const v = parseInt(h.slice(1), 16)
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255]
@@ -370,8 +374,10 @@ function NorthStar({ ns, onNow, why }: { ns: any; onNow: any; why: string }) {
 
 /* ── The map ──────────────────────────────────────────────────────── */
 
-function CountyMap({ features, nowCounties, cfg }: {
+function CountyMap({ features, nowCounties, cfg, onPick }: {
   features: any[] | null; nowCounties: any[] | null; cfg: Cfg
+  /** A county was clicked: open its people panel. */
+  onPick: (state: string, county: string) => void
 }) {
   const wrap = useRef<HTMLDivElement | null>(null)
   const box = useRef<HTMLDivElement | null>(null)
@@ -380,6 +386,8 @@ function CountyMap({ features, nowCounties, cfg }: {
   const [ready, setReady] = useState(false)
   const cfgRef = useRef(cfg)
   cfgRef.current = cfg
+  const pickRef = useRef(onPick)
+  pickRef.current = onPick
 
   useEffect(() => {
     const container = box.current
@@ -424,14 +432,24 @@ function CountyMap({ features, nowCounties, cfg }: {
       styled = true
       fit()
       setReady(true)
-      fetch('/geo/us-states.json').then(r => r.json()).then(states => {
+      // Outlines: gray county lines inside each state, white state borders on top.
+      Promise.all([
+        fetch('/geo/us-states.json').then(r => r.json()),
+        fetch('/geo/us-county-lines.json').then(r => r.json()).catch(() => null),
+      ]).then(([states, countyLines]) => {
         if (!alive || m.getSource('cc7_states')) return
+        const below = () => (m.getLayer('cc7_now_halo') ? 'cc7_now_halo' : undefined)
         m.addSource('cc7_states', { type: 'geojson', data: states })
         m.addLayer({ id: 'cc7_states_fill', type: 'fill', source: 'cc7_states',
           paint: { 'fill-color': '#141a24' } }, m.getLayer('cc7_fill') ? 'cc7_fill' : undefined)
+        if (countyLines) {
+          m.addSource('cc7_county_lines', { type: 'geojson', data: countyLines })
+          m.addLayer({ id: 'cc7_county_lines', type: 'line', source: 'cc7_county_lines',
+            paint: { 'line-color': COUNTY_LINE, 'line-width': COUNTY_LINE_W } }, below())
+        }
         m.addLayer({ id: 'cc7_states_line', type: 'line', source: 'cc7_states',
-          paint: { 'line-color': '#3b4659', 'line-width': 0.9 } },
-          m.getLayer('cc7_now_halo') ? 'cc7_now_halo' : undefined)
+          paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.9, 6, 1.4, 9, 2] } },
+          below())
       }).catch(() => { /* outlines are context; the heat still draws without them */ })
     }
     m.on('load', onStyled)
@@ -490,10 +508,12 @@ function CountyMap({ features, nowCounties, cfg }: {
       })
       m.addLayer({
         id: 'cc7_line', type: 'line', source: 'cc7_counties',
-        paint: { 'line-color': '#0e131b', 'line-width': 0.5 },
+        paint: { 'line-color': COUNTY_LINE, 'line-width': COUNTY_LINE_W },
       })
-      // State lines stay drawn over the county colours.
-      if (m.getLayer('cc7_states_line')) m.moveLayer('cc7_states_line', m.getLayer('cc7_now_halo') ? 'cc7_now_halo' : undefined)
+      // County and state lines stay drawn over the county colours.
+      for (const id of ['cc7_county_lines', 'cc7_states_line']) {
+        if (m.getLayer(id)) m.moveLayer(id, m.getLayer('cc7_now_halo') ? 'cc7_now_halo' : undefined)
+      }
       m.on('mousemove', 'cc7_fill', (e: any) => {
         const p = e.features?.[0]?.properties
         if (!p) return
@@ -504,7 +524,12 @@ function CountyMap({ features, nowCounties, cfg }: {
         showTip(e, `<b>${esc(p.county)} County, ${esc(p.state)}</b><span>New users ${c.per} d:</span> ${cur} `
           + `<span>· before:</span> ${pri} <span>·</span> ${d >= 0 ? '+' : ''}${d}<br><span>Customers:</span> ${all}`)
       })
-      m.on('mouseleave', 'cc7_fill', hideTip)
+      m.on('mouseleave', 'cc7_fill', () => { hideTip(); m.getCanvas().style.cursor = '' })
+      m.on('mouseenter', 'cc7_fill', () => { m.getCanvas().style.cursor = 'pointer' })
+      m.on('click', 'cc7_fill', (e: any) => {
+        const p = e.features?.[0]?.properties
+        if (p?.state && p?.county) { hideTip(); pickRef.current(p.state, p.county) }
+      })
     }
     const showFill = cfg.mode !== 'now'
     for (const id of ['cc7_fill', 'cc7_line']) {
@@ -550,7 +575,12 @@ function CountyMap({ features, nowCounties, cfg }: {
         const list = people.slice(0, 6).map(x => `${esc(x.name || x.email || 'Someone')}${x.device ? ` <span>· ${esc(x.device)}</span>` : ''}`).join('<br>')
         showTip(e, `<b>${esc(p.county)} County, ${esc(p.state)}</b><span>On now:</span> ${esc(p.n)}${list ? '<br>' + list : ''}`)
       })
-      m.on('mouseleave', 'cc7_now_dot', hideTip)
+      m.on('mouseleave', 'cc7_now_dot', () => { hideTip(); m.getCanvas().style.cursor = '' })
+      m.on('mouseenter', 'cc7_now_dot', () => { m.getCanvas().style.cursor = 'pointer' })
+      m.on('click', 'cc7_now_dot', (e: any) => {
+        const p = e.features?.[0]?.properties
+        if (p?.state && p?.county) { hideTip(); pickRef.current(p.state, p.county) }
+      })
     }
     for (const id of ['cc7_now_halo', 'cc7_now_dot']) {
       m.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
@@ -563,6 +593,90 @@ function CountyMap({ features, nowCounties, cfg }: {
       <div className="v-mapgl" ref={box} />
       <div className="v-tip" ref={tip} />
     </div>
+  )
+}
+
+/* ── County drawer (owner 11/25): click a county → everyone who lives there ── */
+
+const PLAN_SHORT: Record<string, string> = {
+  basic: 'Basic State', premium: 'Premium State', county: 'County', firm: 'Firm',
+  trial: 'Free trial', none: 'No plan',
+}
+const PLAN_DOT: Record<string, string> = {
+  premium: PINK, basic: BLUE, county: AQUA, firm: ORANGE, trial: WARN, none: '#4a5466',
+}
+/** 34 → "34 d", 75 → "2 mo", 400 → "1 yr 1 mo". */
+const since = (days: any) => {
+  if (!isNum(days)) return DASH
+  const d = Number(days)
+  if (d < 1) return 'today'
+  if (d < 60) return `${d} d`
+  const mo = Math.floor(d / 30.44)
+  if (mo < 12) return `${mo} mo`
+  const y = Math.floor(mo / 12), r = mo % 12
+  return r ? `${y} yr ${r} mo` : `${y} yr`
+}
+
+function CountyDrawer({ pick, onClose }: { pick: { state: string; county: string } | null; onClose: () => void }) {
+  const [d, setD] = useState<any>(null)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [onClose])
+  useEffect(() => {
+    if (!pick) return
+    let alive = true
+    setD(null); setErr('')
+    const q = `state=${encodeURIComponent(pick.state)}&county=${encodeURIComponent(pick.county)}`
+    fetchWithAuth(`${API_URL}/api/admin/command-center/map/county?${q}`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(j => { if (alive) { if (j?.available === false) setErr(j.reason || 'not available'); else setD(j) } })
+      .catch(e => { if (alive) setErr(String(e?.message || e)) })
+    return () => { alive = false }
+  }, [pick])
+  const open = !!pick
+  const people: any[] = d?.people || []
+  const bp = d?.by_plan || {}
+  const paying = (bp.basic || 0) + (bp.premium || 0) + (bp.county || 0) + (bp.firm || 0)
+  return (
+    <>
+      <div className={`v-scrim ${open ? 'on' : ''}`} onClick={onClose} />
+      <aside className={`v-drawer ${open ? 'on' : ''}`} aria-hidden={!open}>
+        {pick && <>
+          <h2>{d?.county || pick.county} County, {pick.state}
+            <span className="v-hint">click outside to close</span></h2>
+          <div className="v-dk">
+            <div><span>People</span><b>{d ? n0(d.count) : DASH}</b></div>
+            <div><span>Paying</span><b>{d ? n0(paying) : DASH}</b></div>
+            <div><span>Free trial</span><b>{d ? n0(bp.trial || 0) : DASH}</b></div>
+            <div><span>No plan</span><b>{d ? n0(bp.none || 0) : DASH}</b></div>
+          </div>
+          <div className="v-cp">
+            <div className="v-cph">
+              <span>Name</span><span>Plan</span><span>Subscribed</span>
+              <span title={`Average actions per day over the last ${d?.usage_days || 30} days (or since they signed up)`}>Actions / day</span>
+              <span title={`Days they used Ground Goat in the last ${d?.usage_days || 30}`}>Days used (30)</span>
+            </div>
+            <div className="v-cpb">
+              {err ? <div className="v-mut v-cpm">{DASH} {err}</div>
+                : !d ? <div className="v-mut v-cpm">Loading…</div>
+                : !people.length ? <div className="v-mut v-cpm">{DASH} nobody lives here</div>
+                : people.map((p, i) => (
+                  <div className="v-cpr" key={i}>
+                    <span className="v-cpn"><b>{p.name}</b><i>{p.email}</i></span>
+                    <span><span className="v-pd" style={{ background: PLAN_DOT[p.plan] || '#4a5466' }} />{PLAN_SHORT[p.plan] || p.plan}</span>
+                    <span>{p.plan === 'none' ? DASH : since(p.subscribed_days)}</span>
+                    <span>{n0(p.actions_per_day, 1)}</span>
+                    <span>{n0(p.days_used_30d)}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </>}
+      </aside>
+    </>
   )
 }
 
@@ -658,6 +772,9 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
   const [plan, setPlan] = useState<Plan>('all')
   const [per, setPer] = useState(30)
   const [openFeature, setOpenFeature] = useState<any>(null)
+  const [openCounty, setOpenCounty] = useState<{ state: string; county: string } | null>(null)
+  const pickCounty = useCallback((state: string, county: string) => setOpenCounty({ state, county }), [])
+  const closeCounty = useCallback(() => setOpenCounty(null), [])
 
   const growth = useGrowth(per, mode)
   const live = useLive()
@@ -794,7 +911,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
             <Seg value={per} on={setPer} items={[[7, '7 d'], [30, '30 d'], [90, '90 d']]} />
           </div>
           <div className="v-mapbox">
-            <CountyMap features={features} nowCounties={liveD?.now_counties || null} cfg={cfg} />
+            <CountyMap features={features} nowCounties={liveD?.now_counties || null} cfg={cfg} onPick={pickCounty} />
 
             <div className="v-ovl v-big">
               <b>{head.big}</b>
@@ -1027,6 +1144,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
       </section>
 
       <Drawer f={openFeature} fs={fs} onClose={() => setOpenFeature(null)} />
+      <CountyDrawer pick={openCounty} onClose={closeCounty} />
     </div>
   )
 }
@@ -1178,6 +1296,16 @@ const V7_CSS = `
 .v7 .v-dchart{height:13em;position:relative;background:var(--card);border:1px solid var(--line);border-radius:.6em;padding:.6em;display:flex;flex-direction:column;flex:none}
 .v7 .v-dtitle{font-size:.74em;color:var(--ink3);margin-bottom:.3em}
 .v7 .v-dchart .recharts-responsive-container{flex:1;min-height:0}
+.v7 .v-cp{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:.6em;font-size:.84em}
+.v7 .v-cph,.v7 .v-cpr{display:grid;grid-template-columns:minmax(0,2.4fr) 1.3fr 1fr .9fr .9fr;gap:.6em;align-items:center;padding:.45em .7em}
+.v7 .v-cph{color:var(--ink3);font-size:.86em;border-bottom:1px solid var(--line)}
+.v7 .v-cph span:nth-child(n+3),.v7 .v-cpr>span:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}
+.v7 .v-cpb{flex:1;min-height:0;overflow-y:auto}
+.v7 .v-cpr{border-bottom:1px solid var(--grid)}.v7 .v-cpr:last-child{border:0}
+.v7 .v-cpn{display:flex;flex-direction:column;min-width:0}.v7 .v-cpn b,.v7 .v-cpn i{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v7 .v-cpn i{font-style:normal;color:var(--ink3);font-size:.86em}
+.v7 .v-pd{display:inline-block;width:.6em;height:.6em;border-radius:50%;margin-right:.4em;vertical-align:.05em}
+.v7 .v-cpm{padding:.8em .7em}
 .v7 .v-dl{background:var(--card);border:1px solid var(--line);border-radius:.6em;padding:.5em .7em;font-size:.84em}
 .v7 .v-dl div{display:flex;justify-content:space-between;padding:.3em 0;border-bottom:1px solid var(--grid)}.v7 .v-dl div:last-child{border:0}.v7 .v-dl span{color:var(--ink2)}
 `
