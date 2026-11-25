@@ -8,7 +8,7 @@ import {
   tractUid, findTractIndex, replaceTractInScrapedData, withoutDeletedTracts,
   addPendingDeletes, clearPendingDeletes, buildStagingPatchBody, removedTractUids,
   swapKeys, swapTractObjects, findOriginalTract, RowRereadGate,
-  BOUNDARY_KEYS, TILLABLE_WORK_KEYS,
+  BOUNDARY_KEYS, TILLABLE_WORK_KEYS, withoutResponseOnlyTractKeys,
 } from './stagingTracts.ts'
 
 let passed = 0
@@ -112,6 +112,33 @@ test('buildStagingPatchBody: lists deleted uids, never one still in the document
   assert.deepEqual(buildStagingPatchBody(sd, []), { scraped_data: sd })
   assert.deepEqual(buildStagingPatchBody(sd, ['b', 'a'], { auction_date: null }),
     { scraped_data: sd, auction_date: null, deleted_tract_uids: ['b'] })
+})
+
+test('buildStagingPatchBody: engine_shapes (response-only) is never sent back', () => {
+  const a = { ...A(), engine_shapes: 'missing' }
+  const b = B()
+  const sd = { listing: { title: 'x' }, tracts: [a, b] }
+  const body = buildStagingPatchBody(sd, ['zzz']) as any
+  assert.equal('engine_shapes' in body.scraped_data.tracts[0], false)
+  assert.deepEqual(body.scraped_data.tracts[0], A())
+  assert.equal(body.scraped_data.tracts[1], b, 'a tract without the key is not copied')
+  assert.deepEqual(body.scraped_data.listing, { title: 'x' })
+  assert.deepEqual(body.deleted_tract_uids, ['zzz'])
+  // the page's own copy keeps the badge value
+  assert.equal(a.engine_shapes, 'missing')
+  assert.equal((sd.tracts[0] as any).engine_shapes, 'missing')
+  assert.equal(JSON.stringify(body).includes('engine_shapes'), false)
+  // a key held as undefined (cleared after a boundary save) is dropped too
+  const body2 = buildStagingPatchBody({ tracts: [{ ...B(), engine_shapes: undefined }] }, undefined) as any
+  assert.equal('engine_shapes' in body2.scraped_data.tracts[0], false)
+})
+
+test('withoutResponseOnlyTractKeys: same object when there is nothing to strip', () => {
+  const sd = { tracts: [A(), B()] }
+  assert.equal(withoutResponseOnlyTractKeys(sd), sd)
+  assert.equal(withoutResponseOnlyTractKeys(null), null)
+  const noTracts = { listing: {} }
+  assert.equal(withoutResponseOnlyTractKeys(noTracts), noTracts)
 })
 
 test('removedTractUids: tracts in before but not after (uid-less ones cannot be named)', () => {

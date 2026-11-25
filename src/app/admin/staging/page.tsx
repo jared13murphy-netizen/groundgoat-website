@@ -48,6 +48,10 @@ import {
   addPendingDeletes, clearPendingDeletes, buildStagingPatchBody, removedTractUids, RowRereadGate,
   type PendingDeletes,
 } from '@/lib/stagingTracts'
+import {
+  listingEngineState, engineShapesBadge, engineShapesSummary, engineShapesChecklistItems, ENGINE_BADGE_CLASS,
+  withEngineShapesAfterBoundaryUpdate, withEngineShapesAfterWorkshopSave,
+} from '@/lib/engineShapes'
 import SaleStatusChips from '@/components/admin/SaleStatusChips'
 import MissedAuctionsPanel, { useMissedAuctions } from '@/components/admin/MissedAuctionsPanel'
 import ConfirmDeleteTractModal from '@/components/admin/ConfirmDeleteTractModal'
@@ -2129,6 +2133,8 @@ export default function AdminStagingPage() {
             <div className="space-y-6">
               {filteredListings.map((listing) => {
                 const info = extractListingInfo(listing.scraped_data)
+                // The listing's state as the backend reads it for engine_shapes.
+                const engState = listingEngineState(listing.scraped_data)
                 return (
                   <div
                     key={listing.id}
@@ -2142,6 +2148,19 @@ export default function AdminStagingPage() {
 
                       {/* Content */}
                       <div className="flex-1 p-6">
+                        {/* Engine shapes are required in the nine mapped
+                            states (owner 2026-11-25): one line when any
+                            tract there has no boundary or no engine run. */}
+                        {(() => {
+                          const line = engineShapesSummary(info.tracts, engState)
+                          if (!line) return null
+                          return (
+                            <div className="mb-3 flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white text-xs font-semibold rounded-lg">
+                              <AlertTriangle size={14} className="flex-shrink-0" />
+                              <span>{line}</span>
+                            </div>
+                          )
+                        })()}
                         {/* Company & Date Row */}
                         <div className="flex items-start justify-between mb-4">
                           <div>
@@ -2499,6 +2518,22 @@ export default function AdminStagingPage() {
                                           </span>
                                         )
                                       })()}
+                                      {(() => {
+                                        // Engine shapes are required in the nine
+                                        // mapped states (owner 2026-11-25). The value
+                                        // is computed by the server on every read of
+                                        // the row; nothing shows for an older backend.
+                                        const eb = engineShapesBadge(tract, engState)
+                                        if (!eb) return null
+                                        return (
+                                          <span
+                                            className={`inline-flex items-center text-[11px] px-2 py-0.5 rounded font-semibold shrink-0 ${ENGINE_BADGE_CLASS[eb.tone]}`}
+                                            title={eb.title}
+                                          >
+                                            {eb.label}
+                                          </span>
+                                        )
+                                      })()}
                                       {stReviewed && (
                                         <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-green-500/15 text-green-400 border border-green-500/40 shrink-0">
                                           ✓ Reviewed
@@ -2711,7 +2746,7 @@ export default function AdminStagingPage() {
                                         if (l.id !== listing.id) return l
                                         const sd = { ...(l.scraped_data || {}) }
                                         const ts = [...((sd.tracts as any[]) || [])]
-                                        ts[idx] = { ...ts[idx], ...updatedTract }
+                                        ts[idx] = { ...ts[idx], ...withEngineShapesAfterBoundaryUpdate(updatedTract) }
                                         sd.tracts = ts
                                         return { ...l, scraped_data: sd }
                                       }))
@@ -2762,7 +2797,7 @@ export default function AdminStagingPage() {
                                         if (r.tract) {
                                           return {
                                             ...l,
-                                            scraped_data: replaceTractInScrapedData(l.scraped_data, r.tract, {
+                                            scraped_data: replaceTractInScrapedData(l.scraped_data, withEngineShapesAfterWorkshopSave(r.tract, (l.scraped_data?.tracts as any[] | undefined)?.[findTractIndex(l.scraped_data?.tracts, r.tract_uid ?? tractUid(tract), idx)]), {
                                               uid: r.tract_uid ?? tractUid(tract), index: idx,
                                             }),
                                           }
@@ -2885,11 +2920,14 @@ export default function AdminStagingPage() {
                             amber advisory only when enforce=false (observe mode). */}
                         {(() => {
                           const vr = validateResults[listing.id]
-                          if (!vr || vr.items.length === 0) return null
+                          // Engine shapes (required in the nine mapped states)
+                          // come from the row itself, not from /validate.
+                          const engineItems = engineShapesChecklistItems(info.tracts, engState)
+                          if ((!vr || vr.items.length === 0) && engineItems.length === 0) return null
                           // Group listing-level items first, then per-tract
-                          const listingItems = vr.items.filter((it: any) => it.scope === 'listing')
-                          const tractItems   = vr.items.filter((it: any) => it.scope === 'tract')
-                          if (vr.enforce) {
+                          const listingItems = (vr?.items || []).filter((it: any) => it.scope === 'listing')
+                          const tractItems   = [...(vr?.items || []).filter((it: any) => it.scope === 'tract'), ...engineItems]
+                          if (vr?.enforce) {
                             return (
                               <div className="mb-3 px-3 py-2.5 bg-yellow-300 border border-yellow-500 rounded-lg">
                                 <div className="flex items-center gap-1.5 mb-1.5">
