@@ -43,6 +43,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { formatTillable } from '@/lib/tillable'
+import CommandCenterV7 from '@/components/admin/CommandCenterV7'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.groundgoat.com'
 
@@ -4405,7 +4406,7 @@ export default function CommandCenterPage() {
 
      Pins load only while the map is on screen. Nobody reading the Money
      page should be fetching a quarter of a megabyte of coordinates. */
-  const wantsMap = section === 'map' || section === 'overview'
+  const wantsMap = section === 'map'
   const { data: mapPoints, error: mapError } = useMapPoints(authorised && wantsMap)
 
   /* Same admin gate as every other /admin page. The backend enforces it
@@ -4561,62 +4562,11 @@ export default function CommandCenterPage() {
   const view = () => {
     switch (section) {
       case 'overview':
+        /* v7 (owner 11/24): its own full-window screen, no top bar. It has
+           no action buttons and no "needs attention" badge by design. */
         return (
-          <div className="grid" style={{
-            gridTemplateRows: 'minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,1fr)' }}>
-            {/* The map is the point of this screen, so it gets the most of it. */}
-            <Panel span={8} title="Where every sale is"
-              tag={mapD ? `${num(mapD.upcoming)} still to come · ${num(mapD.states)} states` : undefined}
-              panelState={st('map')} flush>
-              {mapError ? <Unavailable why={mapError} />
-                : <LiveMap points={mapPoints} full={mapFull}
-                    onToggleFull={() => setMapFull(v => !v)} />}
-            </Panel>
-
-            <Panel span={4} title="Problems"
-              tag={alerts.length ? `${num(alerts.length)} open` : 'all clear'}>
-              <Problems alerts={alerts} fixes={fixesD}
-                onOpenFindings={() => setFixOpen(true)} />
-            </Panel>
-
-            <Panel span={3} title="Right now" infoId="pulse"
-              panelState={st('pulse')} onChart={chart('pulse')}>
-              {pulse ? <RightNow d={pulse} series={P('traffic_series')} />
-                : <Unavailable why={whyMissing('pulse')} />}
-            </Panel>
-
-            <Panel span={3} title="Money" tag="per year" infoId="money"
-              panelState={st('money')} onChart={chart('money')}>
-              {moneyD ? <Money d={moneyD} /> : <Unavailable why={whyMissing('money')} />}
-            </Panel>
-
-            <Panel span={3} title="AWS this month" panelState={st('aws')}
-              onOpen={() => setSection('aws')}>
-              {awsD ? <AwsSpendMini d={awsD} /> : <Unavailable why={whyMissing('aws')} />}
-            </Panel>
-
-            <Panel span={3} title="What is happening" panelState={st('pulse')}>
-              <ActivityFeed pulse={pulse} pipeline={pipelineD} money={moneyD}
-                people={peopleD} mapD={mapD} />
-            </Panel>
-
-            {/* People as a business: where signups are going, whether trials
-                turn into money, whether anyone leaves, and whether the ones
-                who stay use it. */}
-            <Panel span={8} title="People" tag="last 30 days"
-              panelState={st('people')} onChart={chart('people')}
-              onOpen={() => setSection('people')}>
-              {peopleD ? <PeopleGrowth d={peopleD} />
-                : <Unavailable why={whyMissing('people')} />}
-            </Panel>
-
-            <Panel span={4} title="Does the money match Stripe?"
-              panelState={st('billing_truth')}
-              onOpen={() => setSection('money')}>
-              {billingD ? <BillingTruth d={billingD} />
-                : <Unavailable why={whyMissing('billing_truth')} />}
-            </Panel>
-          </div>
+          <CommandCenterV7 ov={P('overview')} why={whyMissing('overview')} clock={clock}
+            connected={connected} railOpen={railOpen} onToggleRail={toggleRail} />
         )
 
       case 'map':
@@ -4849,7 +4799,7 @@ export default function CommandCenterPage() {
         {railOpen && <Sidebar current={section} onPick={setSection} badges={badges} />}
 
         <div className="mainwrap">
-          <header className="top">
+          {section !== 'overview' && <header className="top">
             <button type="button" className="railbtn" onClick={toggleRail}
               aria-expanded={railOpen} aria-label={railOpen ? 'Hide the menu' : 'Show the menu'}
               title={railOpen ? 'Hide the menu' : 'Show the menu'}>
@@ -4886,9 +4836,9 @@ export default function CommandCenterPage() {
                 : amberCount ? `${amberCount} worth a look`
                 : 'All systems operational'}
             </span>
-          </header>
+          </header>}
 
-          <main className="view">{view()}</main>
+          <main className={`view ${section === 'overview' ? 'v7host' : ''}`}>{view()}</main>
         </div>
       </div>
 
@@ -5129,6 +5079,8 @@ body:has(.shell){overflow:hidden;}
   gap:10px;align-items:stretch;
 }
 .grid > .panel{min-height:0;}
+/* The v7 Overview owns the whole window and never scrolls, at any size. */
+.view.v7host{padding:0;overflow:hidden;}
 
 /* ── Problems, as a scrolling card ──
    These used to be a horizontal banner across the top of the board. It ate
