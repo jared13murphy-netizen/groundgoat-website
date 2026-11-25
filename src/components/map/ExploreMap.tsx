@@ -34,6 +34,7 @@ import {
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import reportJobFetch from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
+import { formatAuctionDateTimeForViewer } from '@/lib/auctionTime'
 import useDragToReport from '@/components/map/useDragToReport'
 import { buildParcelReportRow } from '@/lib/parcelReportRow'
 import type { ServerDisplay } from '@/lib/parcelFigures'
@@ -990,8 +991,8 @@ function fadeOutAndRemove(markers: maplibregl.Marker[]): void {
 
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—'
-  const d = new Date(dateStr)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  // Viewer's own time zone (owner 11/24); a bare date stays a calendar day.
+  return formatAuctionDateTimeForViewer(dateStr, null)
 }
 
 export interface SaleDetail {

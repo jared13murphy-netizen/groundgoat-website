@@ -13,7 +13,7 @@ import useFreshParcelFigures from '@/lib/useFreshParcelFigures'
 import { saveReport } from '@/lib/configurableMapping'
 import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres } from '@/lib/format'
-import { formatAuctionDateTime } from '@/lib/auctionTime'
+import { formatAuctionDateTimeForViewer } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import { rowPctTillable, rowCells, figShown, UPDATING } from '@/lib/parcelFigures'
 import SubjectStrip from './SubjectStrip'
@@ -290,7 +290,7 @@ export default function PortalReportPanel({ tracts, onClose, onRemoveTract, onUp
                 />
                 {subjectInfo.subject_auction_date && (
                   <p className="text-xs text-gg-gray-400 mt-2">
-                    {formatAuctionDateTime(subjectInfo.subject_auction_date, subjectInfo.state)}
+                    {formatAuctionDateTimeForViewer(subjectInfo.subject_auction_date, subjectInfo.state, { month: 'long', day: 'numeric', year: 'numeric' })}
                     {subjectInfo.subject_company ? ` · ${subjectInfo.subject_company}` : ''}
                   </p>
                 )}

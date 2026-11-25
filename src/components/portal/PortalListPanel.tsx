@@ -15,6 +15,7 @@ import { listingMatchesSearch } from '@/lib/listingSearch'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { formatStateList } from '@/lib/stateAccess'
 import { listingPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
+import { formatAuctionDateForViewer, formatAuctionTimeForViewer } from '@/lib/auctionTime'
 
 type TabType = 'auctions' | 'private_treaty' | 'results'
 
@@ -100,25 +101,14 @@ const TAB_NOUNS: Record<TabType, string> = {
   results: 'results',
 }
 
+// Viewer's own time zone (owner 11/24); midnight in the auction's zone = no time.
 function formatDate(listing: Listing): string {
   const raw = listing.auction_datetime || listing.auction_date
-  if (!raw) return ''
-  const d = new Date(raw)
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+  return raw ? formatAuctionDateForViewer(raw, listing.state) : ''
 }
 
 function formatTime(listing: Listing): string {
-  const raw = listing.auction_datetime
-  if (!raw) return ''
-  const d = new Date(raw)
-  const hours = d.getHours()
-  const mins = d.getMinutes()
-  // Skip midnight (00:00) — means no time was set
-  if (hours === 0 && mins === 0) return ''
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  const h12 = hours % 12 || 12
-  return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
+  return formatAuctionTimeForViewer(listing.auction_datetime, listing.state)
 }
 
 function formatPrice(price?: number): string {
@@ -288,7 +278,7 @@ function ListingCard({ listing, activeTab, onClick, isWatchlisted, onToggleWatch
           <div className="flex items-center gap-3 mt-3 bg-gg-pink/10 rounded-lg px-3 py-2.5 -mx-1 border border-gg-pink/30">
             <div className="flex items-center justify-center bg-gg-pink rounded-lg w-11 h-11 shrink-0">
               <span className="text-sm font-black text-white">
-                {(() => { const d = new Date(listing.auction_datetime || listing.auction_date || ''); return ['SUN','MON','TUE','WED','THU','FRI','SAT'][d.getDay()] })()}
+                {formatAuctionDateForViewer(listing.auction_datetime || listing.auction_date, listing.state, { weekday: 'short' }).toUpperCase()}
               </span>
             </div>
             <div className="flex flex-col">
