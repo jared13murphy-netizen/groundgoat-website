@@ -61,6 +61,7 @@ type Snapshot = {
   stale?: boolean
   alerts: Alert[]
   worst_level?: string
+  tv_tiles?: { key: string; label: string; level: string; line: string }[]
   panels: Record<string, PanelState>
   message?: string
 }
@@ -2975,6 +2976,36 @@ function useMapPoints(active: boolean) {
   return { data, error }
 }
 
+/* ── Users on now, at their home county (owner 11/24) ─────────────────
+   Polled every 20 seconds while the Users layer is on. We do not record a
+   live location; the dot is where their profile says they farm. */
+type UsersOnMap = {
+  type: 'FeatureCollection'; features: any[]
+  total: number; placed: number; no_home_county: number; window_minutes: number
+}
+function useUsersOnMap(active: boolean) {
+  const [data, setData] = useState<UsersOnMap | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!active) return
+    let stop = false
+    const load = async () => {
+      try {
+        const r = await fetchWithAuth(`${API_URL}/api/admin/command-center/map/users?minutes=15`)
+        if (!r.ok) throw new Error(`the users endpoint answered ${r.status}`)
+        const j = await r.json()
+        if (!stop) { setData(j); setError(null) }
+      } catch (e: any) {
+        if (!stop) setError(e?.message || 'could not load who is on')
+      }
+    }
+    load()
+    const t = setInterval(load, 20000)
+    return () => { stop = true; clearInterval(t) }
+  }, [active])
+  return { data, error }
+}
+
 /* ── County sales, for the heat layer ─────────────────────────────────
    Loaded only when a heat measure is switched on, and cached for fifteen
    minutes on the server per filter combination. Half a megabyte of county
@@ -3045,11 +3076,13 @@ function breaks(values: number[], n = 5): number[] {
 
 const HEAT_COLOURS = ['#1e3a5f', '#1d4ed8', '#0891b2', '#16a34a', '#eab308', '#f97316']
 
-function LiveMap({ points, full, onToggleFull }: {
+function LiveMap({ points, full, onToggleFull, tv }: {
   points: MapPoints | null
   /** Filling the window. Esc leaves. */
   full?: boolean
   onToggleFull?: () => void
+  /** The TV wall: users on by default, the small legend only. */
+  tv?: boolean
 }) {
   const wrap = useRef<HTMLDivElement | null>(null)
   const box = useRef<HTMLDivElement | null>(null)
@@ -3061,6 +3094,11 @@ function LiveMap({ points, full, onToggleFull }: {
   const [labels, setLabels] = useState(true)
   const [show, setShow] = useState({ upcoming: true, live: true, sold: false })
   const [picked, setPicked] = useState<any>(null)
+  /* Who is on right now, at their home county. Off on the desk board,
+     on for the TV wall; the owner flips it either way. */
+  const [showUsers, setShowUsers] = useState(!!tv)
+  const users = useUsersOnMap(showUsers)
+  const [pickedUsers, setPickedUsers] = useState<any>(null)
 
   /* ── County shading: what is asked for, and over which sales ──
      Off until a measure is chosen: the outlines are half a megabyte and
@@ -3299,6 +3337,56 @@ function LiveMap({ points, full, onToggleFull }: {
   }, [points, ready])
 
 
+  /* The Users layer. Created with its data in hand (see the county
+     shading below for why that matters), pink like the brand, sized by how
+     many people are on in that county. Drawn above every sale pin. */
+  useEffect(() => {
+    const m = map.current
+    if (!m || !ready) return
+    if (!showUsers || !users.data) {
+      for (const id of ['cc_users_glow', 'cc_users_dots']) {
+        if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', 'none')
+      }
+      if (!showUsers) setPickedUsers(null)
+      return
+    }
+    const data = { type: 'FeatureCollection', features: users.data.features || [] }
+    const src: any = m.getSource('cc_users')
+    if (src) src.setData(data as any)
+    else m.addSource('cc_users', { type: 'geojson', data } as any)
+    if (!m.getLayer('cc_users_dots')) {
+      m.addLayer({
+        id: 'cc_users_glow', type: 'circle', source: 'cc_users',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['get', 'n'], 1, 14, 10, 30],
+          'circle-color': '#F58CDE', 'circle-opacity': 0.22, 'circle-blur': 0.6,
+        },
+      } as any)
+      m.addLayer({
+        id: 'cc_users_dots', type: 'circle', source: 'cc_users',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['get', 'n'], 1, 6, 10, 16],
+          'circle-color': '#F58CDE', 'circle-opacity': 0.95,
+          'circle-stroke-width': 2, 'circle-stroke-color': '#111827',
+        },
+      } as any)
+      m.on('click', 'cc_users_dots', (e: any) => {
+        const f = e.features?.[0]
+        if (!f) return
+        let people: any[] = []
+        try { people = JSON.parse(f.properties.people || '[]') } catch { /* keep empty */ }
+        setPickedUsers({ ...f.properties, people })
+        setPicked(null)
+      })
+      m.on('mouseenter', 'cc_users_dots', () => { m.getCanvas().style.cursor = 'pointer' })
+      m.on('mouseleave', 'cc_users_dots', () => { m.getCanvas().style.cursor = '' })
+    }
+    for (const id of ['cc_users_glow', 'cc_users_dots']) {
+      m.setLayoutProperty(id, 'visibility', 'visible')
+      m.moveLayer(id)  // always on top of the sale pins
+    }
+  }, [ready, showUsers, users.data])
+
   // Layer switches.
   useEffect(() => {
     const m = map.current
@@ -3477,7 +3565,13 @@ function LiveMap({ points, full, onToggleFull }: {
         </button>
       )}
 
-      <div className="maplegend">
+      <div className={`maplegend ${tv ? 'tvlegend' : ''}`}>
+        <button type="button" className={`lg ${showUsers ? 'on' : ''}`}
+          onClick={() => setShowUsers(v => !v)}
+          title="Everyone using Ground Goat in the last 15 minutes, at their home county">
+          <i style={{ background: '#F58CDE' }} />
+          Users on now <b>{showUsers ? (users.data ? num(users.data.total) : '…') : 'off'}</b>
+        </button>
         <button type="button" className={`lg ${show.live ? 'on' : ''}`} onClick={toggle('live')}>
           <i style={{ background: '#fbbf24' }} />
           Selling today <b>{points?.live_count ?? '—'}</b>
@@ -3490,6 +3584,7 @@ function LiveMap({ points, full, onToggleFull }: {
           <i style={{ background: '#64748b' }} />
           Sold, past year <b>{points?.sold_shown ?? '—'}</b>
         </button>
+        {!tv && <>
         <div className="lgswitches">
           <button type="button" className="lg base" onClick={() => setAerial(a => !a)}>
             {aerial ? 'Plain map' : 'Aerial'}
@@ -3571,7 +3666,34 @@ function LiveMap({ points, full, onToggleFull }: {
             </div>
           )}
         </div>
+        </>}
       </div>
+
+      {showUsers && users.data && users.data.no_home_county > 0 && (
+        <div className="mapnote usersnote">
+          {num(users.data.no_home_county)} of {num(users.data.total)} on now have no home county on their profile, so no dot
+        </div>
+      )}
+      {showUsers && users.error && <div className="mapnote usersnote">{users.error}</div>}
+
+      {pickedUsers && (
+        <div className="mappop users">
+          <button type="button" className="x" onClick={() => setPickedUsers(null)}
+            aria-label="Close">×</button>
+          <h4>{pickedUsers.county} County, {pickedUsers.state}</h4>
+          <div className="pk">{num(pickedUsers.n)} on in the last 15 minutes · home county</div>
+          {(pickedUsers.people || []).map((u: any, i: number) => (
+            <div className="urow" key={i}>
+              <b>{u.name}{u.staff ? ' (staff)' : ''}</b>
+              <span>{u.email}</span>
+              <span className="dim">
+                {u.client === 'app' ? `App · ${u.device}` : `Web · ${u.device} · ${u.browser}`}
+                {' · '}{u.minutes_ago === 0 ? 'now' : `${u.minutes_ago} min ago`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {points?.sold_truncated && show.sold && !measure && (
         <div className="mapnote">
@@ -4152,6 +4274,7 @@ function Sidebar({ current, onPick, badges }: {
       </nav>
 
       <div className="sidefoot">
+        <a className="back" href="/admin/command-center/tv" target="_blank" rel="noopener">TV wall ↗</a>
         <a className="back" href="/admin/dashboard">← Admin</a>
       </div>
     </aside>
@@ -4229,6 +4352,321 @@ function ActivityFeed({ pulse, pipeline, money, people, mapD }:
   )
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   THE TV WALL (owner 11/24) — /admin/command-center/tv
+   The whole business on one screen, read from across a room. No scrolling:
+   the page is exactly the window, every size is set in viewport units so a
+   65-inch TV and a 27-inch monitor show the same layout, and lists show as
+   many rows as fit with a "+N more" line rather than a scrollbar. Reads the
+   same live snapshot as the desk board (SSE + 1 s poll fallback).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const TILE_TONE: Record<string, string> = { green: 'g', amber: 'a', red: 'r', info: 'g' }
+const PROBLEM_LABEL: Record<string, string> = {
+  crash: 'App crash', goat_failed: 'Goat Search failed', goat_empty: 'Goat Search — nothing found',
+  goat_slow: 'Goat Search stalled', report_failed: 'Report failed', report_stalled: 'Report stuck',
+  payment_failed: 'Payment failed', checkout_failed: 'Could not subscribe',
+}
+
+function clockTime(iso: string | null | undefined) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+function TvWall({ snap, clock, connected, mapPoints }: {
+  snap: Snapshot; clock: string; connected: boolean; mapPoints: MapPoints | null
+}) {
+  const P = (key: string) => {
+    const p = snap.panels?.[key]
+    return p ? (p.ok ? p.data : (p as any).stale_data) : null
+  }
+  const tv = P('tv') || {}
+  const pulse = P('pulse') || {}
+  const moneyD = P('money') || {}
+  const peopleD = P('people') || {}
+  const mapD = P('map') || {}
+  const pipe = P('pipeline') || {}
+  const awsD = P('aws') || {}
+  const slowD: any[] = P('slow_endpoints') || []
+  const emailD = P('email') || {}
+  const tiles: any[] = (snap as any).tv_tiles || []
+  const live = tv.live || {}
+  const subs = tv.subs || {}
+  const rep = tv.reports || {}
+  const goat = tv.goat || {}
+  const mk = tv.marketing || {}
+  const problems: any[] = tv.problems || []
+  const [follow, setFollow] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState<string | null>(null)
+  /* MAP SCALE. Everything else on the wall is sized in viewport units, but
+     a map draws in pixels: on a 4K TV its dots and legend came out a quarter
+     the size. Above a 1080p-sized screen the map is drawn at 1080p and
+     scaled up, so it reads the same from across the room on any TV. */
+  const [mapK, setMapK] = useState(1)
+  useEffect(() => {
+    const fit = () => {
+      const k = Math.min(window.innerWidth / 1920, window.innerHeight / 1080)
+      setMapK(k >= 1.25 ? Math.round(k * 100) / 100 : 1)
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [])
+
+  const setFollowup = async (p: any, status: 'watching' | 'fixed' | 'cleared') => {
+    setBusy(p.key)
+    try {
+      const r = await fetchWithAuth(`${API_URL}/api/admin/command-center/tv/followup`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: p.key, status, kind: p.kind, name: p.name, email: p.email, what: p.what }),
+      })
+      if (r.ok) setFollow(f => ({ ...f, [p.key]: status }))
+    } finally { setBusy(null) }
+  }
+
+  const age = snap.age_seconds
+  const stale = snap.stale || !snap.ready
+  const conv = mk.conversions || {}
+  const pd = (o: any) => o ? `${num(o.today)} · ${num(o.week)} · ${num(o.month)}` : '—'
+  const worstUser = problems.filter(p => !p.staff)
+  const shown = problems.slice(0, 14)
+
+  return (
+    <div className="tv">
+      <header className="tvhead">
+        <span className="tvbrand">Ground Goat <em>live</em></span>
+        <span className={`tvdot ${snap.worst_level === 'red' ? 'r' : snap.worst_level === 'amber' ? 'a' : 'g'}`} />
+        <span className="tvsub">
+          {stale ? 'Numbers are late — the dashboard writer may have stopped'
+            : `updated ${age != null ? Math.round(age) + ' s' : '—'} ago${connected ? '' : ' · reconnecting'}`}
+        </span>
+        <span className="tvclock">{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {clock}</span>
+      </header>
+
+      <section className="tvtiles" style={{ gridTemplateColumns: `repeat(${Math.max(tiles.length, 1)}, minmax(0,1fr))` }}>
+        {tiles.length === 0 && <div className="tvtile a"><b>Health</b><span>waiting for the first reading</span></div>}
+        {tiles.map(t => (
+          <div key={t.key} className={`tvtile ${TILE_TONE[t.level] || 'g'}`} title={t.line}>
+            <b>{t.label}</b>
+            <span>{t.line}</span>
+          </div>
+        ))}
+      </section>
+
+      <main className="tvgrid">
+        <div className="tvcard tvmap" style={{ ['--mapk' as any]: mapK }}>
+          <LiveMap points={mapPoints} tv />
+        </div>
+
+        <div className="tvcard tvnow">
+          <h3>On now <small>last 5 min</small></h3>
+          <div className="tvbig">{num(live.total)}</div>
+          <div className="tvsplit">
+            <span><b>{num(live.app)}</b> app</span>
+            <span><b>{num(live.web)}</b> website</span>
+            {live.staff ? <span className="dim">{num(live.staff)} of them staff</span> : null}
+          </div>
+          <div className="tvchips">
+            {(live.devices || []).slice(0, 5).map((d: any) => <span key={d.name}>{d.name} <b>{d.n}</b></span>)}
+          </div>
+          <div className="tvchips">
+            {(live.browsers || []).slice(0, 5).map((d: any) => <span key={d.name}>{d.name} <b>{d.n}</b></span>)}
+          </div>
+          <div className="tvlist">
+            {(live.by_county || []).slice(0, 4).map((c: any) => (
+              <div key={c.state + c.county}><span>{c.county}, {c.state}</span><b>{c.n}</b></div>))}
+          </div>
+          <div className="tvfoot">Today: {num(pulse.customers_today)} customers used it</div>
+        </div>
+
+        <div className="tvcard tvmoney">
+          <h3>Money <small>today · week · month</small></h3>
+          <div className="tvrow"><span>New subscribers</span><b className="up">{pd(subs.new)}</b></div>
+          <div className="tvrow"><span>&nbsp;&nbsp;of them on a free trial</span><b>{pd(subs.new_on_trial)}</b></div>
+          <div className="tvrow"><span>Cancellations</span><b className={subs.cancelled?.today ? 'down' : ''}>{pd(subs.cancelled)}</b></div>
+          <div className="tvrow"><span>Trials that became paid</span><b>{peopleD.trial_to_paid_pct != null ? num(peopleD.trial_to_paid_pct) + '%' : '—'}</b></div>
+          <div className="tvrow"><span>Paying customers</span><b>{num(moneyD.paying_people)}</b></div>
+          <div className="tvrow"><span>Revenue per year</span><b>{money(moneyD.annual_revenue)}</b></div>
+          <div className="tvlist small">
+            {(subs.recent || []).slice(0, 4).map((r: any, i: number) => (
+              <div key={i}>
+                <span className={r.event === 'cancelled' ? 'down' : 'up'}>
+                  {r.event === 'cancelled' ? '−' : '+'} {r.name}
+                </span>
+                <em>{r.plan}{r.state ? ' ' + r.state : ''} · {r.via} · {clockTime(r.when)}</em>
+              </div>))}
+          </div>
+        </div>
+
+        <div className="tvcard tvusage">
+          <h3>Usage today</h3>
+          <div className="tvrow"><span>Comp reports</span><b>{num(rep.comp_reports_today)}</b></div>
+          <div className="tvrow"><span>All reports</span><b>{num(rep.all_reports_today)}{rep.failed_today ? <em className="down"> · {rep.failed_today} failed</em> : null}</b></div>
+          <div className="tvrow"><span>Report wait avg / peak</span>
+            <b>{rep.wait_avg_s != null ? `${num(rep.wait_avg_s)} s / ${num(rep.wait_peak_s)} s` : '—'}</b></div>
+          <div className="tvrow"><span>Instant PDFs avg</span><b>{rep.instant_avg_s != null ? num(rep.instant_avg_s, 1) + ' s' : '—'}</b></div>
+          <div className="tvrow"><span>Goat Search</span>
+            <b>{num(goat.today)} · {goat.answered_pct != null ? num(goat.answered_pct) + '% answered' : '—'}</b></div>
+          <div className="tvbars">
+            {(() => {
+              const f: any[] = tv.features || []
+              const max = Math.max(1, ...f.map(x => x.people))
+              return f.slice(0, 5).map(x => (
+                <div key={x.feature} className="tvbar">
+                  <span>{x.feature}</span>
+                  <i style={{ width: `${(x.people / max) * 100}%` }} />
+                  <b>{x.people}</b>
+                </div>))
+            })()}
+          </div>
+        </div>
+
+        <div className="tvcard tvmk">
+          <h3>Marketing <small>today · week · month</small></h3>
+          <div className="tvrow"><span>Website visitors</span><b>{pd(mk.visitors)}</b></div>
+          <div className="tvrow"><span>From Google Ads</span><b>{mk.ad_visitors ? `${num(mk.ad_visitors.today)} · ${num(mk.ad_visitors.week)}` : '—'}</b></div>
+          <div className="tvrow"><span>Sign-ups</span><b>{pd(mk.signups)}</b></div>
+          <div className="tvrow"><span>Trials started</span><b>{pd(conv.start_trial)}</b></div>
+          <div className="tvrow"><span>First payments</span><b>{pd(conv.purchase)}</b></div>
+          <div className="tvrow"><span>Came from an ad (month)</span>
+            <b>{num((conv.sign_up?.from_ads_month || 0))} sign-ups · {num((conv.purchase?.from_ads_month || 0))} paid</b></div>
+          <div className="tvrow"><span>Emails sent, 24 h</span><b>{num(emailD.sent_24h)}</b></div>
+          <div className="tvfoot">{mk.ad_spend_note || ''}</div>
+        </div>
+
+        <div className="tvcard tvprob">
+          <h3>Problems <small>last 24 h · newest first · {num(worstUser.length)} customers hit</small></h3>
+          {problems.length === 0 && <div className="tvok">Nothing has gone wrong for anyone in the last 24 hours.</div>}
+          <div className="tvprobs">
+            {shown.map(p => {
+              const st = follow[p.key] ?? p.followup
+              return (
+                <div key={p.key} className={`tvp ${p.level === 'red' ? 'r' : 'a'}`}>
+                  <span className="t">{clockTime(p.at)}</span>
+                  <span className="k">{PROBLEM_LABEL[p.kind] || p.kind}</span>
+                  <span className="who"><b>{p.name}{p.staff ? ' (staff)' : ''}</b>{p.email && p.email !== p.name ? ` · ${p.email}` : ''}</span>
+                  <span className="what">{p.what}<em> — {p.why}</em></span>
+                  <span className="act">
+                    {st === 'fixed' ? <span className="done">Fixed · message waits for your OK</span>
+                      : st === 'watching' ? <>
+                          <span className="watch">Will tell them</span>
+                          <button className="btn2" disabled={busy === p.key} onClick={() => setFollowup(p, 'fixed')}>Fixed</button>
+                        </>
+                      : p.email ? <button className="btn1" disabled={busy === p.key} onClick={() => setFollowup(p, 'watching')}>Tell them when fixed</button>
+                      : null}
+                  </span>
+                </div>)
+            })}
+          </div>
+          {problems.length > shown.length && <div className="tvfoot">+{num(problems.length - shown.length)} more on the desk board</div>}
+        </div>
+
+        <div className="tvcard tvalso">
+          <h3>Also watching</h3>
+          <div className="tvrow"><span>Auctions today</span><b>{num(mapD.today)}</b></div>
+          <div className="tvrow"><span>Next 7 days</span><b>{num(mapD.next_7)}</b></div>
+          <div className="tvrow"><span>Scraper found overnight</span><b>{num(pipe.found)}</b></div>
+          <div className="tvrow"><span>Waiting for staff review</span><b>{num(pipe.waiting)}</b></div>
+          <div className="tvrow"><span>AWS this month</span>
+            <b>{awsD.spend?.available ? `${moneyFine(awsD.spend.month_to_date)} · on pace ${money(awsD.spend.projected_month)}` : '—'}</b></div>
+          <div className="tvrow"><span>Slowest now</span>
+            <b>{slowD[0] ? `${String(slowD[0].endpoint).replace(/^(GET|POST|PUT|DELETE|PATCH) /, '').slice(0, 26)} ${num(slowD[0].p95_ms / 1000, 1)} s` : '—'}</b></div>
+          <div className="tvrow"><span>People to tell when fixed</span>
+            <b>{num((tv.followups || []).filter((f: any) => f.status === 'watching').length)}</b></div>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+const TV_CSS = `
+html,body{margin:0;background:#07090d;overflow:hidden;}
+/* The site's own menu bar has no place on the wall (same as the desk board). */
+body:has(.tv) > nav, body:has(.tv) > footer{display:none !important;}
+.tv{--tvf:clamp(12px, calc(0.7vmin + 0.48vw), 40px);
+  position:fixed;inset:0;z-index:60;display:grid;grid-template-rows:auto auto minmax(0,1fr);
+  gap:0.55vmin;padding:0.8vmin 1vmin;background:#07090d;color:#e8eaed;
+  font-family:inherit;font-size:var(--tvf);line-height:1.25;overflow:hidden;box-sizing:border-box;}
+.tv *{box-sizing:border-box;}
+.tvhead{display:flex;align-items:center;gap:1em;}
+.tvbrand{font-size:1.5em;font-weight:700;}
+.tvbrand em{font-style:normal;color:#F58CDE;font-weight:600;margin-left:.2em;}
+.tvdot{width:.9em;height:.9em;border-radius:50%;}
+.tvdot.g{background:#22c55e;} .tvdot.a{background:#f59e0b;} .tvdot.r{background:#ef4444;}
+.tvsub{color:#9aa4b2;flex:1;}
+.tvclock{font-size:1.4em;font-weight:600;font-variant-numeric:tabular-nums;}
+.tvtiles{display:grid;gap:0.5vmin;}
+.tvtile{border-radius:.5em;padding:.45em .6em;min-width:0;display:flex;flex-direction:column;gap:.15em;}
+.tvtile b{font-size:1em;} .tvtile span{font-size:.85em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tvtile.g{background:#0f3d24;color:#86efac;} .tvtile.a{background:#4a3606;color:#fcd34d;}
+.tvtile.r{background:#5b1515;color:#fecaca;animation:tvblink 2s ease-in-out infinite;}
+@keyframes tvblink{50%{background:#7f1d1d;}}
+@media (prefers-reduced-motion: reduce){.tvtile.r{animation:none;}}
+.tvgrid{display:grid;gap:0.55vmin;min-height:0;
+  grid-template-columns:repeat(12,minmax(0,1fr));
+  grid-template-rows:minmax(0,1fr) minmax(0,1fr) minmax(0,0.95fr);
+  grid-template-areas:
+    "map map map map map map now now now money money money"
+    "map map map map map map use use use mk mk mk"
+    "prob prob prob prob prob prob prob prob prob also also also";}
+.tvcard{background:#121821;border:1px solid #1f2937;border-radius:.6em;padding:.6em .75em;
+  min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:.25em;}
+.tvcard h3{margin:0 0 .2em;font-size:1.05em;font-weight:600;color:#cbd5e1;}
+.tvcard h3 small{font-weight:400;color:#7c8796;font-size:.8em;margin-left:.4em;}
+.tvmap{grid-area:map;padding:0;} .tvnow{grid-area:now;} .tvmoney{grid-area:money;}
+.tvusage{grid-area:use;} .tvmk{grid-area:mk;} .tvprob{grid-area:prob;} .tvalso{grid-area:also;}
+.tvbig{font-size:3.4em;font-weight:700;line-height:1;color:#F58CDE;font-variant-numeric:tabular-nums;}
+.tvsplit{display:flex;gap:1em;flex-wrap:wrap;} .tvsplit b{font-size:1.2em;}
+.tvchips{display:flex;flex-wrap:wrap;gap:.3em;}
+.tvchips span{background:#1f2937;border-radius:.4em;padding:.1em .45em;font-size:.88em;}
+.tvrow{display:flex;justify-content:space-between;gap:.6em;padding:.12em 0;border-bottom:1px solid #1a222d;}
+.tvrow span{color:#9aa4b2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tvrow b{font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
+.tvrow b em{font-style:normal;}
+.up{color:#86efac;} .down{color:#fca5a5;} .dim{color:#7c8796;}
+.tvlist{display:flex;flex-direction:column;gap:.1em;margin-top:.2em;min-height:0;overflow:hidden;}
+.tvlist > div{display:flex;justify-content:space-between;gap:.5em;}
+.tvlist.small{font-size:.85em;} .tvlist em{font-style:normal;color:#7c8796;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tvlist span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tvfoot{margin-top:auto;color:#7c8796;font-size:.82em;}
+.tvbars{display:flex;flex-direction:column;gap:.18em;margin-top:.3em;min-height:0;overflow:hidden;}
+.tvbar{display:grid;grid-template-columns:7.5em minmax(0,1fr) 2em;align-items:center;gap:.4em;font-size:.9em;}
+.tvbar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#9aa4b2;}
+.tvbar i{display:block;height:.7em;background:#F58CDE;border-radius:.2em;min-width:2px;}
+.tvbar b{text-align:right;}
+.tvprobs{display:flex;flex-direction:column;gap:.22em;min-height:0;overflow:hidden;}
+.tvp{display:grid;grid-template-columns:4.2em 11em 17em minmax(0,1fr) auto;gap:.6em;align-items:center;
+  padding:.22em .5em;border-left:.3em solid #ef4444;background:#1d1214;border-radius:0;}
+.tvp.a{border-left-color:#f59e0b;background:#1d1910;}
+.tvp span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tvp .t{color:#9aa4b2;font-variant-numeric:tabular-nums;} .tvp .k{font-weight:600;}
+.tvp .what em{font-style:normal;color:#9aa4b2;}
+.tvp .act{display:flex;gap:.4em;align-items:center;}
+.tvp .done{color:#86efac;font-size:.85em;} .tvp .watch{color:#fcd34d;font-size:.85em;}
+.tv .btn1,.tv .btn2{border:0;border-radius:.4em;padding:.2em .6em;font-size:.85em;font-weight:600;cursor:pointer;font-family:inherit;}
+.tv .btn1{background:#F58CDE;color:#000;} .tv .btn2{background:#E4E4E7;color:#000;}
+.tv .btn1:disabled,.tv .btn2:disabled{opacity:.6;cursor:wait;}
+.tvok{color:#86efac;font-size:1.1em;padding:.4em 0;}
+/* The desk board's map, slimmed for the wall. */
+.tv .tvmap{position:relative;}
+.tv .tvmap .mapwrap{position:absolute;left:0;top:0;
+  width:calc(100% / var(--mapk, 1));height:calc(100% / var(--mapk, 1));
+  transform:scale(var(--mapk, 1));transform-origin:0 0;border-radius:.6em;}
+.mappop .urow{display:flex;flex-direction:column;padding:.35em 0;border-top:1px solid rgba(255,255,255,.08);font-size:12px;}
+.mappop .urow b{color:var(--ink,#e8eaed);} .mappop .urow span{color:var(--muted,#9aa4b2);}
+.mapnote.usersnote{bottom:auto;top:10px;left:auto;right:10px;}
+/* Narrow screens: stack instead of squeezing (a phone is not a TV, but it
+   must not break). */
+@media (max-width: 900px){
+  html,body{overflow:auto;}
+  .tv{position:static;min-height:100vh;}
+  .tvgrid{grid-template-columns:1fr;grid-template-rows:none;grid-template-areas:none;}
+  .tvgrid > *{grid-area:auto !important;min-height:240px;}
+  .tvtiles{grid-template-columns:repeat(2,minmax(0,1fr)) !important;}
+  .tvp{grid-template-columns:1fr;}
+}
+`
+
 export default function CommandCenterPage() {
   const router = useRouter()
   const [authorised, setAuthorised] = useState(false)
@@ -4254,6 +4692,12 @@ export default function CommandCenterPage() {
      navigates — the whole board is one route, so switching costs
      nothing and the SSE stream is never torn down. */
   const [section, setSection] = useState<SectionId>('overview')
+  /* The TV wall: same data, one screen, read from across a room. Opened as
+     /admin/command-center/tv (which lands here with ?view=tv). */
+  const [tvMode, setTvMode] = useState(false)
+  useEffect(() => {
+    try { setTvMode(new URLSearchParams(window.location.search).get('view') === 'tv') } catch { /* stays off */ }
+  }, [])
   /* The map filling the window. Esc leaves — handled inside LiveMap, which
      is the thing that knows it is full screen. */
   const [mapFull, setMapFull] = useState(false)
@@ -4283,7 +4727,7 @@ export default function CommandCenterPage() {
 
      Pins load only while the map is on screen. Nobody reading the Money
      page should be fetching a quarter of a megabyte of coordinates. */
-  const wantsMap = section === 'map' || section === 'overview'
+  const wantsMap = tvMode || section === 'map' || section === 'overview'
   const { data: mapPoints, error: mapError } = useMapPoints(authorised && wantsMap)
 
   /* Same admin gate as every other /admin page. The backend enforces it
@@ -4394,6 +4838,15 @@ export default function CommandCenterPage() {
 
   if (!authorised) {
     return <><style dangerouslySetInnerHTML={{ __html: CSS }} /><div className="booting">Checking your access…</div></>
+  }
+
+  if (tvMode) {
+    return (
+      <>
+        <style dangerouslySetInnerHTML={{ __html: CSS + TV_CSS }} />
+        <TvWall snap={snap} clock={clock} connected={connected} mapPoints={mapPoints} />
+      </>
+    )
   }
 
   const pulse = P('pulse'), moneyD = P('money'), peopleD = P('people')
