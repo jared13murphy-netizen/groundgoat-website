@@ -54,6 +54,10 @@ import { fetchWithAuth, fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { fetchRegridConfig } from '@/components/map/regridLayer'
 import { parcelSourceSpecs, parcelLayerId, parcelLayers, usesStateTiles } from '@/lib/parcelSources'
 
+// Owner names + acres on the staging map show from this zoom (owner 11/25:
+// same as the app's Explore map owner names).
+const STAGING_PARCEL_LABEL_MIN_ZOOM = 13
+
 const SCRAPER_PROXY = '/api/scraper-proxy'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
 // Multi-polygon CREATION gate. ON now that every display surface (website
@@ -700,7 +704,7 @@ export default function TractMapEditor({
         if (map.getLayer('parcels-regrid-line')) map.setLayoutProperty('parcels-regrid-line', 'visibility', vis)
         if (map.getLayer('parcels-regrid-fill')) map.setLayoutProperty('parcels-regrid-fill', 'visibility', vis)
         // Per-state parcel sources (11/22) follow the same toggle.
-        for (const id of [...parcelLayers(map, 'line'), ...parcelLayers(map, 'fill')]) map.setLayoutProperty(id, 'visibility', vis)
+        for (const id of [...parcelLayers(map, 'line'), ...parcelLayers(map, 'fill'), ...parcelLayers(map, 'label')]) map.setLayoutProperty(id, 'visibility', vis)
       } catch {/* style not ready */}
     }
     if (map.isStyleLoaded()) apply(); else map.once('idle', apply)
@@ -1201,6 +1205,39 @@ export default function TractMapEditor({
                 filter: REGRID_NOT_CACHED as any,
                 paint: { 'line-color': '#facc15', 'line-width': 1.5, 'line-opacity': 0.95 },
               }, before)
+              // Owner name + acres on each parcel (owner 11/25), from OUR
+              // Regrid bulk copy (these per-state archives), never the
+              // Regrid API. Same zoom the app's Explore map uses for owner
+              // names (13), so a zoomed-out view isn't a wall of text.
+              // Works in Full Screen too (same map, resized).
+              for (const sp of specs) if (!map.getLayer(parcelLayerId(sp, 'label'))) map.addLayer({
+                id: parcelLayerId(sp, 'label'), type: 'symbol', source: sp.id,
+                'source-layer': sp.labelLayer, minzoom: STAGING_PARCEL_LABEL_MIN_ZOOM,
+                layout: {
+                  visibility: 'visible',
+                  'text-field': [
+                    'format',
+                    ['coalesce', ['get', 'owner'], ''], { 'text-font': ['literal', ['Open Sans Bold']] },
+                    ['case',
+                      ['!=', ['to-string', ['coalesce', ['get', 'gg_label_acres'], '']], ''],
+                      ['concat', '\n', ['to-string', ['get', 'gg_label_acres']], ' ac'],
+                      ''],
+                    {},
+                  ],
+                  'text-font': ['Open Sans Regular'],
+                  'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 16, 12, 18, 14],
+                  'text-anchor': 'center',
+                  'text-max-width': 9,
+                  'text-line-height': 1.15,
+                  'text-allow-overlap': false,
+                  'text-padding': 4,
+                },
+                paint: {
+                  'text-color': '#ffffff',
+                  'text-halo-color': 'rgba(0,0,0,0.85)',
+                  'text-halo-width': 1.4,
+                },
+              })
             } catch { /* regrid fallback is best-effort */ }
             return
           }
