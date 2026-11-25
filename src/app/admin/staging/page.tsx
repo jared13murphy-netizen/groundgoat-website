@@ -35,6 +35,10 @@ import {
 } from 'lucide-react'
 import fetchWithAuth, { fetchScraperProxy } from '@/lib/fetchWithAuth'
 import { formatAcres } from '@/lib/format'
+import {
+  stagingListQuery, stagingPageSize, parseStagingCompanies, companyOptions,
+  allCompaniesCount, type StagingCompany,
+} from '@/lib/stagingCompanyFilter'
 import { formatTillable } from '@/lib/tillable'
 import CompanyLinkEditor, { type CompanyOption } from '@/components/admin/CompanyLinkEditor'
 import openListingReport from '@/lib/openListingReport'
@@ -338,7 +342,6 @@ export default function AdminStagingPage() {
   }, [])
 
   // Pagination
-  const PAGE_SIZE = 20
   const [page, setPage] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
 
@@ -500,6 +503,16 @@ export default function AdminStagingPage() {
   // Company filter
   const [companyFilter, setCompanyFilter] = useState<string>('all')
   const [companyCounts, setCompanyCounts] = useState<Record<string, number>>({})
+  // Owner 11/25: every pending company with real counts, from
+  // /api/admin/staging/companies. null = endpoint not there (old backend) ->
+  // today's behaviour: the dropdown filters the loaded page by company name.
+  const [stagingCompanies, setStagingCompanies] = useState<StagingCompany[] | null>(null)
+  // The company id the server filters by (a ref so every refresh, including
+  // ones started from older closures, keeps the selection).
+  const companyIdRef = useRef<string | null>(null)
+  const companyNameRef = useRef<string>('')
+  const companiesEverLoadedRef = useRef(false)
+  const pageSize = stagingPageSize(stagingCompanies && companyFilter !== 'all' ? companyFilter : null)
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'staging' | 'results' | 'missed'>('staging')
@@ -773,9 +786,9 @@ export default function AdminStagingPage() {
   const fetchStagingListings = useCallback(async (pageNum?: number) => {
     setLoading(true)
     setFetchError(null)
-    const offset = (pageNum ?? page) * PAGE_SIZE
+    void fetchStagingCompanies()
     try {
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?status=pending&listing_type=auction&limit=${PAGE_SIZE}&offset=${offset}`)
+      const response = await fetchWithAuth(`${API_URL}/api/admin/staging?${stagingListQuery(pageNum ?? page, companyIdRef.current)}`)
       if (response.ok) {
         const data = await response.json()
         // Handle both paginated response {items, total} and legacy array response
@@ -808,6 +821,43 @@ export default function AdminStagingPage() {
       setLoading(false)
     }
   }, [page])
+
+  const fetchStagingCompanies = async () => {
+    let parsed: StagingCompany[] | null = null
+    try {
+      const res = await fetchWithAuth(`${API_URL}/api/admin/staging/companies?status=pending&listing_type=auction`)
+      if (res.ok) parsed = parseStagingCompanies(await res.json().catch(() => null))
+    } catch {
+      parsed = null
+    }
+    if (!parsed) {
+      // A blip after a good answer keeps the last list (and the selection);
+      // never answered = old backend = today's behaviour.
+      if (!companiesEverLoadedRef.current) setStagingCompanies(null)
+      return
+    }
+    // First good answer: a company NAME picked in the old mode means nothing
+    // to the server filter, so start from All Companies.
+    if (!companiesEverLoadedRef.current && !companyIdRef.current) setCompanyFilter('all')
+    companiesEverLoadedRef.current = true
+    setStagingCompanies(parsed)
+  }
+
+  const chooseCompany = (value: string) => {
+    if (!stagingCompanies) {        // old backend: today's one-page filter
+      setCompanyFilter(value)
+      return
+    }
+    const id = value === 'all' ? null : value
+    companyIdRef.current = id
+    companyNameRef.current = stagingCompanies.find((c) => c.id === id)?.name || ''
+    setCompanyFilter(value)
+    setPage(0)
+    setScreenshotCache({})
+    setTractImageCache({})
+    tractImageRequestedRef.current = new Set()
+    fetchStagingListings(0)
+  }
 
   const loadScreenshot = async (listingId: number) => {
     if (screenshotCache[listingId] !== undefined) return // Already loaded or loading
@@ -849,7 +899,7 @@ export default function AdminStagingPage() {
   }
 
   const goToPage = (newPage: number) => {
-    const last = Math.max(0, Math.ceil(totalCount / PAGE_SIZE) - 1)
+    const last = Math.max(0, Math.ceil(totalCount / pageSize) - 1)
     newPage = Math.min(Math.max(0, newPage), last)
     if (newPage === page) return
     setPage(newPage)
@@ -885,9 +935,9 @@ export default function AdminStagingPage() {
 
   // Filtered listings
   const filteredListings = useMemo(() => {
-    if (companyFilter === 'all') return listings
+    if (companyFilter === 'all' || stagingCompanies) return listings   // server already filtered
     return listings.filter((l) => l.company_name === companyFilter)
-  }, [listings, companyFilter])
+  }, [listings, companyFilter, stagingCompanies])
 
   // Group latest run results by company for the Scraper Results tab
   const latestRunResults = useMemo(() => {
@@ -1818,7 +1868,7 @@ export default function AdminStagingPage() {
             </Link>
             <div>
               <h1 className="font-display text-3xl font-bold text-white">Auction Staging</h1>
-              <p className="text-gg-gray-400">{totalCount} pending listings to review{totalCount > PAGE_SIZE && ` (page ${page + 1} of ${Math.ceil(totalCount / PAGE_SIZE)})`}</p>
+              <p className="text-gg-gray-400">{totalCount} pending listings to review{totalCount > pageSize && ` (page ${page + 1} of ${Math.ceil(totalCount / pageSize)})`}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -2030,21 +2080,34 @@ export default function AdminStagingPage() {
         </div>
 
         {/* Company Filter - only on staging tab */}
-        {activeTab === 'staging' && companyNames.length > 1 && (
+        {activeTab === 'staging' && (stagingCompanies ? (stagingCompanies.length > 1 || companyFilter !== 'all') : companyNames.length > 1) && (
           <div className="mb-6 flex items-center gap-3">
             <Filter size={16} className="text-gg-gray-400" />
             <div className="relative">
               <select
                 value={companyFilter}
-                onChange={(e) => setCompanyFilter(e.target.value)}
+                onChange={(e) => chooseCompany(e.target.value)}
                 className="appearance-none bg-gg-gray-800 border border-gg-gray-700 text-white rounded-lg px-4 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-gg-pink"
               >
-                <option value="all">All Companies ({totalCount})</option>
-                {companyNames.map((name) => (
-                  <option key={name} value={name}>
-                    {name} ({companyCounts[name] || 0})
-                  </option>
-                ))}
+                {stagingCompanies ? (
+                  <>
+                    <option value="all">All Companies ({allCompaniesCount(stagingCompanies)})</option>
+                    {companyOptions(stagingCompanies, companyIdRef.current, companyNameRef.current).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.count})
+                      </option>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <option value="all">All Companies ({totalCount})</option>
+                    {companyNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name} ({companyCounts[name] || 0})
+                      </option>
+                    ))}
+                  </>
+                )}
               </select>
               <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gg-gray-400 pointer-events-none" />
             </div>
@@ -2109,8 +2172,8 @@ export default function AdminStagingPage() {
               </div>
             )}
 
-            {totalCount > PAGE_SIZE && filteredListings.length > 0 && (
-              <div className="mb-4"><Pager page={page} totalCount={totalCount} pageSize={PAGE_SIZE} onGo={goToPage} /></div>
+            {totalCount > pageSize && filteredListings.length > 0 && (
+              <div className="mb-4"><Pager page={page} totalCount={totalCount} pageSize={pageSize} onGo={goToPage} /></div>
             )}
 
             {/* Staging Cards */}
@@ -2967,7 +3030,7 @@ export default function AdminStagingPage() {
               })}
             </div>
 
-            {totalCount > PAGE_SIZE && <Pager page={page} totalCount={totalCount} pageSize={PAGE_SIZE} onGo={goToPage} />}
+            {totalCount > pageSize && <Pager page={page} totalCount={totalCount} pageSize={pageSize} onGo={goToPage} />}
           </>
         )}
 
