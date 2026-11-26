@@ -180,6 +180,8 @@ export function formatAuctionTimeInZone(value?: string | null, state?: string | 
   const zone = isNaN(day.getTime()) ? '' : (new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
     .formatToParts(day).find((p) => p.type === 'timeZoneName')?.value || '')
   return zone ? `${label} ${zone}` : label
+}
+
 // ---------------------------------------------------------------------------
 // VIEWER-zone formatting (owner rule 2026-11-24): every customer surface shows
 // an auction's date/time converted to the VIEWER'S device zone, with the zone
