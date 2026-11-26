@@ -1507,39 +1507,6 @@ export default function AdminStagingPage() {
     }
   }
 
-  const handlePublishIncomplete = async (id: number) => {
-    setActionLoading(id)
-    try {
-      // Flush in-memory scraped_data edits before publishing, same as the
-      // !isRescrape verify path — otherwise TractDataCompare picks, tract
-      // numbers, etc. are silently discarded.
-      const item = listings.find(l => l.id === id)
-      if (item) {
-        const patchRes = await patchStaging(id, item.scraped_data)
-        if (!patchRes.ok) {
-          showToast('error', 'Failed to save your selections before publishing — not published')
-          setActionLoading(null)
-          return
-        }
-      }
-      const response = await fetchWithAuth(`${API_URL}/api/admin/staging/${id}/publish-incomplete`, {
-        method: 'POST',
-      })
-      if (response.ok) {
-        setListings((prev) => prev.filter((l) => l.id !== id))
-        setTotalCount((prev) => Math.max(0, prev - 1))
-        showToast('success', 'Published as incomplete — Details Coming Soon')
-      } else {
-        const err = await response.json().catch(() => ({ detail: 'Failed' }))
-        showToast('error', typeof err.detail === 'string' ? err.detail : 'Failed to publish as incomplete')
-      }
-    } catch (err) {
-      showToast('error', 'Network error')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
   const handleVerifyReplace = async () => {
     if (!duplicateModal) return
     setDuplicateModal(prev => prev ? { ...prev, loading: true } : null)
@@ -3030,16 +2997,8 @@ export default function AdminStagingPage() {
                             {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <Clock size={16} />}
                             {actionLoading === listing.id ? 'Ignoring...' : 'Ignore'}
                           </button>
-                          {listing.is_incomplete && (
-                            <button
-                              onClick={() => handlePublishIncomplete(listing.id)}
-                              disabled={actionLoading === listing.id}
-                              className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-500 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {actionLoading === listing.id ? <Loader2 className="animate-spin" size={16} /> : <AlertTriangle size={16} />}
-                              Publish Incomplete
-                            </button>
-                          )}
+                          {/* Publish Incomplete removed 11/25 (owner): an auction can never be
+                              published or approved until it is complete. */}
                           <button
                             onClick={() => handleReject(listing.id)}
                             disabled={actionLoading === listing.id}
