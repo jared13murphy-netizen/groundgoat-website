@@ -8,7 +8,7 @@ import fetchWithAuth from '@/lib/fetchWithAuth'
 import { openReports } from '@/lib/reportsPanel'
 import { formatAcres } from '@/lib/format'
 import { formatTillable, tillablePctShown } from '@/lib/tillable'
-import { formatAuctionDate } from '@/lib/auctionTime'
+import { formatAuctionDateTimeForViewer } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel } from '@/lib/soilRatingLabel'
 import GroundTruthPanel from './GroundTruthPanel'
 import NdviPanel from './NdviPanel'
@@ -501,7 +501,7 @@ export default function PortalTractDetail({ tract, onBack, onViewListing, onView
             {tract.auctionDate && (
               <DetailRow
                 label={(tract.saleStatus || '').toLowerCase() === 'sold' ? 'Sale Date' : 'Auction Date'}
-                value={formatAuctionDate(tract.auctionDate, tract.state)}
+                value={formatAuctionDateTimeForViewer(tract.auctionDate, tract.state, { month: 'long', day: 'numeric', year: 'numeric' })}
               />
             )}
             {tract.auctionDate && getStatusLabel(tract.saleStatus) !== 'Live' && (

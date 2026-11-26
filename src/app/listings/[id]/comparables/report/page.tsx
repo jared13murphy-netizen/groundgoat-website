@@ -9,7 +9,7 @@ import reportJobEnqueue from '@/lib/reportJobs'
 import { formatAcres, toNum } from '@/lib/format'
 import CompSummaryGrid from '@/components/CompSummaryGrid'
 import { formatTillable } from '@/lib/tillable'
-import { formatAuctionDateTime } from '@/lib/auctionTime'
+import { formatAuctionDateTimeForViewer } from '@/lib/auctionTime'
 import { soilRatingLabel, perSoilRatingLabel, avgSoilRatingLabel } from '@/lib/soilRatingLabel'
 import SubjectStrip from '@/components/portal/SubjectStrip'
 import NotesStep from '@/components/notes/NotesStep'
@@ -199,7 +199,7 @@ export default function ComparablesReportPage({ params }: { params: { id: string
               state={subject.state}
             />
             {subject.auction_datetime && (
-              <p className="text-sm text-gray-400 mt-2">{formatAuctionDateTime(subject.auction_datetime, subject.state)} · {subject.company_name}</p>
+              <p className="text-sm text-gray-400 mt-2">{formatAuctionDateTimeForViewer(subject.auction_datetime, subject.state, { month: 'long', day: 'numeric', year: 'numeric' })} · {subject.company_name}</p>
             )}
           </div>
         )}

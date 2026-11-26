@@ -17,6 +17,7 @@ import { getListingTillableAcres, getListingSoilRating } from './PortalListPanel
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import AuctionCountdown from '../AuctionCountdown'
 import { listingPriceMode, totalPriceOf, totalPriceLabel } from '@/lib/priceDisplay'
+import { formatAuctionDateForViewer, formatAuctionTimeForViewer } from '@/lib/auctionTime'
 import { apiTractPrice, totalLabelFor } from '@/lib/tractPrice'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://practical-serenity-production.up.railway.app'
@@ -130,23 +131,13 @@ function formatCurrency(value?: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
 }
 
-function formatDate(dateString?: string): string {
-  if (!dateString) return '—'
-  const d = new Date(dateString)
-  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
-  const months = ['January','February','March','April','May','June','July','August','September','October','November','December']
-  return `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+// Viewer's own time zone (owner 11/24); midnight in the auction's zone = no time.
+function formatDate(dateString?: string, state?: string): string {
+  return formatAuctionDateForViewer(dateString, state, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 function formatTime(listing: Listing): string {
-  if (!listing.auction_datetime) return ''
-  const d = new Date(listing.auction_datetime)
-  const hours = d.getHours()
-  const mins = d.getMinutes()
-  if (hours === 0 && mins === 0) return ''
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  const h12 = hours % 12 || 12
-  return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`
+  return formatAuctionTimeForViewer(listing.auction_datetime, listing.state)
 }
 
 export default function PortalListingDetail({ listingId, onBack, onTractSelected, onListingLoaded, onFindComparables, userAccountType, isWatchlisted, onToggleWatchlist }: PortalListingDetailProps) {
@@ -367,7 +358,7 @@ export default function PortalListingDetail({ listingId, onBack, onTractSelected
             <Calendar size={16} className="text-gg-pink shrink-0" />
             <div>
               <div className="text-[10px] text-gg-gray-500">Date</div>
-              <div className="text-sm">{formatDate(listing.auction_datetime || listing.auction_date)}</div>
+              <div className="text-sm">{formatDate(listing.auction_datetime || listing.auction_date, listing.state)}</div>
             </div>
           </div>
           {listing.status?.toLowerCase() !== 'live' && (

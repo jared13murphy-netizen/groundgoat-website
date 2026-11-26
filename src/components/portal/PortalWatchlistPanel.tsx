@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { X, Bookmark, Loader2, Calendar, Building2, MapPin } from 'lucide-react'
 import { formatAcres } from '@/lib/format'
 import { formatStateList } from '@/lib/stateAccess'
+import { formatAuctionDateForViewer } from '@/lib/auctionTime'
 
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600'
 
@@ -50,8 +51,7 @@ interface PortalWatchlistPanelProps {
 function formatDate(listing: WatchlistListing): string {
   const raw = listing.auction_datetime || listing.auction_date
   if (!raw) return ''
-  const d = new Date(raw)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatAuctionDateForViewer(raw, listing.state)
 }
 
 function formatPrice(price?: number): string {

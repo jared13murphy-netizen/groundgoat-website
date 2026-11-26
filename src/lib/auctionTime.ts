@@ -68,7 +68,7 @@ const STATE_TO_TZ: Record<string, string> = {
   HI: 'Pacific/Honolulu',
 }
 
-function tzForState(state?: string | null): string | undefined {
+export function tzForState(state?: string | null): string | undefined {
   if (!state) return undefined
   return STATE_TO_TZ[state.toUpperCase()]
 }
@@ -180,4 +180,120 @@ export function formatAuctionTimeInZone(value?: string | null, state?: string | 
   const zone = isNaN(day.getTime()) ? '' : (new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
     .formatToParts(day).find((p) => p.type === 'timeZoneName')?.value || '')
   return zone ? `${label} ${zone}` : label
+// ---------------------------------------------------------------------------
+// VIEWER-zone formatting (owner rule 2026-11-24): every customer surface shows
+// an auction's date/time converted to the VIEWER'S device zone, with the zone
+// abbreviation. 4:00 PM in New York shows as "3:00 PM CST" to a Central viewer.
+// The functions above (auction's own zone) stay for staging.
+//
+// Input is either a UTC instant (ends in Z or an offset), a naive ISO string
+// ("2026-12-03T13:00:00" = wall clock in the auction STATE's zone), or a bare
+// date ("2026-12-03" = calendar day, never shifted). Midnight exactly in the
+// auction's zone means "no time known": date only, shown as the auction's own
+// calendar day so a western viewer never sees it slip to the day before.
+// ---------------------------------------------------------------------------
+
+const HAS_OFFSET_RE = /(Z|[+-]\d{2}(:?\d{2})?)$/i
+const NAIVE_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/
+const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+
+function zoneParts(ms: number, tz: string) {
+  const f = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+  })
+  const o: Record<string, number> = {}
+  for (const p of f.formatToParts(new Date(ms))) if (p.type !== 'literal') o[p.type] = Number(p.value)
+  return o
+}
+
+/** Instant for a wall-clock time in an IANA zone (handles DST). */
+function wallClockToInstant(y: number, mo: number, d: number, h: number, mi: number, s: number, tz: string): Date {
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi, s)
+  let guess = asUtc
+  for (let i = 0; i < 3; i++) {
+    const p = zoneParts(guess, tz)
+    const shown = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second)
+    guess += asUtc - shown
+  }
+  return new Date(guess)
+}
+
+export interface ViewerAuctionTime {
+  /** the real instant, or null for a bare date / invalid input */
+  instant: Date | null
+  /** calendar day to show when there is no usable time (auction's own day) */
+  calendarDay: [number, number, number] | null
+  hasTime: boolean
+}
+
+export function parseAuctionForViewer(value?: string | null, state?: string | null): ViewerAuctionTime | null {
+  if (!value) return null
+  const str = String(value).trim()
+  const dateOnly = DATE_ONLY_RE.exec(str)
+  if (dateOnly) return { instant: null, calendarDay: [+dateOnly[1], +dateOnly[2], +dateOnly[3]], hasTime: false }
+
+  let instant: Date
+  const tz = tzForState(state)
+  const naive = !HAS_OFFSET_RE.test(str) ? NAIVE_RE.exec(str) : null
+  if (naive) {
+    const [, y, mo, d, h, mi, s] = naive
+    // Unknown state: treat the wall clock as the viewer's own (best available).
+    instant = tz
+      ? wallClockToInstant(+y, +mo, +d, +h, +mi, +(s || 0), tz)
+      : new Date(+y, +mo - 1, +d, +h, +mi, +(s || 0))
+  } else {
+    instant = new Date(str)
+  }
+  if (isNaN(instant.getTime())) return null
+
+  // Midnight in the auction's zone (viewer's zone when the state is unknown).
+  const p = zoneParts(instant.getTime(), tz || Intl.DateTimeFormat().resolvedOptions().timeZone)
+  const midnight = p.hour === 0 && p.minute === 0
+  return { instant, calendarDay: [p.year, p.month, p.day], hasTime: !midnight }
+}
+
+const DEFAULT_VIEWER_DATE: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }
+
+/** Date in the viewer's zone (auction's own calendar day when no time is known). */
+export function formatAuctionDateForViewer(
+  value?: string | null,
+  state?: string | null,
+  dateOptions: Intl.DateTimeFormatOptions = DEFAULT_VIEWER_DATE,
+  viewerTimeZone?: string,
+): string {
+  const a = parseAuctionForViewer(value, state)
+  if (!a) return '\u2014'
+  if (a.instant && a.hasTime) {
+    return a.instant.toLocaleDateString('en-US', { ...dateOptions, ...(viewerTimeZone ? { timeZone: viewerTimeZone } : {}) })
+  }
+  const [y, m, d] = a.calendarDay!
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('en-US', { ...dateOptions, timeZone: 'UTC' })
+}
+
+/** "3:00 PM CST" in the viewer's zone; '' when no time is known. */
+export function formatAuctionTimeForViewer(
+  value?: string | null,
+  state?: string | null,
+  viewerTimeZone?: string,
+): string {
+  const a = parseAuctionForViewer(value, state)
+  if (!a || !a.instant || !a.hasTime) return ''
+  return a.instant.toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short',
+    ...(viewerTimeZone ? { timeZone: viewerTimeZone } : {}),
+  })
+}
+
+/** "Dec 3, 2026 at 3:00 PM CST" — date style is per surface, time is shared. */
+export function formatAuctionDateTimeForViewer(
+  value?: string | null,
+  state?: string | null,
+  dateOptions: Intl.DateTimeFormatOptions = DEFAULT_VIEWER_DATE,
+  viewerTimeZone?: string,
+): string {
+  const d = formatAuctionDateForViewer(value, state, dateOptions, viewerTimeZone)
+  if (d === '\u2014') return d
+  const t = formatAuctionTimeForViewer(value, state, viewerTimeZone)
+  return t ? `${d} at ${t}` : d
 }

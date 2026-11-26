@@ -10,6 +10,7 @@ import { formatAcres, toNum } from '@/lib/format'
 import { formatTillable, tillablePctShown } from '@/lib/tillable'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { isAllowedForExplore } from '@/lib/stateAccess'
+import { formatAuctionDateForViewer, formatAuctionTimeForViewer } from '@/lib/auctionTime'
 import {
   Loader2, ArrowLeft, MapPin, Calendar, Clock, Building2,
   DollarSign, ExternalLink, Share2, BarChart3
@@ -193,19 +194,11 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
   }
 
-  const formatDate = (dateString: string | undefined) => {
-    if (!dateString) return '—'
-    const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-  }
+  // Viewer's own time zone (owner 11/24); midnight in the auction's zone = no time.
+  const formatDate = (dateString: string | undefined) =>
+    formatAuctionDateForViewer(dateString, listing?.state, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
-  const formatTime = (dateString: string | undefined) => {
-    if (!dateString) return ''
-    const date = new Date(dateString)
-    // Midnight exactly = no time set (same rule as the portal panels and the app).
-    if (date.getHours() === 0 && date.getMinutes() === 0) return ''
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-  }
+  const formatTime = (dateString: string | undefined) => formatAuctionTimeForViewer(dateString, listing?.state)
 
   const getCompanyName = () => {
     if (listing?.company?.name) return listing.company.name

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import { formatAcres } from '@/lib/format'
+import { formatAuctionDateForViewer, formatAuctionTimeForViewer } from '@/lib/auctionTime'
 import { PromoVideoSection } from '@/components/PromoVideo'
 
 const HomeTerrain3D = dynamic(() => import('@/components/HomeTerrain3D'), { ssr: false })
@@ -187,25 +188,17 @@ export default function Home() {
   // build box (GitHub Actions, UTC) and a Central-time visitor produce
   // different text for the same instant → React hydration errors #425/#418/
   // #423 on every home-page load (found 9/4, owner 9/16: no console errors
-  // allowed). Pin the zone: every auction we serve is in the Central zone.
+  // allowed). So the first render (server + hydration) is pinned to Central,
+  // then after mount it switches to the VIEWER'S device zone (owner 11/24).
   const HERO_TZ = 'America/Chicago'
-  const formatDateTime = (dateString: string) => {
+  const [viewerZoneReady, setViewerZoneReady] = useState(false)
+  useEffect(() => { setViewerZoneReady(true) }, [])
+  const formatDateTime = (dateString: string, state?: string) => {
     if (!dateString) return { date: '', time: '' }
-    const date = new Date(dateString)
-    if (isNaN(date.getTime())) return { date: '', time: '' }
-    const dateFormatted = date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      timeZone: HERO_TZ,
-    })
-    const timeFormatted = date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZone: HERO_TZ,
-    }).toLowerCase()
-    return { date: dateFormatted, time: timeFormatted }
+    const tz = viewerZoneReady ? undefined : HERO_TZ
+    const date = formatAuctionDateForViewer(dateString, state, { weekday: 'short', month: 'short', day: 'numeric' }, tz)
+    if (date === '\u2014') return { date: '', time: '' }
+    return { date, time: formatAuctionTimeForViewer(dateString, state, tz) }
   }
 
   const currentListing = listings[currentSlide]
@@ -267,11 +260,11 @@ export default function Home() {
                     <>
                       <div className="bg-gg-pink text-black text-sm font-bold px-3 py-1 rounded-full flex items-center gap-1">
                         <Calendar size={14} />
-                        {formatDateTime(currentListing.auction_datetime).date}
+                        {formatDateTime(currentListing.auction_datetime, currentListing.state).date}
                       </div>
                       <div className="bg-white/10 text-white text-sm px-3 py-1 rounded-full flex items-center gap-1">
                         <Clock size={14} />
-                        {formatDateTime(currentListing.auction_datetime).time}
+                        {formatDateTime(currentListing.auction_datetime, currentListing.state).time}
                       </div>
                     </>
                   )}

@@ -1,12 +1,13 @@
 import { STATUS_COLORS } from './mapConstants'
 import { formatAcres } from '@/lib/format'
+import { formatAuctionDateTimeForViewer } from '@/lib/auctionTime'
 import { soilRatingLabel } from '@/lib/soilRatingLabel'
 import { gatedPpta, gatedPprating, totalLabelFor } from '@/lib/priceRules'
 
-function formatDate(dateStr: string): string {
+// Viewer's own time zone (owner 11/24); date-only strings stay a calendar day.
+function formatDate(dateStr: string, state?: string): string {
   if (!dateStr) return 'TBD'
-  const date = new Date(dateStr + 'T00:00:00')
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatAuctionDateTimeForViewer(dateStr, state)
 }
 
 function formatCurrency(amount: number): string {
@@ -117,7 +118,7 @@ export function buildTractPopupHTML(props: Record<string, unknown>): string {
     ${rateRows}
     <div class="tract-popup-row">
       <span class="tract-popup-label">Auction</span>
-      <span class="tract-popup-value">${formatDate(auctionDate)}</span>
+      <span class="tract-popup-value">${formatDate(auctionDate, state)}</span>
     </div>
     <div class="tract-popup-row">
       <span class="tract-popup-label">Status</span>
@@ -179,7 +180,7 @@ export function buildExplorePopupHTML(props: Record<string, unknown>): string {
     </div>` : ''}
     <div class="tract-popup-row">
       <span class="tract-popup-label">Auction</span>
-      <span class="tract-popup-value">${formatDate(auctionDate)}</span>
+      <span class="tract-popup-value">${formatDate(auctionDate, state)}</span>
     </div>
     <div class="tract-popup-row">
       <span class="tract-popup-label">Status</span>
