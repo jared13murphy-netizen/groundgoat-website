@@ -852,7 +852,7 @@ function Drawer({ f, fs, onClose }: { f: any; fs: number; onClose: () => void })
             <span className="v-hint">click outside to close</span></h2>
           <div className="v-dk">
             <div><span>People today</span><b>{n0(f.people)}</b></div>
-            <div><span>Uses</span><b>{n0(f.uses)}</b></div>
+            <div><span>Requests</span><b>{n0(f.uses)}</b></div>
             <div><span>Worked</span><b>{isNum(f.worked_pct) ? `${f.worked_pct}%` : DASH}</b></div>
             <div><span>Speed</span><b>{secs(f.speed_ms)}</b></div>
           </div>
@@ -1220,7 +1220,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
         <div className="v-card">
           <div className="v-ct"><h3>Features</h3><small>today · click a row for detail</small></div>
           <div className="v-ft">
-            <div className="v-fr v-fh"><span>Feature</span><span>People</span><span>Uses</span><span>14 d</span><span>Worked</span><span>Speed</span><span>vs wk</span></div>
+            <div className="v-fr v-fh"><span>Feature</span><span>People</span><span>Requests</span><span>14 d</span><span>Worked</span><span>Speed</span><span>vs wk</span></div>
             {feats.length ? feats.map(f => {
               const w = f.worked_pct
               const wc = !isNum(w) ? '' : w >= 99 ? '' : w < 97 ? 'bad' : 'warn'
