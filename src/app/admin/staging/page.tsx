@@ -81,6 +81,9 @@ interface StagingListing {
   scrape_duration_ms: number | null
   is_incomplete: boolean
   incomplete_reason: string | null
+  /** Owner 11/25: the same auction is already published (same source URL, or
+   *  same company + county + date ±1 day + acres ±2 %). Warning only. */
+  live_match?: { listing_id: string; title: string; source_url: string | null; rule?: string } | null
 }
 
 interface RunLogEntry {
@@ -2269,6 +2272,24 @@ export default function AdminStagingPage() {
                             >
                               {listing.source_url}
                             </a>
+                            {/* Owner 11/25 (Thurston NE): a company-site copy of an
+                                auction already live from BidWrangler was verified.
+                                Warning only — Verify is not blocked. */}
+                            {listing.live_match?.listing_id && (
+                              <p className="mt-1 text-sm font-semibold text-red-600">
+                                Already live:{' '}
+                                <a
+                                  href={`/listings/${encodeURIComponent(listing.live_match.listing_id)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="underline underline-offset-2 hover:text-red-800"
+                                  title={listing.live_match.source_url || 'Open the live listing'}
+                                >
+                                  {listing.live_match.title || 'live listing'}
+                                </a>
+                                {' '}— check before verifying
+                              </p>
+                            )}
                             <button
                               type="button"
                               onClick={() => loadHistory(listing.id, listing.source_url)}
@@ -2732,6 +2753,11 @@ export default function AdminStagingPage() {
                                     // to Iowa (-93.5, 41.9).
                                     latitude={tract.latitude ?? listing.scraped_data?.listing?.latitude ?? null}
                                     longitude={tract.longitude ?? listing.scraped_data?.listing?.longitude ?? null}
+                                    // Owner 2026-11-25: view-only map start for a
+                                    // tract with no location (scraper map_center),
+                                    // then county / state centre — never saved.
+                                    mapCenter={tract.map_center ?? null}
+                                    listingMapCenter={listing.scraped_data?.listing?.map_center ?? null}
                                     // Per user 2026-05-26: live-update
                                     // tract.computed.acres as the user
                                     // drags vertices / clicks Align, so the
