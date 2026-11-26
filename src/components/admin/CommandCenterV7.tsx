@@ -264,30 +264,38 @@ function useEmPx(ref: React.RefObject<HTMLElement | null>) {
 
 /* ── Small pieces ─────────────────────────────────────────────────── */
 
-function Spark({ vals, color, bars, max }: { vals: number[]; color: string; bars?: boolean; max?: number }) {
+/* A null point is "not measured that day" (e.g. before app tracking began):
+   nothing is drawn there, so it never reads as a zero (11/26 audit). */
+function Spark({ vals, color, bars, max }: { vals: (number | null)[]; color: string; bars?: boolean; max?: number }) {
   if (!vals || vals.length < 2) return null
   const n = vals.length
-  const hi = Math.max(max || 0, ...vals, 1)
+  const known = vals.filter((v): v is number => v !== null)
+  if (!known.length) return null
+  const hi = Math.max(max || 0, ...known, 1)
   const y = (v: number) => 28 - (v / hi) * 26
   if (bars) {
     const w = 100 / n
     return (
       <svg viewBox="0 0 100 30" preserveAspectRatio="none" width="100%" height="100%">
-        {vals.map((v, i) => v > 0 &&
+        {vals.map((v, i) => v !== null && v > 0 &&
           <rect key={i} x={i * w + w * 0.15} width={w * 0.7} y={y(v)} height={29 - y(v)} fill={color} rx={0.6} />)}
       </svg>
     )
   }
-  const pts = vals.map((v, i) => `${(i * 100 / (n - 1)).toFixed(2)},${y(v).toFixed(2)}`)
+  const x = (i: number) => (i * 100 / (n - 1)).toFixed(2)
+  const first = vals.findIndex(v => v !== null)
+  const pts = vals.map((v, i) => (v === null ? null : `${x(i)},${y(v).toFixed(2)}`)).filter(Boolean) as string[]
+  if (pts.length === 1) pts.push(pts[0])
   return (
     <svg viewBox="0 0 100 30" preserveAspectRatio="none" width="100%" height="100%">
-      <path d={`M0,29 L${pts.join(' L')} L100,29 Z`} fill={color} opacity={0.13} />
+      <path d={`M${x(first)},29 L${pts.join(' L')} L100,29 Z`} fill={color} opacity={0.13} />
       <path d={`M${pts.join(' L')}`} fill="none" stroke={color} strokeWidth={2}
         vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
     </svg>
   )
 }
-const series = (s: any): number[] => Array.isArray(s) ? s.map((p: any) => Number(p?.v) || 0) : []
+const series = (s: any): (number | null)[] => Array.isArray(s)
+  ? s.map((p: any) => (p === null || p?.v === null ? null : Number(p?.v) || 0)) : []
 
 function Delta({ v, text }: { v: any; text: string }) {
   if (!isNum(v)) return null
@@ -343,7 +351,7 @@ function NorthStar({ ns, onNow, why }: { ns: any; onNow: any; why: string }) {
         <div className="v-num">{usd(rv?.month)}</div>
         <div className="v-cmp">
           {isNum(rv?.month) ? <>
-            <Delta v={rv?.vs_last_month_pace_pct} text={`${n0(Math.abs(Number(rv?.vs_last_month_pace_pct)))}% vs ${lastMonthName()} pace`} />
+            <Delta v={rv?.vs_last_month_pace_pct} text={`${n0(Math.abs(Number(rv?.vs_last_month_pace_pct)))}% vs ${lastMonthName()} pace · Stripe`} />
             <span className="v-sub">ARR {usdShort(rv?.arr)}</span></>
             : <span className="v-mut">{rv?.basis || why}</span>}
         </div>
@@ -355,13 +363,13 @@ function NorthStar({ ns, onNow, why }: { ns: any; onNow: any; why: string }) {
         <div className="v-num">{n0(ac?.dau)}</div>
         <div className="v-cmp">
           <Delta v={ac?.dau_vs_week_pct} text={`${n0(Math.abs(Number(ac?.dau_vs_week_pct)))}%`} />
-          {ac && <span className="v-sub">WAU {n0(ac.wau)} · MAU {n0(ac.mau)}</span>}
+          {ac && <span className="v-sub">7-day {n0(ac.wau)} · 30-day {n0(ac.mau)}</span>}
         </div>
         <div className="v-sp"><Spark vals={series(ac?.series_30d)} color={BLUE} bars /></div>
       </div>
 
       <div className="v-card v-k">
-        <div className="v-lab"><span>Cancellations</span><span>today</span></div>
+        <div className="v-lab"><span>Cancelled / renewal off</span><span>today</span></div>
         <div className="v-num">{n0(cn?.today)}</div>
         <div className="v-cmp">
           {cn && <><span className="v-d v-fl">Wk {n0(cn.week)} · Mo {n0(cn.month)}</span>
@@ -371,11 +379,11 @@ function NorthStar({ ns, onNow, why }: { ns: any; onNow: any; why: string }) {
       </div>
 
       <div className="v-card v-k">
-        <div className="v-lab"><span>Trials that pay</span><span>30 d</span></div>
+        <div className="v-lab"><span>Trials that pay</span><span>ended last 30 d</span></div>
         <div className="v-num">{isNum(tp?.pct_30d) ? `${n0(tp.pct_30d)}%` : DASH}</div>
         <div className="v-cmp">
           <Delta v={tp?.vs_prior_pts} text={`${n0(Math.abs(Number(tp?.vs_prior_pts)))} pts`} />
-          {tp && <span className="v-sub">{n0(tp.ending_this_week)} trials end this week</span>}
+          {tp && <span className="v-sub">{n0(tp.ending_this_week)} end in next 7 d</span>}
         </div>
         <div className="v-sp"><Spark vals={series(tp?.series_30d)} color={AQUA} /></div>
       </div>
@@ -948,11 +956,13 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
       // everyone with no home county or in a county without an outline.
       const total = g.customer_totals ? pick(g.customer_totals, plan)
         : (features || []).reduce((a, f) => a + pick(f.properties?.customers, plan), 0)
-      const fresh = pick(g.totals, plan)
+      // Customers = paying or on a free trial (11/26). New customers in the
+      // period = sign-ups in it who now have a plan, not every sign-up.
+      const fresh = plan === 'all' ? pick(g.totals, 'all') - pick(g.totals, 'none' as any) : pick(g.totals, plan)
       const unplaced = g.no_home_county_customers
       return {
-        big: n0(total), label: `customers · ${planName}`,
-        delta: { v: fresh, text: `${n0(fresh)} new in the last ${per} days` },
+        big: n0(total), label: `paying + trial customers · ${planName}`,
+        delta: { v: fresh, text: `${n0(fresh)} new customers in the last ${per} days` },
         note: isNum(unplaced) && unplaced > 0 ? `${n0(unplaced)} not on the map (no home county)` : '',
       }
     }
@@ -1222,7 +1232,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
                   <span><i className={`v-st ${dotClass(f.status)}`} />{f.name}</span>
                   <span>{n0(f.people)}</span>
                   <span>{isNum(f.uses) ? n0(f.uses) : <span className="v-dim">—</span>}</span>
-                  <span className="v-fsp"><Spark vals={series(f.series_14d?.map?.((v: any) => (typeof v === 'object' ? v : { v })))} color={col} /></span>
+                  <span className="v-fsp"><Spark vals={series(f.series_14d?.map?.((v: any) => (v === null ? null : typeof v === 'object' ? v : { v })))} color={col} /></span>
                   <span className={wc}>{isNum(w) ? `${w}%` : DASH}</span>
                   <span>{secs(f.speed_ms)}</span>
                   <span>
@@ -1277,8 +1287,8 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
               <div className="v-qr"><span>Searches · answered</span>
                 <b className={!isNum(q.goat?.answered_pct) ? '' : q.goat.answered_pct >= 95 ? 'g' : 'w'}>
                   {n0(q.goat?.searches)} · {isNum(q.goat?.answered_pct) ? `${n0(q.goat.answered_pct)}%` : DASH}</b></div>
-              <div className="v-qr"><span>Avg results · avg / slowest</span>
-                <b>{n0(q.goat?.avg_results)} · {secsFromS(q.goat?.avg_s)} / {secsFromS(q.goat?.slowest_s)}</b></div>
+              <div className="v-qr"><span>Typical results · avg / slowest time</span>
+                <b>{n0(q.goat?.median_results)} · {secsFromS(q.goat?.avg_s)} / {secsFromS(q.goat?.slowest_s)}</b></div>
               <div className="v-qh">Reports</div>
               <div className="v-qr"><span>Comp · tract · parcel</span>
                 <b>{n0(q.reports?.comp)} · {n0(q.reports?.tract)} · {n0(q.reports?.parcel)}</b></div>
