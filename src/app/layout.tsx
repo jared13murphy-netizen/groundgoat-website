@@ -7,6 +7,7 @@ import SiteAnalytics from '@/components/SiteAnalytics'
 import MetaPixel from '@/components/MetaPixel'
 import { GoogleTagManagerHead, GoogleTagManagerNoScript } from '@/components/GoogleTagManager'
 import AdClickCapture from '@/components/AdClickCapture'
+import PresencePing from '@/components/PresencePing'
 
 export const metadata: Metadata = {
   // Google Search Console 11/15: "Duplicate without user-selected canonical".
@@ -62,6 +63,7 @@ export default function RootLayout({
         {/* Meta Pixel for TEDDYco's Facebook/Instagram ads (owner 11/20). */}
         <MetaPixel />
         <AdClickCapture />
+        <PresencePing />
       </body>
     </html>
   )
