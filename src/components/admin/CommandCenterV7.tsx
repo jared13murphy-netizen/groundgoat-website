@@ -307,7 +307,18 @@ function Delta({ v, text }: { v: any; text: string }) {
 
 /* ── North star ───────────────────────────────────────────────────── */
 
-function NorthStar({ ns, onNow, why }: { ns: any; onNow: any; why: string }) {
+/** "3 customers · 2 us · 1 signed-out" — who makes up On now (owner 11/27:
+ *  everyone with the app or website open counts, us included). */
+function onNowParts(live: any, o: any): string {
+  const src = isNum(live?.on_now) ? { n: live.on_now, us: live.us, v: live.visitors } : { n: o?.now, us: o?.us, v: o?.visitors }
+  if (!isNum(src.n) || !isNum(src.us) || !isNum(src.v)) return ''
+  const cust = Number(src.n) - Number(src.us) - Number(src.v)
+  const parts = [`${n0(cust)} customer${cust === 1 ? '' : 's'}`, `${n0(src.us)} us`]
+  if (Number(src.v) > 0) parts.push(`${n0(src.v)} signed-out`)
+  return parts.join(' · ')
+}
+
+function NorthStar({ ns, onNow, live, why }: { ns: any; onNow: any; live?: any; why: string }) {
   const p = ns?.paying, o = ns?.on_now, nu = ns?.new_users, rv = ns?.revenue
   const ac = ns?.active, cn = ns?.cancels, tp = ns?.trial_pay
   const onNowN = isNum(onNow) ? onNow : o?.now
@@ -326,12 +337,13 @@ function NorthStar({ ns, onNow, why }: { ns: any; onNow: any; why: string }) {
       </div>
 
       <div className="v-card v-k">
-        <div className="v-lab"><span>On now</span></div>
+        <div className="v-lab"><span>On now</span><span>app or website open</span></div>
         <div className="v-num">{n0(onNowN)}</div>
         <div className="v-cmp">
           {isNum(o?.vs_same_time_last_week)
             ? <Delta v={o.vs_same_time_last_week} text={`${n0(Math.abs(o.vs_same_time_last_week))} vs this time ${weekdayNow()}`} />
             : reason(null, 'no same-time comparison yet')}
+          {onNowParts(live, o) && <span className="v-sub">{onNowParts(live, o)}</span>}
         </div>
         <div className="v-sp"><Spark vals={series(o?.series_24h)} color={PINK} /></div>
       </div>
@@ -1090,7 +1102,7 @@ export default function CommandCenterV7({ ov, why, clock, connected, railOpen, o
         </div>
       </header>
 
-      <NorthStar ns={ns} onNow={liveD?.on_now} why={why} />
+      <NorthStar ns={ns} onNow={liveD?.on_now} live={liveD} why={why} />
 
       <section className="v-main">
         <div className="v-card v-mapcard">
