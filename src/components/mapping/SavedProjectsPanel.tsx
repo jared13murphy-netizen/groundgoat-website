@@ -13,7 +13,7 @@
 import CardThumb from '@/components/CardThumb'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  Check, ChevronDown, ChevronRight, Folder, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Plus, StickyNote, Trash2, Upload, X,
+  Check, ChevronDown, ChevronRight, Image as ImageIcon, Loader2, Map as MapIcon, MoreHorizontal, Plus, StickyNote, Trash2, Upload, X,
 } from 'lucide-react'
 import {
   createProject, deleteFarm, duplicateProject, firmMembers,
@@ -26,7 +26,7 @@ import {
 import { AERIAL_YEARS } from '@/components/map/mapConstants'
 import { SavedReportCard } from '@/components/mapping/SavedReportsPanel'
 import MyMapsShell, {
-  CardPicture, ListEmpty, MyMapsCard, Tag, applyControls, fmtModified, grayBtn, offBtn, pinkBtn as shellPink, useListControls, whiteInput,
+  ListEmpty, MyMapsCard, Tag, applyControls, fmtModified, grayBtn, offBtn, pinkBtn as shellPink, useListControls, whiteInput,
 } from '@/components/mapping/MyMapsShell'
 import NotesTimeline from '@/components/notes/NotesTimeline'
 import { openReports } from '@/lib/reportsPanel'
@@ -532,7 +532,10 @@ export default function SavedProjectsPanel({
           const canShare = !p.shared && (members?.length ?? 0) > 0
           return (
             <MyMapsCard key={p.id} testId="project-card"
-              picture={<CardPicture kind="saved" id={p.cover_parcel_id} icon={<Folder size={26} />} />}
+              // Owner 11/28: no picture on a PROJECT card — a project can be many
+              // tracts, so one tract's picture misrepresents it. Each tract inside
+              // (Show maps) keeps its own picture.
+              picture={null}
               title={editing?.key === pKey ? (
                 <input autoFocus style={{ ...whiteInput, padding: '5px 8px', fontSize: 14 }} value={editing.text}
                        data-testid="project-rename-input"

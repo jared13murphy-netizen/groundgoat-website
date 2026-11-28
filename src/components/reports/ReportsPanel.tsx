@@ -4,8 +4,11 @@
  * ReportsPanel — the one place every report starts (owner 11/15, mockups
  * "PROPOSAL — one Reports panel" + the parcel/tract bottom buttons).
  *
- * 1 · Pick a report — cards; the picked one is pink (gradient) with black
- *     text, the others gray. The Map It reports work on ANY parcel or
+ * 1 · Pick reports — cards; every report the target offers starts picked
+ *     (pink gradient, black text) and a click un-picks it (owner 11/28). A
+ *     project also asks WHICH ground: a tick list ("Choose Ground"), any
+ *     number of them — one press of Download / Email then builds every picked
+ *     report for every picked piece of ground (lib/reportBatch). The Map It reports work on ANY parcel or
  *     auction tract too (owner 11/16): a parcel prints the engine's tillable
  *     polygons, a tract its drawn tillable polygons, a farm its saved ones.
  * 2 · Notes to include — NotesStep (None · Latest · All · Pick + the notes).
@@ -19,13 +22,14 @@
  * farm / project, or on tract_id / ll_uuid for a tract or parcel.
  */
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react'
-import { ChevronLeft, Download, Loader2, Mail, X } from 'lucide-react'
+import { Check, ChevronLeft, Download, Loader2, Mail, X } from 'lucide-react'
 import reportJobEnqueue from '@/lib/reportJobs'
 import fetchWithAuth from '@/lib/fetchWithAuth'
 import { getProject, queueAndDownloadReport, queueReport, type ReportKind, type ReportTarget } from '@/lib/configurableMapping'
 import { DEFAULT_NOTES_PRINT, notesPrintBody, type NotePickItem, type NotesPrint } from '@/lib/notes'
 import { closeReports, reportsSnapshot, subscribeReports, type ReportsOpen, type ReportsTarget } from '@/lib/reportsPanel'
 import useSlide from '@/lib/useSlide'
+import { buildBatchJobs, countLabel, needsGround, runBatch, type BatchJob } from '@/lib/reportBatch'
 import NotesStep, { PINK_GRADIENT } from '@/components/notes/NotesStep'
 
 const PINK = '#F58CDE'
@@ -93,6 +97,13 @@ const roundBtn: CSSProperties = {
   height: 36, borderRadius: 18, border: 'none', background: '#1C1C1E', color: '#fff', cursor: 'pointer',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit',
 }
+const tickBox: CSSProperties = {
+  flex: '0 0 auto', width: 18, height: 18, borderRadius: 5, border: '2px solid', boxSizing: 'border-box',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+}
+const groundRow: CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', fontSize: 14, color: '#111111', cursor: 'pointer',
+}
 const stepHead: CSSProperties = { padding: '16px 16px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', color: '#A1A1AA' }
 
 export default function ReportsPanel() {
@@ -127,9 +138,17 @@ function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
   const isFirm = useIsFirm()
   const options = useMemo(() => reportOptions(t, o.canUseReports, o.canUseMapIt, isFirm), [t, o.canUseReports, o.canUseMapIt, isFirm])
   const enabled = options.filter((x) => !x.off)
-  // One report to pick = picked already; otherwise Download/Email wait for a pick.
-  const [kind, setKind] = useState<Kind | null>(enabled.length === 1 ? enabled[0].kind : null)
-  const [farmId, setFarmId] = useState<string | null>(t.type === 'farm' ? t.parcelId : t.type === 'project' && t.farms.length === 1 ? t.farms[0].id : null)
+  // Owner 11/28: every report starts picked; the person un-picks what they
+  // do not want. `kindsTouched` keeps a late change in what is offered (the
+  // firm check answering) from undoing a pick the person already made.
+  const [kinds, setKinds] = useState<Set<Kind>>(() => new Set(enabled.map((x) => x.kind)))
+  const [kindsTouched, setKindsTouched] = useState(false)
+  useEffect(() => {
+    if (!kindsTouched) setKinds(new Set(options.filter((x) => !x.off).map((x) => x.kind)))
+  }, [options, kindsTouched])
+  const isProject = t.type === 'project'
+  // Which ground a project's reports are for — any number of them.
+  const [groundIds, setGroundIds] = useState<Set<string>>(() => new Set(isProject && t.farms.length === 1 ? [t.farms[0].id] : []))
   const [notes, setNotes] = useState<NotesPrint>(DEFAULT_NOTES_PRINT)
   const [busy, setBusy] = useState<'download' | 'email' | null>(null)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -138,14 +157,15 @@ function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
   const projectId = t.type === 'farm' || t.type === 'project' ? t.projectId : null
   const projectName = t.type === 'farm' || t.type === 'project' ? t.projectName : null
   // The Aerial Map prints every farm in the project: its notes too.
+  const hasAerial = kinds.has('aerial')
   useEffect(() => {
-    if (kind !== 'aerial' || projectFarms || !projectId) return
+    if (!hasAerial || projectFarms || !projectId) return
     let live = true
     getProject(projectId).then((r) => {
       if (live) setProjectFarms((r.parcels || []).map((p: any) => ({ id: String(p.id), name: p.name || 'Untitled' })))
     }).catch(() => { if (live) setProjectFarms([]) })
     return () => { live = false }
-  }, [kind, projectFarms, projectId])
+  }, [hasAerial, projectFarms, projectId])
 
   const noteItems = useMemo<NotePickItem[]>(() => {
     if (t.type === 'parcel') {
@@ -153,41 +173,74 @@ function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
       return k ? [{ key: k, label: t.title }] : []
     }
     if (t.type === 'tract') return [{ key: `t:${String(t.tractId).toLowerCase()}`, label: t.title }]
-    if (kind === 'aerial') return (projectFarms || []).map((f) => ({ key: `cm:${f.id.toLowerCase()}`, label: f.name }))
-    if (!farmId) return []
-    const name = t.type === 'farm' ? t.title : (projectFarms || t.farms).find((f) => f.id === farmId)?.name || 'Farm'
-    return [{ key: `cm:${farmId.toLowerCase()}`, label: name }]
-  }, [t, kind, farmId, projectFarms])
+    // The Aerial Map prints every farm in the project, so every farm's notes
+    // are on offer; otherwise the notes of the ground that is picked.
+    if (hasAerial) return (projectFarms || (t.type === 'project' ? t.farms : [])).map((f) => ({ key: `cm:${f.id.toLowerCase()}`, label: f.name }))
+    if (t.type === 'farm') return [{ key: `cm:${t.parcelId.toLowerCase()}`, label: t.title }]
+    return t.farms.filter((f) => groundIds.has(f.id)).map((f) => ({ key: `cm:${f.id.toLowerCase()}`, label: f.name }))
+  }, [t, hasAerial, groundIds, projectFarms])
 
-  const needsFarm = t.type === 'project' && kind != null && kind !== 'aerial'
-  const ready = kind != null && (!needsFarm || !!farmId)
+  const kindsInOrder = useMemo(() => options.map((x) => x.kind as string), [options])
+  const needsFarm = needsGround(isProject, kinds)
+  const jobs = useMemo(() => buildBatchJobs({
+    isProject, kindsInOrder, pickedKinds: kinds as Set<string>,
+    grounds: t.type === 'project' ? t.farms : [], pickedGroundIds: groundIds,
+  }), [isProject, kindsInOrder, kinds, t, groundIds])
+  const ready = kinds.size > 0 && (!needsFarm || groundIds.size > 0) && jobs.length > 0
+
+  /** Build ONE report. Throws on failure (a "too many building" answer is
+   *  thrown too — runBatch waits and tries it again). */
+  const runOne = async (job: BatchJob, delivery: 'download' | 'email', notes_print: ReturnType<typeof notesPrintBody>) => {
+    const kind = job.kind as Kind
+    if (kind === 'parcel' || kind === 'tract') {
+      let res: Response
+      if (t.type === 'tract') res = await reportJobEnqueue('tract', delivery, { tract_id: t.tractId, notes_print })
+      else if (t.type === 'parcel' && t.llUuid) res = await reportJobEnqueue('parcel', delivery, { ll_uuid: t.llUuid, notes_print })
+      else if (t.type === 'parcel') res = await reportJobEnqueue('parcel_by_point', delivery, { lat: t.lat, lng: t.lng, notes_print })
+      else throw new Error('Pick a report')
+      if (!res.ok) throw Object.assign(new Error(await errorText(res)), { status: res.status })
+      return
+    }
+    const ref: ReportTarget = t.type === 'tract' ? { tractId: t.tractId }
+      : t.type === 'parcel' ? { llUuid: t.llUuid || undefined, lat: t.lat ?? undefined, lng: t.lng ?? undefined }
+      : kind === 'aerial' ? { projectId: projectId || undefined }
+      : { parcelId: (t.type === 'farm' ? t.parcelId : job.groundId) || undefined }
+    const params = { notes_print, ...(kind === 'elevation_3d' ? { exaggeration: DEFAULT_EXAGGERATION } : {}) }
+    if (delivery === 'email') {
+      await queueReport(ref, kind as ReportKind, { ...params, deliver: 'email' })
+    } else {
+      // The file is named for the ground it is of, so several downloads
+      // from one press do not all carry the project's name.
+      const name = job.groundName || projectName || (t.type === 'parcel' || t.type === 'tract' || t.type === 'farm' ? t.title : null)
+      await queueAndDownloadReport(ref, kind as ReportKind, name, params)
+    }
+  }
 
   const send = async (delivery: 'download' | 'email') => {
-    if (!ready || !kind || busy) return
+    if (!ready || busy) return
     setBusy(delivery); setMsg(null)
     const notes_print = notesPrintBody(notes)
+    const list = jobs
+    const many = list.length > 1
+    const verb = delivery === 'email' ? 'Emailing' : 'Building'
+    setMsg({ ok: true, text: many ? `${verb} ${countLabel(list.length)} — keep this tab open.`
+      : delivery === 'email' ? 'Building it — we will email it to you when it is ready.' : 'Building it — it downloads when ready.' })
     try {
-      if (kind === 'parcel' || kind === 'tract') {
-        let res: Response
-        if (t.type === 'tract') res = await reportJobEnqueue('tract', delivery, { tract_id: t.tractId, notes_print })
-        else if (t.type === 'parcel' && t.llUuid) res = await reportJobEnqueue('parcel', delivery, { ll_uuid: t.llUuid, notes_print })
-        else if (t.type === 'parcel') res = await reportJobEnqueue('parcel_by_point', delivery, { lat: t.lat, lng: t.lng, notes_print })
-        else throw new Error('Pick a report')
-        if (!res.ok) { setMsg({ ok: false, text: await errorText(res) }); return }
-        setMsg({ ok: true, text: delivery === 'email' ? 'Building it — it will arrive in your email.' : 'Building it — it downloads when ready.' })
-        return
-      }
-      const ref: ReportTarget = t.type === 'tract' ? { tractId: t.tractId }
-        : t.type === 'parcel' ? { llUuid: t.llUuid || undefined, lat: t.lat ?? undefined, lng: t.lng ?? undefined }
-        : kind === 'aerial' ? { projectId: projectId || undefined } : { parcelId: farmId || undefined }
-      const params = { notes_print, ...(kind === 'elevation_3d' ? { exaggeration: DEFAULT_EXAGGERATION } : {}) }
-      if (delivery === 'email') {
-        await queueReport(ref, kind, { ...params, deliver: 'email' })
-        setMsg({ ok: true, text: 'Building it — we will email it to you when it is ready.' })
+      const r = await runBatch(list, (job) => runOne(job, delivery, notes_print), {
+        concurrency: 3,
+        onProgress: (finished, total, failed) => {
+          if (many) setMsg({ ok: !failed, text: `${verb} ${finished} of ${total}${failed ? ` — ${failed} failed` : ''}…` })
+        },
+      })
+      if (!r.failed.length) {
+        setMsg({ ok: true, text: delivery === 'email'
+          ? (many ? `${countLabel(r.done)} on the way to your email.` : 'Building it — it will arrive in your email.')
+          : (many ? `${countLabel(r.done)} downloaded.` : 'Downloaded.') })
+      } else if (!many) {
+        setMsg({ ok: false, text: r.failed[0].error || 'Something went wrong — try again' })
       } else {
-        setMsg({ ok: true, text: 'Building it — it downloads when ready. You can close this.' })
-        await queueAndDownloadReport(ref, kind, projectName || (t.type === 'parcel' || t.type === 'tract' ? t.title : null), params)
-        setMsg({ ok: true, text: 'Downloaded.' })
+        const what = r.failed.slice(0, 3).map((f) => `${INFO[f.job.kind]?.name || f.job.kind}${f.job.groundName ? ` (${f.job.groundName})` : ''}`).join(', ')
+        setMsg({ ok: false, text: `${r.done} of ${list.length} done. Failed: ${what}${r.failed.length > 3 ? ` and ${r.failed.length - 3} more` : ''} — ${r.failed[0].error}` })
       }
     } catch (e: any) {
       setMsg({ ok: false, text: e?.message || 'Something went wrong — try again' })
@@ -196,17 +249,36 @@ function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
     }
   }
 
+  const toggleKind = (k: Kind) => {
+    setKindsTouched(true); setMsg(null)
+    setKinds((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  }
+  const toggleGround = (id: string) => {
+    setMsg(null)
+    setGroundIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+  const allGround = t.type === 'project' && t.farms.length > 0 && groundIds.size === t.farms.length
+  const toggleAllGround = () => {
+    if (t.type !== 'project') return
+    setMsg(null); setGroundIds(allGround ? new Set() : new Set(t.farms.map((f) => f.id)))
+  }
+
   const close = () => closeReports()
   const card = (x: Option) => {
-    const on = kind === x.kind
+    const on = !x.off && kinds.has(x.kind)
     return (
-      <button key={x.kind} type="button" disabled={!!x.off} data-testid={`report-card-${x.kind}`} aria-pressed={on}
-              onClick={() => { setKind(x.kind); setMsg(null) }}
-              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '11px 14px', borderRadius: 12, border: 'none',
+      <button key={x.kind} type="button" disabled={!!x.off || !!busy} data-testid={`report-card-${x.kind}`} aria-pressed={on}
+              onClick={() => toggleKind(x.kind)}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '11px 14px', borderRadius: 12, border: 'none',
                        background: on ? PINK_GRADIENT : '#1C1C1E', opacity: x.off ? 0.5 : 1,
                        cursor: x.off ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-        <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: on ? '#000' : '#8E8E96' }}>{INFO[x.kind].name}</span>
-        <span style={{ display: 'block', fontSize: 12, marginTop: 2, color: on ? '#3F1D36' : '#6B6B73' }}>{x.desc}</span>
+        <span aria-hidden style={{ ...tickBox, background: on ? '#000' : 'transparent', borderColor: on ? '#000' : '#5A5A62' }}>
+          {on && <Check size={13} color="#F58CDE" strokeWidth={3} />}
+        </span>
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: on ? '#000' : '#8E8E96' }}>{INFO[x.kind].name}</span>
+          <span style={{ display: 'block', fontSize: 12, marginTop: 2, color: on ? '#3F1D36' : '#6B6B73' }}>{x.desc}</span>
+        </span>
       </button>
     )
   }
@@ -244,26 +316,38 @@ function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
           <div style={{ fontSize: 15, fontWeight: 700, wordBreak: 'break-word' }}>{t.title}</div>
           {t.meta && <div style={{ fontSize: 12, color: '#A1A1AA', marginTop: 2 }}>{t.meta}</div>}
         </div>
-        <div style={stepHead}>1 · PICK A REPORT</div>
+        <div style={stepHead}>1 · PICK REPORTS</div>
         <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {options.map(card)}
           {needsFarm && t.type === 'project' && (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#A1A1AA' }}>
-              Farm
-              <select data-testid="reports-farm" value={farmId || ''} onChange={(e) => setFarmId(e.target.value || null)}
-                      style={{ background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: 10, color: '#111111',
-                               padding: '9px 32px 9px 12px', fontSize: 14, fontFamily: 'inherit' }}>
-                <option value="">Choose a farm</option>
-                {t.farms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-              </select>
-            </label>
+            <div data-testid="reports-ground" style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: '#A1A1AA' }}>
+              <span>{groundIds.size ? `Ground · ${groundIds.size} of ${t.farms.length} chosen` : 'Choose Ground'}</span>
+              {/* White box, light gray border (owner input rule). Tick any number. */}
+              <div role="group" aria-label="Choose Ground"
+                   style={{ background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: 10, maxHeight: 216, overflowY: 'auto', padding: '4px 0' }}>
+                {t.farms.length > 1 && (
+                  <label data-testid="reports-ground-all" style={{ ...groundRow, fontWeight: 700, borderBottom: '1px solid #E4E4E7' }}>
+                    <input type="checkbox" checked={allGround} disabled={!!busy} onChange={toggleAllGround}
+                           style={{ width: 16, height: 16, accentColor: PINK, margin: 0 }} />
+                    Select all
+                  </label>
+                )}
+                {t.farms.map((f) => (
+                  <label key={f.id} data-testid={`reports-ground-${f.id}`} style={groundRow}>
+                    <input type="checkbox" checked={groundIds.has(f.id)} disabled={!!busy} onChange={() => toggleGround(f.id)}
+                           style={{ width: 16, height: 16, accentColor: PINK, margin: 0, flex: '0 0 auto' }} />
+                    <span style={{ minWidth: 0, wordBreak: 'break-word' }}>{f.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
           )}
         </div>
         <div style={stepHead}>2 · NOTES TO INCLUDE</div>
         <div style={{ padding: '0 16px 16px' }}>
-          {noteItems.length || kind === 'aerial'
+          {noteItems.length || hasAerial
             ? <NotesStep items={noteItems} value={notes} onChange={setNotes} />
-            : <div style={{ fontSize: 12, color: '#A1A1AA' }}>{needsFarm ? 'Choose a farm to see its notes.' : 'No notes for this.'}</div>}
+            : <div style={{ fontSize: 12, color: '#A1A1AA' }}>{needsFarm ? 'Choose ground to see its notes.' : 'No notes for this.'}</div>}
         </div>
       </div>
       <div style={{ padding: '14px 16px 18px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -273,7 +357,8 @@ function Panel({ o, shown }: { o: ReportsOpen; shown: boolean }) {
         </div>
         {msg
           ? <div data-testid="reports-msg" style={{ fontSize: 12, textAlign: 'center', color: msg.ok ? '#D4D4D8' : '#F87171' }}>{msg.text}</div>
-          : <div style={{ fontSize: 12, color: '#A1A1AA', textAlign: 'center' }}>{ready ? 'Pink notes print on the report, with their products.' : 'Pick a report first.'}</div>}
+          : <div style={{ fontSize: 12, color: '#A1A1AA', textAlign: 'center' }}>{ready ? `${countLabel(jobs.length)} will be built. Pink notes print on them, with their products.`
+              : !kinds.size ? 'Pick at least one report.' : 'Choose ground first.'}</div>}
       </div>
     </div>
   )
